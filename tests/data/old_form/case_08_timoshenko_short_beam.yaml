@@ -1,0 +1,31 @@
+# 3-D Timoshenko Line2 short cantilever:
+# uz = -P [L^3/(3 E Iz) + L/(kappa_y G Ay)].
+name: case_08_timoshenko_short_beam
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/beam_cantilever_v22.msh}
+element:
+  type: beam2_timoshenko
+  formulation: full
+  area: 1.0e-2
+  iy: 1.0e-4
+  iz: 1.0e-4
+  j: 2.0e-4
+  ay: 8.0e-3
+  az: 8.0e-3
+  kappa_y: 0.8333333333333333
+  kappa_z: 0.8333333333333333
+  orientation: [0, 0, 1]
+material: {type: linear_elastic, E: 2.0e11, nu: 0.30, rho: 7850.0}
+constraints:
+  - {region: fixed, dofs: [1, 1, 1, 1, 1, 1]}
+  - {region: loaded, dofs: [0, 1, 0, 0, 0, 0]}
+loads:
+  - {region: loaded, vector: [0, 0, -1000.0]}
+solver: {mode: relaxation, backend: numpy, n_steps: 6000, damping: {type: kinetic}, tolerance: 1.0e-10}
+output:
+  path: results/case_08_timoshenko_short_beam.h5
+  every: 1
+  fields: [displacement, rotation, axial_force, shear_y, shear_z, torsion, bending_y, bending_z]
+  monitors:
+    tip_uz: {kind: displacement, region: loaded, dof: z}
+    root_fz: {kind: reaction, region: fixed, dof: z}

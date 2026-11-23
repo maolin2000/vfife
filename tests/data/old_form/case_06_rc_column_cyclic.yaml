@@ -1,0 +1,214 @@
+# Reinforced concrete column: constant axial load, then reversed cyclic drift.
+#
+# This is the standard test for an RC member, and until analysis steps existed
+# it could not be expressed at all. There was one global load curve multiplying
+# every boundary condition together, so an axial load could not be held while a
+# lateral displacement was cycled -- which meant the Chaboche and rebar
+# kinematic hardening and the CDP `wt`/`wc` stiffness recovery, all of which
+# exist for exactly this loading, had nothing to drive them.
+#
+# WHAT THE TWO STEPS DO
+#   1. `axial`  - 800 kN of compression is ramped onto the head and left there.
+#   2. `cyclic` - the head is cycled to +-0.25% and +-0.5% drift while the axial
+#                 load stays on. The `hold` in step 2 is
+#                 not written anywhere: a model-level load ramps on during the
+#                 first step and holds for the rest of the analysis, which is
+#                 what "the column carries this throughout" means.
+#
+# HAND CHECK
+#   section    0.4 x 0.4, cover 40 mm, d = 0.36 m, height 2.0 m
+#   steel      8 no. 20 mm, As = 8 * 314 = 2513 mm^2, fy = 400 MPa
+#   axial      N = 800 kN, i.e. 0.167 * fc * Ag -- a normal service level
+#   flexure    with axial load the section is stronger than in pure bending;
+#              an approximate M_n from the interaction diagram at this N is
+#              ~360 kN.m, so the lateral capacity is V = M_n / H ~ 180 kN
+#   drift      0.5% of 2.0 m = 10 mm
+#
+# WHY ONLY 0.5% DRIFT
+#   Because that is as far as the solver can honestly follow this section.
+#   Measured on a 3x3x10 mesh: +-0.5% gives a clean loop (+85.5 kN at peak,
+#   -86.5 kN back at zero drift -- the loop has area, which is the point),
+#   and +-1% diverges in the crushed concrete at the base. That is the
+#   dynamic-relaxation limit documented in the README under Known limits, not
+#   anything to do with the cyclic loading itself: swap the material for
+#   linear_elastic and the same file runs the full +-3% protocol with the axial
+#   load held to within 0.2% and a perfectly antisymmetric shear response.
+#
+# WHAT TO LOOK FOR in the `shear` vs `drift` monitors: a pinched hysteresis
+# loop. Concrete cracks in one direction and the crack must close before it
+# carries compression again (`wc: 1.0` restores that stiffness, `wt: 0.0` does
+# not restore it in tension), so the loops narrow near zero drift and fatten at
+# the peaks. The steel's kinematic hardening is what makes the reversal yield
+# early rather than at a mirrored +fy.
+
+name: case_06_rc_column_cyclic
+units: {length: m, force: N, stress: Pa}
+
+mesh:
+  dimensions: [0.4, 0.4, 2.0]
+  divisions:  [4, 4, 16]
+
+element:
+  formulation: b-bar
+
+material:
+  type: cdp
+  E:   3.0e10
+  nu:  0.2
+  rho: 2400.0
+  fb0_fc0: 1.16
+  Kc: 0.6667
+  dilation_angle: 36.0
+  eccentricity: 0.1
+  # the two parameters this whole case exists to exercise: a crack that closes
+  # recovers its compressive stiffness, and does not recover it in tension
+  wt: 0.0
+  wc: 1.0
+  # Duvaut--Lions regularisation in relaxation pseudo-time (dt = 1).  A full
+  # pseudo-time step suppresses the impulsive damage jump at a refined crush
+  # band; it is numerical regularisation, not physical loading-rate data.
+  viscosity: 1.0
+  n_return: 5
+  # Both tensile cracking and compressive crushing soften in the cyclic-base
+  # zone.  Regularising tension only leaves the crush band mesh dependent.
+  crack_band: both
+  # Standalone R1 resolves this to its 0.1 m V/A_max length.  The refinement
+  # runner freezes that R1 value in every child so l_e/l_ref decreases on R2+.
+  l_ref: auto
+  compression: {source: gb50010, fc: 30.0e6, beta_c: 0.7, sigma_c0_ratio: 0.4}
+  tension:     {source: fracture_energy, ft: 3.0e6, Gf: 120.0, beta_t: 0.9}
+
+reinforcement:
+  - name: longitudinal
+    area: 3.142e-4              # one 20 mm bar
+    material:
+      type: rebar
+      E: 2.0e11
+      rho: 7850.0
+      yield_strength: 400.0e6
+      hardening: 2.0e9
+      # half kinematic: this is what produces the Bauschinger effect on every
+      # reversal, and with a purely isotropic split there would be none
+      kinematic_fraction: 0.5
+    lines:
+      - {start: [0.04, 0.04, 0.0], end: [0.04, 0.04, 2.0], divisions: 20}
+      - {start: [0.20, 0.04, 0.0], end: [0.20, 0.04, 2.0], divisions: 20}
+      - {start: [0.36, 0.04, 0.0], end: [0.36, 0.04, 2.0], divisions: 20}
+      - {start: [0.04, 0.36, 0.0], end: [0.04, 0.36, 2.0], divisions: 20}
+      - {start: [0.20, 0.36, 0.0], end: [0.20, 0.36, 2.0], divisions: 20}
+      - {start: [0.36, 0.36, 0.0], end: [0.36, 0.36, 2.0], divisions: 20}
+      - {start: [0.04, 0.20, 0.0], end: [0.04, 0.20, 2.0], divisions: 20}
+      - {start: [0.36, 0.20, 0.0], end: [0.36, 0.20, 2.0], divisions: 20}
+
+  - name: ties
+    area: 7.854e-5              # 10 mm hoops at 100 mm
+    material: {type: rebar, E: 2.0e11, rho: 7850.0,
+               yield_strength: 300.0e6, hardening: 2.0e9,
+               kinematic_fraction: 0.5}
+    lines:
+      - {start: [0.04, 0.04, 0.1], end: [0.36, 0.04, 0.1], divisions: 4,
+         repeat: {count: 19, offset: [0.0, 0.0, 0.1]}}
+      - {start: [0.36, 0.04, 0.1], end: [0.36, 0.36, 0.1], divisions: 4,
+         repeat: {count: 19, offset: [0.0, 0.0, 0.1]}}
+      - {start: [0.36, 0.36, 0.1], end: [0.04, 0.36, 0.1], divisions: 4,
+         repeat: {count: 19, offset: [0.0, 0.0, 0.1]}}
+      - {start: [0.04, 0.36, 0.1], end: [0.04, 0.04, 0.1], divisions: 4,
+         repeat: {count: 19, offset: [0.0, 0.0, 0.1]}}
+
+regions:
+  base: {plane: {point: [0, 0, 0],   normal: [0, 0, 1]}}
+  head: {plane: {point: [0, 0, 2.0], normal: [0, 0, 1]}}
+
+amplitudes:
+  # 0 -> +peak -> 0 -> -peak -> 0 for each peak, twice at each level, laid out
+  # evenly over the step. Writing this by hand is 25 pairs of numbers and one
+  # typo makes a hysteresis loop asymmetric for a reason that has nothing to do
+  # with the material.
+  drift: {cyclic: {peaks: [0.5, 1.0], repeats: 1}}
+
+constraints:
+  - {region: base, dofs: [1, 1, 1]}
+
+loads:
+  # model level, so it ramps on in step 1 and holds for the rest
+  - {region: head, vector: [0.0, 0.0, -800.0e3]}
+
+steps:
+  - name: axial
+    n_steps: 40000
+    tolerance: 1.0e-4
+
+  - name: cyclic
+    constraints:
+      - {region: head, dofs: [1, 0, 0], value: 0.010, amplitude: drift}
+    # A crushed/recovering CDP zone cannot safely jump from one corner to the
+    # next under dynamic relaxation.  Sixteen levels retain the same cyclic
+    # peaks but halve each displacement increment; R1 now returns to zero with
+    # a finite, converged state on both Numba and Warp.
+    load_steps: 16
+    max_steps_per_load: 4000
+    # Mixed Warp stores material state in fp32, so 1e-4 is below its residual
+    # floor on this model.  Use fp64 for a 1e-4 verification run.
+    tolerance: 1.0e-3
+
+solver:
+  # WHY warp/cuda HERE
+  #
+  # Because it is faster, at every size measured, including this one. An
+  # earlier version of this comment said the opposite at length -- "at that
+  # size the card loses", "numba is 3.55x faster", "crossover ~1 340
+  # elements", "for a real job, below ~1 300 elements use numba". All of that
+  # came from benchmarks/crossover.py, which times the ELEMENT KERNEL. The
+  # kernel is a minority of a step, so the conclusion did not survive being
+  # measured on the whole step.
+  #
+  # benchmarks/reinforced_step_cost.py, RTX 5060 Ti, CDP, mixed, reinforced,
+  # whole step including assembly, convergence and the integrator:
+  #
+  #     elements    numba      warp     numba/warp   fixed: numba   warp
+  #        256    0.522 ms  0.489 ms      1.07x         12.3 s     2.5 s
+  #        864    0.981     0.504         1.95           7.3       0.3
+  #       2048    1.667     0.550         3.03           6.7       0.5
+  #       4000    2.936     0.572         5.13           7.1       0.9
+  #
+  # Warp is nearly flat -- 16x the elements for 17% more time -- and numba is
+  # linear. So the crossover is at or below 256 elements, not 1 340, and warp
+  # wins here rather than costing "about ten seconds".
+  #
+  # WHY THE KERNEL NUMBER POINTED THE WRONG WAY
+  #   The kernel measurement was not wrong, it was answering a different
+  #   question. At 240 elements the kernel is 0.045 ms of a 0.522 ms numba
+  #   step: NINE TENTHS of the step is not the element kernel. In the warp
+  #   path that nine tenths is on the device too -- the integrator, the norms,
+  #   the kinetic energy and the reinforcement all have warp kernels and the
+  #   loop never comes back to the host. In the numba path it is Python and
+  #   NumPy. Warp does not win because its kernel is quicker (it is not,
+  #   0.160 against 0.045); it wins because everything ELSE is resident.
+  #
+  # This is also why it stays on cuda for the CLI test
+  # (tests/test_workflow.py::test_a_gpu_case_run_from_the_cli_fails_as_one_
+  # line_not_a_traceback) at no performance cost at all.
+  #
+  # Uncomment to run on CPU -- but expect that CLI-error test to start failing
+  # on machines with no CUDA, where it leans on this file asking for a device.
+  # backend: numba
+  backend: warp
+  device: cuda            # or cuda:0, or cpu to run the same kernel on CPU
+  precision: mixed        # fp32 elements + fp64 nodal; fp64 = verification
+  mode: relaxation
+  mass: underwood
+  n_steps: 400000
+  tolerance: 1.0e-4
+  relaxation_safety: 0.3
+  damping: {type: kinetic}
+  erosion: {damage: 0.98, strain: 0.01, points: 4, every: 100}
+
+output:
+  path: results/case_06_rc_column_cyclic.h5
+  every: 1
+  fields: [displacement, von_mises, d, ept, epc]
+  checkpoint_every: 5000
+  monitors:
+    shear: {kind: reaction,     region: base, dof: x}
+    drift: {kind: displacement, region: head, dof: x}
+    axial: {kind: reaction,     region: base, dof: z}

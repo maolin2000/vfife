@@ -1,0 +1,89 @@
+version: 1
+case: case_23_suspension_bridge
+classification: analytical
+reference: >-
+  Irvine, H.M., "Cable Structures", MIT Press, 1981. Chapter 3: a weightless
+  parabolic cable carrying a uniform deck load w through vertical hangers
+  has H_w = w l^2/(8 f) and every hanger carries w s -- for l = 300 m,
+  f = 30 m, w = 100 kN/m, s = 10 m: 37.5 MN and 1 MN. Chapter 6, the
+  linearised deflection theory: a live load p = 20 kN/m over the whole span
+  adds h = 7022289 N to the cable's horizontal tension and deflects the
+  girder (EI = 2e11 N m^2, simply supported) 0.220472 m at midspan and
+  0.150630 m at x = 70 m. Both evaluated by
+  benchmarks/generate_suspension_bridge.py.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CONTRACT ASSERTS
+# --------------------------------------------------------------------------- #
+#  Two steps, one converged frame each: `first` is the dead-load state and
+#  `delta` is what the live load added.
+#
+#  DEAD LOAD -- the form-finding. The case's `unstressed_lengths` came out
+#  of `vfife formfind`; if they are right the mesh IS the dead-load state:
+#  the cable's horizontal tension is the closed form to 1e-4 (model 1.3e-5),
+#  the vertical reaction is half of the 29 MN hung (exact by symmetry), and
+#  the deck has not moved (2e-4 m, the form-finding tolerance; held at 1 mm).
+#
+#  LIVE LOAD -- against the linearised theory. The girder carries only
+#  p - 8 f h / l^2 = 1.3 kN/m of the 20; the deflection is a difference of a
+#  cable term and a bending term and every percent of error in h is a
+#  percent and a half in v. The model is 0.11% low on h and 0.5% high on
+#  the midspan deflection with 30 elements (0.2% with 60): the nonlinear
+#  cable against the linearised one, plus the hangers' elastic strain the
+#  theory sets to zero. h is held at 0.5%, the deflections at 1%.
+
+metrics:
+  - id: dead_load_horizontal_tension
+    description: H_w = w l^2 / (8 f) = 37.5 MN at the left tower before the live load
+    source: monitor
+    name: H_left
+    reduction: first
+    expect: {target: -3.75e+7, rtol: 1.0e-4}
+
+  - id: dead_load_vertical_reaction
+    description: half the 29 MN hung from the cable, 14.5 MN
+    source: monitor
+    name: V_left
+    reduction: first
+    expect: {target: 1.45e+7, rtol: 1.0e-4}
+
+  - id: built_to_profile
+    description: The form-found deck has not moved under its dead load (model 2e-4 m)
+    source: monitor
+    name: v_mid
+    reduction: first
+    expect: {lower: -1.0e-3, upper: 1.0e-3}
+
+  - id: live_load_cable_tension_increment
+    description: h against the deflection theory's 7022289 N (model 0.11% low)
+    source: monitor
+    name: H_left
+    reduction: delta
+    expect: {target: -7022289.0, rtol: 5.0e-3}
+
+  - id: live_load_midspan_deflection
+    description: v(150) against 0.220472 m (model 0.5% high)
+    source: monitor
+    name: v_mid
+    reduction: delta
+    expect: {target: -0.220472, rtol: 1.0e-2}
+
+  - id: live_load_deflection_at_70m
+    description: v(70) against 0.150630 m (model 0.05% high)
+    source: monitor
+    name: v_70m
+    reduction: delta
+    expect: {target: -0.150630, rtol: 1.0e-2}
+
+  - id: deck_does_not_walk
+    description: The midspan deck node stays at x = 150 m -- the roller end takes the girder's shortening
+    source: monitor
+    name: u_mid_x
+    reduction: final
+    expect: {lower: -1.0e-3, upper: 1.0e-3}
+
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-6}

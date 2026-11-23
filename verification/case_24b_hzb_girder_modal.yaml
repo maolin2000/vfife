@@ -1,0 +1,33 @@
+version: 1
+case: case_24b_hzb_girder_modal
+classification: analytical
+reference: >-
+  A simply supported 70 m girder of the Hangzhou Bay box section (Xu
+  Aimin, PhD thesis, Zhejiang University 2008, Fig. 2.4) under 1 MN at
+  midspan: w = P L^3 / 48 E I with E = 3.5e10 and the fibre grid's own
+  I = 21.87 m4 (the exact section's is 22.45): 9.336 mm. The modes are
+  the test's business (tests/test_hzb_girder.py): first vertical 1.77 Hz
+  (Euler 1.80, Xu's ANSYS 1.85 for the thickened girder), lateral 4.33,
+  second vertical 6.84, torsion 7.77 at Bredt's J.
+
+metrics:
+  - id: midspan_deflection
+    description: P L^3 / 48 E I with the fibre grid's I (9.336 mm)
+    source: monitor
+    name: w_mid
+    reduction: final
+    expect: {target: -9.336e-3, rtol: 0.005}
+
+  - id: reaction
+    description: Half the load at each support
+    source: monitor
+    name: R_left
+    reduction: final
+    expect: {target: 5.0e+5, rtol: 0.001}
+
+  - id: shape
+    description: w(20 m) / w(35 m) = 0.764 of the Euler shape
+    source: monitor
+    name: w_20m
+    reduction: final
+    expect: {target: -7.132e-3, rtol: 0.005}

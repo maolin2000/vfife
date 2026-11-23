@@ -1,0 +1,106 @@
+version: 1
+case: case_29g_prestress_loss
+classification: analytical
+reference: >-
+  The age-adjusted effective modulus method, derived from this bar's own
+  numbers in benchmarks/generate_creep_bar.py rather than quoted:
+  `d_sig_p [1 + n (1 + chi phi)] = E_p [phi sig_c0 / E_c + eps_sh] - d_sig_pr`
+  with `n = E_p A_p / (E_c A_c)`. chi = 0 and chi = 1 BRACKET the step-by-step
+  integral this case solves, because chi is by construction the fraction of
+  the stress change that has had time to creep out; chi = 0.8 is the usual
+  fitted compromise. At 1028 days the three give 1000.33, 1043.14 and
+  1052.31 MPa. `python benchmarks/generate_creep_bar.py --check` prints them.
+
+# --------------------------------------------------------------------------- #
+#  THREE LOSSES THAT ARE NOT INDEPENDENT
+# --------------------------------------------------------------------------- #
+#  case_29f holds both ends and gets the INTRINSIC relaxation -- the law on its
+#  own definition, with no structure in it. Release one end and the member can
+#  shorten, and the three losses start feeding each other: the concrete creeps
+#  and the bonded tendon loses strain, the concrete shrinks and it loses more,
+#  the steel relaxes on its own account, and every one of those relieves the
+#  concrete, which reduces the next. At 1028 days, from the closed form:
+#
+#        creep alone        200.73 MPa
+#        shrinkage alone     53.62
+#        relaxation alone    82.41
+#        --------------------------
+#        sum                336.77
+#        ALL THREE          320.75      5.0% less than the sum
+#
+#  THE MEASUREMENT THIS CASE MAKES, and it is not the one it was built for.
+#  Backing chi out of the solver's answer station by station gives
+#
+#        38 d   0.22        170 d   0.93
+#        51 d   0.58        229 d   0.96
+#        69 d   0.69        309 d   0.98
+#        93 d   0.77        418 d   0.99
+#       126 d   0.87       1028 d   0.99
+#
+#  chi is NOT a constant. It starts near zero -- a stress change that has just
+#  happened has had no time to creep out of -- and tends to one as the change
+#  ages. The textbook 0.8 is a compromise for a particular window, and on this
+#  creep function (a standard linear solid saturating by about 300 days) the
+#  long-term answer sits on chi = 0.99, which is the plain effective-modulus
+#  method and not the age-adjusted one. Carrying chi = 0.8 to another creep
+#  function or another time window is the thing this case warns against.
+#
+#  So the contract reads the BRACKET, which is exact, plus a regression pin.
+#  It does not check against chi = 0.8, because chi = 0.8 is a fit and this
+#  case is what it is a fit TO.
+
+metrics:
+  - id: the_transfer_state_is_elastic_shortening_and_nothing_else
+    description: >-
+      1363.89 MPa from 1488 jacked: 208.3 kN on 100 cm2 of concrete is 19 MPa
+      of precompression, and the bonded tendon follows it down. No time has
+      passed, so this number is independent of chi and of all three laws.
+    source: monitor
+    name: sig_p
+    reduction: first
+    expect: {target: 1.36389e+9, rtol: 0.004}
+
+  - id: the_answer_lies_inside_the_bracket_the_hand_method_brackets_it_with
+    description: >-
+      between 1000.33 MPa (chi = 0, no relief at all from the stress change)
+      and 1052.31 (chi = 1, fully relieved). The step-by-step integral must
+      land inside by construction; it reads 1051.80, i.e. an effective chi of
+      0.99 at this age.
+    source: monitor
+    name: sig_p
+    reduction: final
+    expect: {lower: 1.00033e+9, upper: 1.05231e+9}
+
+  - id: and_it_lands_here
+    description: >-
+      1051.8 MPa: 21.5% of the jacking stress gone, which is the order every
+      published prestress-loss table gives and the order the two corroded-beam
+      cases had to CALIBRATE for want of these three laws.
+      A regression pin, not an independent number.
+    source: monitor
+    name: sig_p
+    reduction: final
+    expect: {target: 1.0518e+9, rtol: 0.01}
+
+  - id: the_member_shortened_by_what_the_tendon_says_it_did
+    description: >-
+      17.7295 mm over 10 m, against the hand method's 17.7323 (chi = 1) to
+      20.3978 (chi = 0). It sits 0.016% OUTSIDE the chi = 1 end, and that is
+      not a bracket violation but the same `steel02` softening case_29f
+      measures at 0.23%: a slightly softer tendon delivers slightly less
+      precompression and the bar shortens slightly less. The upper bound
+      carries exactly that margin, said out loud rather than rounded away.
+    source: monitor
+    name: u_right
+    reduction: final
+    expect: {lower: -0.02040, upper: -0.01769}
+
+  - id: and_the_section_strain_agrees_with_the_displacement
+    description: >-
+      -1.7729e-3 x 10 m = -17.729 mm. A uniform axial state, so the fibre
+      monitor at the centroid and the end displacement have to be the same
+      number; they are, to five figures.
+    source: monitor
+    name: eps_sec
+    reduction: final
+    expect: {target: -1.7729e-3, rtol: 0.01}

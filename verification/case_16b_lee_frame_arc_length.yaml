@@ -1,0 +1,73 @@
+version: 1
+classification: independent_reference
+case: case_16b_lee_frame_arc_length
+reference: >-
+  NAFEMS Non-Linear Benchmarks NL7, "Lee's frame buckling problem" (NAFEMS,
+  Glasgow, 1989), after Lee, Manuel & Rossow (1968): two 1.2 m members at a
+  right angle, pinned ends, 30 x 20 mm (I = 2.0e-8 m^4), E = 71.74 GPa, a
+  vertical load at 0.2 L from the corner. Dimensionless pairs (P L^2 / EI,
+  v_A / L): (18.552, 0.407) at the limit point, (31.887, 0.784) on the final
+  rising branch; Abaqus gives 0.781 for the second (Abaqus Benchmarks
+  Manual, NL7). Here the load is a pattern of 31772 N (PL^2/EI = 31.887)
+  and the monitors' `time` is its factor.
+
+# --------------------------------------------------------------------------- #
+#  The limit load is read at NAFEMS's limit deflection, as case_16 reads it;
+#  the path's own maximum there is 18.577 against 18.552 (0.13%). The second NAFEMS point is where the path
+#  ends, lambda = 1: v_A/L = 0.781 against 0.784 (0.4%), Abaqus's number.
+#  The minimum load (-9.43) and where A ends horizontally are this model's
+#  own and held as regression; case_16's relaxation lands its jump at -9.15,
+#  which is not a point of the static path.
+# --------------------------------------------------------------------------- #
+
+metrics:
+  - id: limit_load_factor
+    description: >-
+      The load where v_A first reaches NAFEMS's limit-point deflection 0.407 L
+      (as case_16 reads it): 18.552 EI/L^2 is a factor 0.58180 of the 31.887
+      pattern; the path's own maximum before the snap-back is 0.58259 (18.577).
+    source: monitor
+    name: time
+    reduction: at
+    against: v_A
+    value: -0.4884
+    expect: {target: 0.581804, rtol: 0.01}
+
+  - id: the_path_ends_at_the_full_load
+    description: The last increment lands on the pattern's full value
+    source: monitor
+    name: time
+    reduction: final
+    expect: {target: 1.0, rtol: 1.0e-9}
+
+  - id: deflection_at_31_887
+    description: >-
+      NAFEMS's second point, v_A at PL^2/EI = 31.887: target 0.784 L =
+      -0.9408 m; this model -0.9372 m (0.781 L, Abaqus's value).
+    source: monitor
+    name: v_A
+    reduction: final
+    expect: {target: -0.9408, rtol: 0.01}
+
+  - id: load_minimum
+    description: >-
+      The most negative load on the static path, -9.434 EI/L^2 (factor
+      -0.29587). No NAFEMS number; regression, 5%.
+    source: monitor
+    name: time
+    reduction: min
+    expect: {target: -0.29587, rtol: 0.05}
+
+  - id: where_A_ends_horizontally
+    description: u_A at the end, 0.7194 L = 0.8633 m (case_16 by relaxation 0.8665). Regression, 3%.
+    source: monitor
+    name: u_A
+    reduction: final
+    expect: {target: 0.8633, rtol: 0.03}
+
+  - id: residual
+    description: Final equilibrium residual of the last increment
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-6}

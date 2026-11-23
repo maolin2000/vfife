@@ -1,0 +1,122 @@
+version: 1
+case: case_12c_ualberta_sf0b_confined
+classification: public_benchmark
+reference: >-
+  The same specimen and record as verification/case_12_ualberta_sf0b.yaml
+  (University of Alberta SF-0B, Asher 2025, measured peak 399 kN at 19.3 mm),
+  with the concrete inside the 10M stirrups at 75 mm given its own section:
+  a Mander estimate of the confined curve (K ~ 1.4, f_cc 61.6 MPa at
+  eps_cc 0.006, flatter descent) on the box inside the hoop centreline,
+  the case_12 curve everywhere else. The first case to use two solid
+  sections on one mesh, and the direct test of the
+  12.5% that case_12's contract attributed to confinement.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CASE ASSERTS, AND WHAT IT FOUND -- TWICE
+# --------------------------------------------------------------------------- #
+#  Driven exactly as case_12: 16.0 mm at the load points, 19.20 mm at
+#  midspan, twenty load steps, about four minutes on the numba backend. Same
+#  mesh (24 x 4 x 8), so the only difference from case_12 is the material in
+#  the 192 core elements.
+#
+#      case_12, one material              360.1 kN at 19.16 mm
+#      this case, confined core           359.6 kN at 19.20 mm     -0.1%
+#      measured SF-0B                     399   kN at 19.3  mm     ratio 0.902
+#
+#  CONFINEMENT OF THE CORE IS WORTH NOTHING HERE, AND THAT IS THE RESULT.
+#  case_12's contract attributed 12.5% of its shortfall to confinement, from
+#  a plane-section analysis with a ductile descending branch on the WHOLE
+#  section. Confining only the concrete the stirrups actually enclose gave
+#  +0.9% when the compression band was unregularised, and
+#  gives -0.1% now that it is: with a crushing energy stated,
+#  this beam never crushes, so the core's curve is never exercised. The
+#  measured specimen did not crush either -- the thesis reports "flexural
+#  (tension) failure" -- so the model and the test now agree about the
+#  mechanism as well as about the load.
+#
+#  The case is kept, and its contract tightened rather than dropped, for two
+#  reasons: it is the project's worked example of two solid sections on one
+#  mesh, and it is the measurement that says confinement is not where the
+#  remaining 10% is. A result that costs four minutes to re-establish is
+#  worth keeping as a case.
+#
+#  WHAT WAS MEASURED ON THE WAY (all against case_12 on the same code):
+#      core box extended up through the top cover, i.e. the whole
+#      compression zone confined, before regularisation     +6.2%
+#      physical core, 12 element rows instead of 8, before  -1.5%, and a
+#                                                           localisation
+#      this case, after regularisation                      -0.1%
+#
+#  The 25%-of-area core is what this mesh holds whole inside the drawn
+#  111 x 214 mm box (40% of the area); the case file says so. The confined
+#  curve is a Mander estimate for these hoops (K ~ 1.4, f_cc 61.6 MPa at
+#  eps_cc 0.006, alpha_c 0.3) with twice the cover's crushing energy --
+#  a choice, stated, not a derivation the solver makes.
+
+# THE TARGETS BELOW WERE REFRESHED, AND WHY. They had drifted -- up to 0.8%
+# here -- while every check still passed, because the band is 3%. This case is
+# DISPLACEMENT controlled, and v0.1 changed how a prescribed
+# displacement ramps into each load level (the `approach` blend that stopped a
+# level from starting with a step discontinuity at the driven nodes); the
+# case_12 family was never re-verified against it. The values here are the
+# current model's, re-measured.
+
+metrics:
+  - id: reaction_left_peak
+    # 180.6 kN, 0.905 of the measured half-load. Held to 1.5%: case_12's
+    # 180.7 is INSIDE this band, deliberately -- the two are the same beam
+    # now, and a contract that pretended otherwise would be asserting a
+    # difference this case has just measured to be absent.
+    description: Peak left reaction against the measured peak load
+    source: monitor
+    name: P_L
+    reduction: peak_abs
+    expect: {target: 179848.0, rtol: 0.015}
+
+  - id: reaction_right_peak
+    description: Peak right reaction against the measured peak load
+    source: monitor
+    name: P_R
+    reduction: peak_abs
+    expect: {target: 179274.0, rtol: 0.015}
+
+  - id: midspan_deflection
+    description: Midspan deflection at the end of the imposed displacement
+    source: monitor
+    name: mid
+    reduction: peak_abs
+    expect: {target: 0.019170, rtol: 0.02, atol: 1.0e-5}
+
+  - id: load_at_yield_deflection
+    description: Left reaction where the midspan deflection first reaches 6.5 mm
+    source: monitor
+    name: P_L
+    reduction: at
+    against: mid
+    value: -0.0065
+    expect: {target: 147150.0, rtol: 0.03}
+
+  - id: load_at_measured_peak_deflection
+    description: Left reaction where the midspan deflection reaches 19.0 mm
+    source: monitor
+    name: P_L
+    reduction: at
+    against: mid
+    value: -0.0190
+    expect: {target: 179795.0, rtol: 0.03}
+
+  - id: work_to_end
+    description: Work done by the left reaction over the imposed path, from the origin
+    source: monitor
+    name: P_L
+    reduction: energy
+    against: mid
+    from_origin: true
+    expect: {target: 2780.6, rtol: 0.03}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-3}

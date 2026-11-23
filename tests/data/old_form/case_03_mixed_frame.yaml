@@ -1,0 +1,26 @@
+name: case_03_mixed_frame
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/mixed_frame_v22.msh}
+element: {type: mixed_line, formulation: full}
+members:
+  - {region: beam_members, type: beam2, area: 1.0e-2, iy: 1.0e-4, iz: 1.0e-4, j: 2.0e-4, orientation: [0, 0, 1]}
+  - {region: truss_members, type: truss2, area: 1.0e-4}
+material: {type: linear_elastic, E: 2.0e11, nu: 0.30, rho: 7850.0}
+constraints:
+  - {region: fixed, dofs: [1, 1, 1, 1, 1, 1]}
+  # The free end of a single truss has no transverse/rotational stiffness.
+  - {region: loaded, dofs: [1, 1, 0, 1, 1, 1]}
+loads:
+  - {region: loaded, vector: [0, 0, -1000]}
+# n_steps 8000 -> 20000 when the frame solvers gained the central-difference
+# HALF-STEP restart (v_(1/2) = a dt / 2, not a dt). The old full-step restart
+# injected a little energy every time kinetic damping fired, which moved the
+# model faster and was not free: it is the defect the solid path documents
+# having reached 1e140 with. Correct and slower -- this case stopped at
+# residual 6.6e-6 against a 1e-6 tolerance and converges at 16000.
+# The converged ANSWER is unchanged; only the budget moved.
+solver: {mode: relaxation, backend: numpy, n_steps: 20000, damping: {type: kinetic}, relaxation_safety: 0.25, tolerance: 1.0e-6}
+output:
+  path: results/case_03_mixed_frame.h5
+  every: 5000
+  fields: [displacement, rotation, axial_force, bending_y, bending_z, member_type]

@@ -1,0 +1,15 @@
+version: 1
+kind: material
+name: viscoelastic
+target_level: verified
+evidence:
+  - category: monotonic
+    reference: tests/test_viscoelastic.py::test_viscoelastic_elastic_limit
+  - category: step_convergence
+    reference: tests/test_viscoelastic.py::test_viscoelastic_relaxation
+  - category: energy
+    reference: tests/test_viscoelastic.py::test_viscoelastic_runs_dynamic
+  - category: multiaxial
+    reference: tests/test_viscoelastic.py::test_viscoelastic_registered
+  - category: unload_reverse
+    reference: tests/test_viscoelastic.py::test_viscoelastic_relaxation

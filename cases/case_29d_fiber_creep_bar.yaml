@@ -1,0 +1,107 @@
+# The same bar as case_29, built out of FIBRES.
+#
+# case_29 is the beam path: one member law, one creep history per member, the
+# `1/(1 + phi_cur)` a factor on the member stiffness. This is the fibre path:
+# every fibre has its own material, its own state and its own creep history,
+# and the `1/(1 + phi_cur)` is a SCALE ON THE LAW'S OWN INPUT
+# (`concrete02.strain_scale`) rather than on a stiffness --
+# because a nonlinear law has no stiffness to scale, only a stress at a
+# strain, and what the station must hand it is the ELASTIC strain.
+#
+# Everything else is the same problem with the same answer, deliberately:
+#
+#   at 28 days   P L / (E A)                        = 10.000 mm
+#   at 1028      P L / (E A) * (1 + phi(1028, 28))  = 30.000 mm
+#   axial force  300.0 kN from the first station to the last
+#
+# and the point of building it twice is that the two paths share nothing but
+# `core.creep`: the free strain arrives through a different slot, the implicit
+# step is taken by a different mechanism, and the elastic history is read out
+# of a different place (concrete02's `epsP` here, the member's local
+# deformation there). A number that agrees across that is not an artefact of
+# either.
+#
+# WHY THE SECTION IS concrete02 WITH ft = 100 MPa. The bar is in TENSION at
+# 30 MPa and the check is against ALGEBRA, so the law must stay on a straight
+# branch: concrete02's tension branch is linear to `ft / Ec0`, and putting ft
+# beyond the range used is what keeps it there. Nothing else about the law is
+# touched, and it is the real law on the real path -- `linear_elastic` has no
+# `strain_scale`, so a fibre section made of it cannot creep at all and this
+# solver says so rather than ignoring it.
+#
+#   fpc 30 MPa / epsc0 0.002 gives Ec0 = 2 fpc / epsc0 = 30.0 GPa, the E of
+#   case_29; 0.1 x 0.1 m gives A = 0.01 m2 and I = 8.33e-6 m4, the same
+#   section, so the two cases are the same bar and not merely a similar one.
+#
+#   python benchmarks/generate_creep_bar.py --check
+
+version: 1
+name: case_29d_fiber_creep_bar
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/creep_bar_8.msh}
+
+materials:
+  concrete:
+    type: concrete02
+    fpc: 3.0e+7          # Ec0 = 2 fpc / epsc0 = 30.0 GPa
+    epsc0: 0.002
+    fcu: 6.0e+6
+    epscu: 0.004
+    ft: 1.0e+8           # linear in tension to eps = ft/Ec0 = 3.33e-3; see above
+    Ets: 1.5e+9
+    rat: 0.1
+    rho: 2400.0
+    # The same standard linear solid as case_29 -- phi = 2 (1 - exp(-d/40 d))
+    # -- given as a measured `curve`, so the two cases are checked against the
+    # same algebra.
+    creep:
+      model: curve
+      curve: [[0, 0.00000], [0.5, 0.02484], [0.7081, 0.03509], [1.003, 0.04952], [1.42, 0.06976],
+       [2.011, 0.09808], [2.848, 0.13747], [4.034, 0.19186], [5.713, 0.26618], [8.091, 0.36624],
+       [11.46, 0.49815], [16.23, 0.66694], [22.98, 0.87404], [32.54, 1.11350], [46.09, 1.36815],
+       [65.27, 1.60886], [92.44, 1.80168], [130.9, 1.92420], [185.4, 1.98059], [262.6, 1.99718],
+       [371.8, 1.99982], [526.6, 2.00000], [745.8, 2.00000], [1056, 2.00000], [1496, 2.00000],
+       [2118, 2.00000], [3000, 2.00000]]
+
+sections:
+  bar:
+    type: fiber
+    material: concrete
+    shape: rect
+    width: 0.1
+    height: 0.1
+    ny: 4
+    nz: 4
+    integration: lobatto3
+
+assign:
+- {region: bar, section: bar, orientation: [0, 0, 1]}
+
+constraints:
+- {region: all, dofs: [0, 1, 1, 1, 1, 1]}     # an axial problem: only ux is free
+- {region: left, dofs: [1, 1, 1, 1, 1, 1]}
+
+loads:
+- {region: right, vector: [3.0e+5, 0.0, 0.0]}
+
+steps:
+- {name: load, age: 28.0, load_steps: 1, max_steps_per_load: 40000}
+- {name: creep, to_age: 1028.0, load_steps: 12, max_steps_per_load: 40000}
+
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 400000
+  age: 28.0
+  damping: {type: kinetic}
+  tolerance: 1.0e-6
+
+output:
+  path: results/case_29d_fiber_creep_bar.h5
+  every: 1
+  fields: [displacement, axial_force, fiber_stress]
+  monitors:
+    u_right: {kind: displacement, region: right, dof: x}
+    u_mid: {kind: displacement, region: mid, dof: x}
+    N_left: {kind: reaction, region: left, dof: x}
+    eps_fibre: {kind: fiber, region: mid, field: strain, at: [0.0, 0.0]}

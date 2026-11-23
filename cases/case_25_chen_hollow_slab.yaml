@@ -1,0 +1,157 @@
+# Chen's 13 m pretensioned hollow-core slab, beam 1#: pushed to failure
+# by two synchronised jacks. THE FIRST MEASURED TEST on
+# this line of work -- case_24's girder is compared with another model.
+#
+#   Chen Hengzhi, "Computational analysis of large-span prestressed
+#   concrete box girder structures", PhD thesis, Zhejiang University,
+#   2005, §6.4 (pp. 135-139). Two precast pretensioned hollow-core slabs,
+#   12.96 m long on a 12.60 m span, loaded by two 100 t jacks stepped
+#   together to failure:
+#     1#  loads 4.00 m apart, failed at P = 245.6 kN per point, 155 mm
+#         at midspan (L/81)
+#     2#  loads 6.00 m apart, failed at P = 315.0 kN per point, 158 mm
+#   The measured points are digitised in
+#   verification/Chen2005_hollow_slab_1.txt.
+#
+# THE SLAB (benchmarks/generate_chen_slab.py, Fig. 6.16)
+#   99 cm wide at the soffit, 85 at the deck, 55 deep, two circular voids
+#   of R = 19 cm centred 29 cm above the soffit and 22.5 either side: a
+#   `patches` fibre section whose patches carry `holes`, 898 fibres,
+#   A = 0.305 m2 against Chen's 0.3046 (his 3046 fibres of 1e-4 m2).
+#   Nine 15.24 mm strands 5 cm above the soffit at t = -42 .. +42 cm, each
+#   pulled to N_k = 195 kN = 1393 MPa, and PRETENSIONED WITH DIFFERENT
+#   BONDED LENGTHS -- 1296 / 1175 / 1015 / 835 cm by strand, the thesis's
+#   `有效长度` table -- which is what each tendon's `extent` says. Eleven
+#   ordinary bars (5 phi 12 in the deck, 4 in the soffit, 2 phi 8 on the
+#   webs), Chen's count. Materials from his Table 6.2 for THIS beam:
+#   E_c = 3.43e+10 Pa, f_c = 2.8e+07, f_t = 2.2e+06; strand E = 190 GPa with his
+#   f_y = 1580 MPa and 1.23e4 MPa of hardening; grade II bars f_y = 340,
+#   grade I 240.
+#
+# WHAT IS ASSUMED, BECAUSE THE THESIS DOES NOT SAY
+#   The long-term loss. The strands are jacked to 1393 MPa; relaxation,
+#   shrinkage and creep take some of it before the test, and the model
+#   works out the elastic shortening itself. 12% is what this file
+#   assumes, which leaves 1226 MPa and 12.7 MPa of compression at the
+#   soffit. The measured knee is the check on it, and the contract holds
+#   the cracking load as a band for that reason.
+#   The transfer length is NOT modelled: a pretensioned strand builds its
+#   force over 60-100 diameters, and here it is fully effective as soon as
+#   it is bonded. It matters near the debonded ends, not at midspan.
+#
+# THE TWO TAILS OF THE CONCRETE CURVE ARE MODELLING CHOICES, and this
+#   beam is sensitive to both. Measured on the section's
+#   own moment-curvature (M in kN.m at the curvature given):
+#       kappa                0.008   0.010   0.012   0.015   0.020
+#       epscu 0.0035 Ets 1e9  1004    1020    1028     588     550
+#       epscu 0.008  Ets 1e9  1004    1020    1028    1037    1049
+#       epscu 0.008  Ets 2e8  1095    1112    1116    1113    1103
+#   The FIRST row falls off a cliff: with the code's 0.0035 for unconfined
+#   concrete the compression zone reaches its residual and the section
+#   loses a third of its moment between kappa 0.012 and 0.015. In a
+#   constant-moment region that is all it takes -- one station runs ahead,
+#   the rest unload, and the beam sheds load at 70 mm when the test was
+#   still hardening at 155. 0.008 is the strain this file uses: a flexural
+#   compression zone held by the deck bars and the mass behind it does not
+#   fall to its residual at 0.0035, and the test says as much.
+#   Ets is the tension-softening slope. Chen's own concrete (his eq. 6.71)
+#   softens to HALF the tensile strength and then holds that plateau until
+#   the tensile failure strain; 2e8 is the linear slope that keeps tension
+#   over a comparable range, and it is worth 8% on the section.
+#
+# THE TEST IS DISPLACEMENT-CONTROLLED, and so is the model: the two jacks
+#   step together, so the two load points are pushed down equally and the
+#   reaction at one of them IS P. That also carries the model past the
+#   peak, which a load-controlled push cannot do.
+#
+#   vfife run cases/case_25_chen_hollow_slab.yaml
+#   python benchmarks/plot_chen_slab.py
+
+version: 1
+name: case_25_chen_hollow_slab
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/chen_slab_1.msh}
+materials:
+  concrete: {type: concrete02, fpc: 2.8e+07, epsc0: 0.00163, fcu: 5.6e+06, epscu: 0.008,
+             ft: 2.2e+06, Ets: 2.0e+8, rat: 0.1, rho: 2500}
+  # rupture_strain is the strand's ULTIMATE strain from a tension test
+  # (A_gt; GB/T 5224 requires >= 3.5% for 1x7 strand). It is the physical
+  # ceiling on this law, which otherwise hardens for ever. THIS BEAM NEVER
+  # REACHES IT -- the strand is at 1677 MPa, i.e. 1.62% strain, when the
+  # model peaks -- so the number changes nothing here. That is the point of
+  # writing it: the slab's capacity is now a result of a strand that CAN
+  # break rather than of one that cannot.
+  strand: {type: steel02, E: 1.9e+11, Fy: 1.58e+9, b: 0.065, R0: 20.0, rho: 7850,
+           rupture_strain: 0.035}
+  rebar2: {type: steel02, E: 2.0e+11, Fy: 3.4e+8, b: 0.01, R0: 20.0, rho: 7850}
+  rebar1: {type: steel02, E: 2.1e+11, Fy: 2.4e+8, b: 0.01, R0: 20.0, rho: 7850}
+sections:
+  phi12: {type: bar, material: rebar2, shape: circle, diameter: 0.012}
+  phi8: {type: bar, material: rebar1, shape: circle, diameter: 0.008}
+  strand: {type: bar, material: strand, shape: general, area: 1.4e-4}
+  slab:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    patches:
+      - {corners: [[-0.2575,-0.45],[-0.2575,0.45],[-0.2125,0.495],[-0.2125,-0.495]], ny: 2, nz: 50, holes: [[0.0325,-0.225,0.19],[0.0325,0.225,0.19]]}
+      - {corners: [[-0.2125,-0.495],[-0.2125,0.495],[0.1355,0.495],[0.1355,-0.495]], ny: 17, nz: 50, holes: [[0.0325,-0.225,0.19],[0.0325,0.225,0.19]]}
+      - {corners: [[0.1355,-0.495],[0.1355,0.495],[0.2925,0.425],[0.2925,-0.425]], ny: 8, nz: 50, holes: [[0.0325,-0.225,0.19],[0.0325,0.225,0.19]]}
+    bars:
+      - {y: 0.2435, z: -0.4, section: phi12}
+      - {y: 0.2435, z: -0.2, section: phi12}
+      - {y: 0.2435, z: 0.0, section: phi12}
+      - {y: 0.2435, z: 0.2, section: phi12}
+      - {y: 0.2435, z: 0.4, section: phi12}
+      - {y: -0.2085, z: -0.45, section: phi12}
+      - {y: -0.2085, z: -0.175, section: phi12}
+      - {y: -0.2085, z: 0.175, section: phi12}
+      - {y: -0.2085, z: 0.45, section: phi12}
+      - {y: 0.0115, z: -0.46, section: phi8}
+      - {y: 0.0115, z: 0.46, section: phi8}
+    tendons:
+      - {section: strand, profile: [[0.0,-0.2075,-0.42],[12.96,-0.2075,-0.42]], extent: [0.0, 12.96], prestress: 1.226e+09}   # bonded 12.96 m
+      - {section: strand, profile: [[1.405,-0.2075,-0.35],[11.555,-0.2075,-0.35]], extent: [1.405, 11.555], prestress: 1.226e+09}   # bonded 10.15 m
+      - {section: strand, profile: [[2.305,-0.2075,-0.14],[10.655,-0.2075,-0.14]], extent: [2.305, 10.655], prestress: 1.226e+09}   # bonded 8.35 m
+      - {section: strand, profile: [[0.605,-0.2075,-0.07],[12.355,-0.2075,-0.07]], extent: [0.605, 12.355], prestress: 1.226e+09}   # bonded 11.75 m
+      - {section: strand, profile: [[0.0,-0.2075,0.0],[12.96,-0.2075,0.0]], extent: [0.0, 12.96], prestress: 1.226e+09}   # bonded 12.96 m
+      - {section: strand, profile: [[0.605,-0.2075,0.07],[12.355,-0.2075,0.07]], extent: [0.605, 12.355], prestress: 1.226e+09}   # bonded 11.75 m
+      - {section: strand, profile: [[2.305,-0.2075,0.14],[10.655,-0.2075,0.14]], extent: [2.305, 10.655], prestress: 1.226e+09}   # bonded 8.35 m
+      - {section: strand, profile: [[1.405,-0.2075,0.35],[11.555,-0.2075,0.35]], extent: [1.405, 11.555], prestress: 1.226e+09}   # bonded 10.15 m
+      - {section: strand, profile: [[0.0,-0.2075,0.42],[12.96,-0.2075,0.42]], extent: [0.0, 12.96], prestress: 1.226e+09}   # bonded 12.96 m
+assign: [{region: slab, section: slab}]
+regions:
+  loads: {union: [load_left, load_right]}
+constraints:
+  - {region: all, dofs: [0, 1, 0, 1, 0, 1]}          # a plane test
+  - {region: bearing_left, dofs: [1, 1, 1, 1, 0, 1]}
+  - {region: bearing_right, dofs: [0, 1, 1, 1, 0, 1]}
+loads:
+  - {region: slab, gravity: [0.0, 0.0, -9.80665]}    # 7.5 kN/m of slab
+steps:
+  - name: transfer
+    load_steps: 4
+  - name: push
+    load_steps: 40
+    constraints:
+      - {region: loads, dofs: [0, 0, 1, 0, 0, 0], value: -0.20}
+solver:
+  backend: numpy
+  mode: relaxation
+  max_steps_per_load: 40000
+  tolerance: 1.0e-5
+  kinetic_tolerance: 1.0e-9
+  n_steps: 100
+output:
+  path: results/case_25_chen_hollow_slab.h5
+  every: 1
+  fields: [displacement, rotation, reaction_force, end_actions, fiber_stress, fiber_damage]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    w_load: {kind: displacement, region: load_left, dof: z}
+    P_jack: {kind: reaction, region: load_left, dof: z}
+    R_bearing: {kind: reaction, region: bearing_left, dof: z}
+    eps_bot: {kind: fiber, region: mid, field: strain, at: [-0.2575, 0.0]}
+    eps_top: {kind: fiber, region: mid, field: strain, at: [0.2925, 0.0]}
+    sig_strand: {kind: fiber, region: mid, field: stress, at: [-0.2076, 0.0]}

@@ -1,0 +1,113 @@
+version: 1
+classification: independent_reference
+case: case_17_hinged_cylindrical_roof
+reference: >-
+  Sze, Liu & Lo (2004), Finite Elements in Analysis and Design 40:1551-1569,
+  problem 3.8, Table 9(a): the 12.7-thick isotropic hinged cylindrical roof
+  under a central point load, Abaqus S4R 16 x 16 quarter mesh traced by Riks.
+  The table is verification/Sze2004_roof_12p7_isotropic.txt; the reference
+  load at each deflection below is interpolated from it.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CONTRACT ASSERTS
+# --------------------------------------------------------------------------- #
+#  The crown is driven down 30 mm under displacement control and `P4`, the
+#  reaction at the driven node, is a quarter of the load (negative: the load
+#  acts downward). The reference is Riks output at uneven loads, so every
+#  metric reads the LOAD at a chosen DEFLECTION -- the deflection is the
+#  monotone axis of this path and the well-conditioned one to read at.
+#
+#  Against the table, this model:
+#
+#      w_C        5      11.3     15      19.85    25      29
+#      model    0.5087  0.7485  0.5547  0.1910  0.4906  1.0224   (P/P_max)
+#      Sze      0.5065  0.7420  0.5316  0.1729  0.4791  1.0208
+#      diff     +0.4%   +0.9%   +4.4%   +10.5%  +2.4%   +0.2%
+#
+#  The limit load is 1% high and the two rising branches are within 1%. The
+#  snap-through itself -- the descending branch through the load minimum --
+#  is where the model is stiff, 10% at the flattest point: the roof is
+#  rolling through an inextensional configuration there, and the fully
+#  integrated bilinear membrane of `shell4` is stiff in exactly that mode
+#  (the hemisphere of case_18 shows the same thing more strongly). The
+#  minimum is therefore held to the reference at 12% and, beside it, to the
+#  model's own value at 3%, so that a change in either direction is seen.
+
+metrics:
+  - id: load_on_the_rising_branch
+    description: >-
+      P/4 at w_C = 5 mm, well before the limit point. Sze 0.5065 P_max ->
+      -379.9 N on the quarter; this model -381.5.
+    source: monitor
+    name: P4
+    reduction: at
+    against: w_C
+    value: -5.0
+    expect: {target: -379.9, rtol: 0.02}
+
+  - id: limit_load
+    description: >-
+      P/4 at w_C = 11.3 mm, Sze's limit point (0.7421 P_max at 11.293).
+      Read as a load at a deflection because the tangent is horizontal there,
+      exactly as in cases/case_16. Target -556.5 N; this model -561.4, 0.9%.
+    source: monitor
+    name: P4
+    reduction: at
+    against: w_C
+    value: -11.3
+    expect: {target: -556.5, rtol: 0.03}
+
+  - id: descending_branch
+    description: >-
+      P/4 at w_C = 15 mm, halfway down the snap-through. Sze 0.5316 ->
+      -398.7 N; this model -416.0, 4.4% high.
+    source: monitor
+    name: P4
+    reduction: at
+    against: w_C
+    value: -15.0
+    expect: {target: -398.7, rtol: 0.06}
+
+  - id: load_minimum_against_the_reference
+    description: >-
+      P/4 at w_C = 19.85 mm, Sze's load minimum (0.1729 P_max at 19.852):
+      -129.7 N. This model -143.3, 10.5% high -- the one place the model is
+      visibly stiff, see the header. Held at 12%.
+    source: monitor
+    name: P4
+    reduction: at
+    against: w_C
+    value: -19.85
+    expect: {target: -129.7, rtol: 0.12}
+
+  - id: load_minimum_as_regression
+    description: >-
+      The same minimum as this model's own number: P/4 at w_C = 19.5 mm,
+      where this model's descending branch bottoms out (-142.4 N). Held to
+      3% so that the 10% gap to the reference cannot drift silently inside
+      the 12% above. (A `max` over the record would read the first level, not
+      the snap-through, so this is read at the deflection.)
+    source: monitor
+    name: P4
+    reduction: at
+    against: w_C
+    value: -19.5
+    expect: {target: -142.4, rtol: 0.03}
+
+  - id: load_on_the_final_rise
+    description: >-
+      P/4 at w_C = 29 mm, the roof snapped through and stiffening again.
+      Sze 1.0208 P_max -> -765.6 N; this model -766.8, 0.2%.
+    source: monitor
+    name: P4
+    reduction: at
+    against: w_C
+    value: -29.0
+    expect: {target: -765.6, rtol: 0.02}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-4}

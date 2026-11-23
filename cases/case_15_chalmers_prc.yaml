@@ -1,0 +1,422 @@
+version: 1
+name: case_15_chalmers_prc
+
+# CHALMERS PRC: A POST-TENSIONED T-BEAM, MEASURED
+#
+# Fernandez, I., Ekstrom, D., Rempling, R., Gil Berrocal, C. (2025)
+#   "Evaluation of post-tensioned reinforced and fiber reinforced concrete
+#    beams by using DOFS", Structural Concrete 26:6274-6293,
+#   doi 10.1002/suco.70224 (open access, CC-BY).
+# Data: researchdata.se 2025-114; the load record is extracted to
+#   verification/Chalmers2025_PRC_four_point.txt, which carries the setup.
+#
+# 8.5 m T-beam, clear span 8.0 m, four-point bending with 3.0 m shear spans
+# and a 2.0 m constant-moment region, loaded to failure at 160 days. Four
+# 15.7 mm strands in a flat duct on a straight-parabolic-straight profile,
+# GROUTED after tensioning -- a bonded post-tensioned member, which is the
+# case v0.1 said was expressible and this is the first measured one.
+#
+# THE MESH IS THE COARSE ONE, AND THE FINE ONE IS WHY THAT IS ALLOWED
+#   1224 elements, 125 mm along the span. `benchmarks/generate_prc_tbeam.py`
+#   also builds a 10880-element mesh at 50 mm, which was run on a GPU
+#   (warp, fp64, cuda) to the same 60 mm. Load per jack, the two meshes and
+#   the measurement:
+#
+#     deflection mm    5.5    10     15     20     30     40     50     60
+#     fine   (10880)  59.7   94.1  113.0  130.5  159.8  187.4  205.6  220.3
+#     coarse ( 1224)  59.8   94.0  112.8  130.3  162.2  189.6  206.6  216.9
+#     measured        56.2   77.1   97.0  115.8  152.0  183.9  195.2  206.6
+#
+#   THE LARGEST DIFFERENCE BETWEEN THE TWO MESHES OVER THE WHOLE RECORD IS
+#   1.59%, at an 8.9-fold difference in element count and 2.6 in element size.
+#   That is the crack band doing its job (v0.1: `Gf` over `l_ref` in
+#   tension, `Gc` in compression), and it is the first time this project has
+#   been able to check it against a MEASUREMENT rather than against itself.
+#   So the contracted case is the one that runs in half an hour on two cores,
+#   and the eight-times-finer mesh is evidence rather than a requirement.
+#
+#   IT ALSO FALSIFIES THE FIRST EXPLANATION FOR THE REMAINING GAP. The model
+#   is 22% high at 10 mm and converges to within a few percent past 30 mm; the
+#   obvious suspect was the coarse mesh smearing cracks over fewer, larger
+#   bands. The fine mesh gives 94.1 against the coarse 94.0 at that
+#   deflection. It is not discretisation.
+#
+#   AND THE REMAINING GAP IS ONE NUMBER: THIS BEAM'S TENSILE STRENGTH.
+#   The measurement's tangent holds 11.2 kN/mm to 4.9 mm and 51.4 kN, then
+#   collapses through 8.5, 6.2, 5.6 to 3.9 by 7.4 mm. The model holds 10.9 to
+#   7.3 mm and 78.2 kN. Uncracked stiffness agrees (10.9 against 11.2) and
+#   cracked stiffness agrees (4.2 against 4.2); the whole error is that the
+#   model cracks 27 kN late. Read off this model's own stress field, the
+#   bottom fibre of the constant-moment region sits at -8.708 MPa after
+#   transfer and rises at 0.1633 MPa/kN, so
+#
+#       decompression                8.708 / 0.1633 = 53.3 kN
+#       + the tensile strength       3.700 / 0.1633 = 22.7 kN
+#       = first cracking                              76.0 kN  (seen: 78)
+#
+#   Both of those are contracted numbers now, not hand reads: `sigma_bot`
+#   and `sigma_p` are monitors.
+#
+#   The beam cracked at 51 kN. That is its DECOMPRESSION load: the specimen
+#   behaved as if the tension zone had no tensile strength left, which is what
+#   the paper's shrinkage-induced restraint cracking means -- it documents it
+#   in the reference beams and, in the post-tensioned ones, "concentrations of
+#   compressive strains" before loading at exactly the positions that later
+#   cracked. The 22.6 kN of f_ct is essentially the entire 27 kN gap.
+#
+#   Three runs confirm it and rule out the alternatives.
+#   Halving `Gf` to 60 moves the curve down bodily and leaves the transition
+#   shape wrong; dropping `ft` to 2.6 MPa moves first cracking by 1.5 kN,
+#   because f_ct enters only through M_cr and decompression dominates it.
+#   Giving the web tension zone of the central 4.5 m a second material with
+#   ft = 0.4 MPa -- a crack that already exists -- takes the worst error over
+#   the whole record from 22.9% to 8.3%, with the camber at transfer unmoved
+#   (3.574 mm against 3.570). That variant then sits 8% LOW at 40 mm, so the
+#   specimen's residual tension is between the two, which is what "partially
+#   pre-cracked" should look like. The contracted case stays virgin, because
+#   virgin is the beam as designed and the pre-cracking is a property of this
+#   specimen's history, not of the code.
+#
+#   AND THE RC COMPANION SPECIMEN CONFIRMS IT. The same study
+#   tested four beams, and the dataset's own Ra/Rb/M1/M2 give a shear span of
+#   exactly 3.0000 m for all four, so the geometry is common. RC is this
+#   beam's twin without prestress: identical T-section, and MORE bottom steel
+#   (5 D20 against 3 D16 plus the strands). Using the W = 18.37 L and the
+#   1.188 MPa of self-weight tension this model itself reports:
+#
+#                 cracks at        bottom fibre there = effective f_ct
+#       RC        14.19 kN/jack        +3.51 MPa      = 0.95 x 3.7
+#       PRC       51    kN/jack        -0.38 MPa      = 0
+#
+#   Same concrete, same section, same rig. The RC beam's effective tensile
+#   strength IS the 3.7 MPa this model uses -- a virgin RC section would have
+#   cracked at 15.4 kN against the measured 14.19, 8.4% high, where the PRC is
+#   53% high. So f_ct is not over-represented in general; if it were, the RC
+#   beam would show it and it does not.
+#
+#   The two specimens differ in one more way that closes the story. RC's
+#   initial branch is 8.94 kN/mm where PRC's is 10.02 on the same window and
+#   this model's virgin section gives 10.88 -- the beam with MORE steel is 11%
+#   softer from the first reading, which no section can do. Both reference
+#   beams show it (FRC is 24% under PFRC). They spent 160 days under sustained
+#   load with nothing holding their cracks shut, so they arrive open: soft, and
+#   then cracking at nearly virgin strength when a NEW crack forms in intact
+#   concrete. The prestressed beams arrive with the same cracks held CLOSED,
+#   so they are stiff and linear to decompression and then open all at once
+#   with no tensile resistance left. That is exactly the -0.38 MPa above.
+#
+# WHAT IT EXERCISES THAT NOTHING ELSE DOES
+#   the prestrain primitive against a measurement rather than a
+#   closed form; a `path` tendon whose profile is a real duct layout;
+#   and the route-is-one-bar topology, without which the 170 chords
+#   of this tendon would be 170 independent stubs.
+#
+# THE TENDON PROFILE IS NOT ONE PARABOLA, and that is worth saying because it
+# is the ergonomic finding this case produced. The paper's duct runs straight
+# 250 mm from each end at the section CENTROID (the centroid computes to
+# 370.4 mm above the soffit and Figure 2b labels the duct 370 -- so the drawn
+# section is the anchorage, and the anchorage is concentric), then parabolic
+# over 3000 mm down to 57 mm where it rests on the bottom bars, then straight
+# for 1000 mm to midspan. `shape: parabola` takes one parabola through three
+# points; a straight-parabolic-straight duct has to be written as an explicit
+# `points` polyline. It is one route and therefore one bar, which is what the
+# tendon has to be.
+#
+# --------------------------------------------------------------------------- #
+#  THE NUMBERS, AND WHERE EACH ONE COMES FROM
+# --------------------------------------------------------------------------- #
+#  MEASURED, from the paper
+#    150 mm cubes 61.3 / 57.9 / 61.2, mean 60.2 MPa (Table 1)
+#    passive steel B500B, f_yk 500 MPa
+#    strand Y1860S7, 15.7 mm, f_pk 1860 MPa, 4 of them, jacked to 490 kN total
+#    load record: slope change ~70 kN/jack, yield ~200, peak 256 at 114 mm,
+#      failure by compression crushing
+#
+#  DERIVED HERE, with the derivation
+#    f_c 50 MPa cylinder. Two routes from a 60.2 MPa cube mean: 0.82 x 60.2 =
+#      49.4, and the EC2 class relation (cube 60 <-> cylinder 50) applied to
+#      the mean gives 51. Both round to 50.
+#    E_c 36 GPa. EC2 22(f_cm/10)^0.3 = 35.7 GPa. INDEPENDENTLY, the measured
+#      initial stiffness of this beam (10.37 kN/mm per jack, fitted below
+#      1.5 mm) with delta = P a^2 (3L-4a)/(6EI) and the transformed second
+#      moment 5.35e-3 m^4 gives 36.7 GPa. Two routes, 3% apart, and the
+#      agreement is what says the section, the span and the modulus are
+#      mutually consistent before anything is run.
+#    f_ct 3.7 MPa (EC2 fctm, both forms give 3.6 and 3.8).
+#    Gf 150 J/m2 (fib MC2010, 73 f_cm^0.18 = 149).
+#    Gc 35e3 J/m2, the same crushing energy case_12 uses, which is where the
+#      compression band came from. Without it the peak moves
+#      with the mesh.
+#    B500B hardening 1.0 GPa: k = f_t/f_y >= 1.08 at eps_uk >= 5% gives
+#      (0.10 x 500)/0.05 = 1000 MPa. The actual bars were not tested.
+#    strand: f_p0.1k 1640 MPa (0.88 f_pk), E_p 195 GPa, hardening 8.3 GPa
+#      from 1860 MPa at eps_uk 3.5%.
+#
+#  THE ONE NUMBER THE PAPER GIVES ONLY AS A PICTURE
+#    sigma_pe = 633 MPa, i.e. 95 kN per strand and 380 kN in the four.
+#    Route: jacked to 490 kN total; Figure 9c plots the mid-span force loss
+#    against a P0 whose axis pins P0 = 450 kN (90 kN = 20%), so 450 kN is what
+#    reached midspan after transfer; the same figure's curves reach -63 kN
+#    (DOFS) and -78 kN (curvature) at 145 days, say -70, leaving 380 kN.
+#
+#    IT IS CHECKED, NOT CALIBRATED. With 380 kN the section cracks at
+#    65.4 kN/jack:
+#      P(1/A + e c/I) = 380e3 x (8.414 + 21.671) = 11.43 MPa of precompression
+#      at the soffit, plus f_ct 3.70, less the self-weight's 1.55, is
+#      13.59 MPa of moment capacity to first cracking = 196 kNm over the
+#      3.0 m shear span.
+#    The paper reports the slope change at "around 70 kN". 65.4 against 70 is
+#    -7%, from a prestress read off two graphs -- so the input is right to
+#    about a tenth, and the model's own cracking load is the metric that says
+#    so (see the contract). Matching 70 exactly would need 412 kN, which is
+#    inside the reading error of Figure 9c; 380 is used because it is what the
+#    figure says, not what the answer wants.
+#
+#  ULTIMATE, as a sanity bound before running: 603 mm2 of B500 at 38 mm,
+#  151 mm2 at the duct, 600 mm2 of strand at ~1700 MPa, against a flange
+#  compression block, gives M_u = 755 kNm. Measured 256 kN/jack x 3.0 m =
+#  769 kNm. 2% -- the section can reach the measured load, so anything the
+#  model falls short by is the model and not the section.
+#
+# --------------------------------------------------------------------------- #
+#  WHAT IS LEFT OUT, AND WHY
+# --------------------------------------------------------------------------- #
+#  STIRRUPS. Phi8 U-shaped at 200 over the first 3.5 m from each end. a/d =
+#  3000/592 = 5.1, the measured failure was flexural compression crushing in
+#  the flange, and an OPEN U-stirrup in the web confines nothing in the flange
+#  -- so they would add bar elements and change no mechanism this case tests.
+#
+#  THE VARIATION OF PRESTRESS ALONG THE TENDON. `prestress` here is the
+#  EFFECTIVE stress at midspan and it is applied uniformly. The solver can
+#  compute a friction profile (`friction: {mu, k, jack}`), but
+#  friction is the smaller half of the loss here -- the long-term creep,
+#  shrinkage and relaxation are larger, and the solver has no time scale for
+#  them. A friction profile alone would be a more elaborate wrong answer than
+#  the measured midspan value applied uniformly. The consequence is confined
+#  to the shear spans and the anchorage zones, which is not where this beam
+#  fails.
+#
+#  POST-TENSIONING THROUGH A PRETENSIONING PRIMITIVE, which is where the two
+#  actually differ and it is worth 6%. `prestress` is a strain the bar already
+#  carries when the model's displacement is zero, so relaxing it shortens the
+#  concrete and the tendon loses force with it -- the elastic-shortening loss,
+#  which for PRETENSIONING is exactly right. A post-tensioned
+#  tendon is jacked AGAINST concrete that is already there and already
+#  shortening as the jack pulls, so the force the jack reads is already net of
+#  it: applying the measured 633 MPa as a prestrain would deduct that loss a
+#  second time. Measured on this model, 633 applied comes out as 590 at
+#  midspan, so 679 is applied and 633 is what the tendon carries once the
+#  model has equilibrated -- measured off this model at 632.6 MPa.
+#
+#  THE CONTRACT CANNOT ASSERT THAT DIRECTLY: bar stress goes to the rebar
+#  sidecar (`rebar_steps/`), and a contract reads monitors, diagnostics and
+#  the nodal/element fields under `steps/`. What it asserts instead is the
+#  CAMBER at transfer, which is proportional to the tendon force and therefore
+#  fails if the pre-compensation ratio ever moves. Naming the gap here rather
+#  than claiming the assertion exists: a monitor kind for bar stress is the
+#  thing that would close it.
+#
+#  THE ANCHORAGE ZONE IS NOT MODELLED. A perfectly bonded tendon hands its
+#  whole force to the host within one element of its end, where the real beam
+#  has a CCL flat anchorage plate and a spiral. Measured on the coarse mesh at
+#  transfer: 4 elements of 1224 reach tensile damage, all of them between
+#  x = 0.19 and 0.31 at the live anchorage, and nothing anywhere else. It is
+#  local, it is the expected artefact, and the honest fix is a `bond` block on
+#  the tendon so the force builds over a transfer length --
+#  which is a variant worth running, not a defect in this one.
+#
+#  THE FIRST 160 DAYS. Step 1 is the state the loading test starts from:
+#  prestress and self-weight, in equilibrium. Creep and shrinkage happened and
+#  are not modelled; their effect on the tendon force IS included, through
+#  sigma_pe.
+
+units: {length: m, force: N, stress: Pa}
+
+mesh: {type: gmsh, path: ../benchmarks/assets/prc_tbeam_645_coarse.msh}
+
+materials:
+  concrete:
+    type: cdp
+    E: 36.0e+9
+    nu: 0.2
+    rho: 2400.0
+    fb0_fc0: 1.16
+    Kc: 0.6667
+    dilation_angle: 36.0
+    eccentricity: 0.1
+    wt: 0.0
+    wc: 1.0
+    viscosity: 1.0
+    n_return: 5
+    crack_band: both
+    l_ref: auto
+    damage_max: 0.80
+    compression: {source: gb50010, fc: 50.0e+6, beta_c: 0.7, sigma_c0_ratio: 0.4, Gc: 35.0e+3}
+    tension: {source: fracture_energy, ft: 3.7e+6, Gf: 150.0, beta_t: 0.9}
+
+  b500b:
+    type: rebar
+    E: 200.0e+9
+    rho: 7850.0
+    yield_strength: 500.0e+6
+    hardening: 1.0e+9
+    kinematic_fraction: 0.5
+
+  strand:
+    type: rebar
+    E: 195.0e+9
+    rho: 7850.0
+    yield_strength: 1640.0e+6
+    hardening: 8.3e+9
+    kinematic_fraction: 0.5
+
+sections:
+  body:  {type: solid, material: concrete, formulation: b-bar}
+  bar16: {type: bar, material: b500b, shape: circle, diameter: 0.016}
+  bar8:  {type: bar, material: b500b, shape: circle, diameter: 0.008}
+  y1860: {type: bar, material: strand, shape: circle, diameter: 0.0158, area: 150.0e-6}
+
+reinforcement:
+  # 4 D16 in the flange, 36 mm to the bar centre (20 cover + 8 stirrup + 8)
+  top:
+    layer: {from: [0.0, 0.036, 0.609], to: [8.5, 0.036, 0.609],
+            count: 4, spacing: [0.0, 0.0827, 0.0]}
+  # 3 D16 in the web soffit, centres at 38 mm (Figure 2b)
+  bottom:
+    layer: {from: [0.0, 0.113, 0.038], to: [8.5, 0.113, 0.038],
+            count: 3, spacing: [0.0, 0.047, 0.0]}
+  # the tendon: straight at the centroid, parabolic, straight to midspan.
+  # ONE route, so it is one bar and the segments are joined.
+  tendons:
+    path:
+      shape: polyline
+      segment_length: 0.10
+      repeat: {count: 4, offset: [0.0, 0.0178, 0.0]}
+      points: [
+        [0.000, 0.1333, 0.3700], [0.250, 0.1333, 0.3700], [0.500, 0.1333, 0.3200], [0.750, 0.1333, 0.2744],
+        [1.000, 0.1333, 0.2331], [1.250, 0.1333, 0.1961], [1.500, 0.1333, 0.1635], [1.750, 0.1333, 0.1353],
+        [2.000, 0.1333, 0.1113], [2.250, 0.1333, 0.0918], [2.500, 0.1333, 0.0766], [2.750, 0.1333, 0.0657],
+        [3.000, 0.1333, 0.0592], [3.250, 0.1333, 0.0570], [5.250, 0.1333, 0.0570], [5.500, 0.1333, 0.0592],
+        [5.750, 0.1333, 0.0657], [6.000, 0.1333, 0.0766], [6.250, 0.1333, 0.0918], [6.500, 0.1333, 0.1113],
+        [6.750, 0.1333, 0.1353], [7.000, 0.1333, 0.1635], [7.250, 0.1333, 0.1961], [7.500, 0.1333, 0.2331],
+        [7.750, 0.1333, 0.2744], [8.000, 0.1333, 0.3200], [8.250, 0.1333, 0.3700], [8.500, 0.1333, 0.3700]]
+  # 3 D8 that carry the duct, following it (Figure 2b, "3D8 reinf.")
+  duct_bars:
+    path:
+      shape: polyline
+      segment_length: 0.10
+      repeat: {count: 3, offset: [0.0, 0.025, 0.0]}
+      points: [
+        [0.000, 0.1225, 0.3700], [0.250, 0.1225, 0.3700], [0.500, 0.1225, 0.3200], [0.750, 0.1225, 0.2744],
+        [1.000, 0.1225, 0.2331], [1.250, 0.1225, 0.1961], [1.500, 0.1225, 0.1635], [1.750, 0.1225, 0.1353],
+        [2.000, 0.1225, 0.1113], [2.250, 0.1225, 0.0918], [2.500, 0.1225, 0.0766], [2.750, 0.1225, 0.0657],
+        [3.000, 0.1225, 0.0592], [3.250, 0.1225, 0.0570], [5.250, 0.1225, 0.0570], [5.500, 0.1225, 0.0592],
+        [5.750, 0.1225, 0.0657], [6.000, 0.1225, 0.0766], [6.250, 0.1225, 0.0918], [6.500, 0.1225, 0.1113],
+        [6.750, 0.1225, 0.1353], [7.000, 0.1225, 0.1635], [7.250, 0.1225, 0.1961], [7.500, 0.1225, 0.2331],
+        [7.750, 0.1225, 0.2744], [8.000, 0.1225, 0.3200], [8.250, 0.1225, 0.3700], [8.500, 0.1225, 0.3700]]
+
+assign:
+  - {section: body, region: all}
+  - {section: bar16, reinforcement: [top, bottom], name: passive, segment_length: 0.10}
+  - {section: bar8,  reinforcement: duct_bars, name: duct_bars}
+  # 679 MPa applied to land on the MEASURED 633 MPa. See POST-TENSIONING
+  # THROUGH A PRETENSIONING PRIMITIVE below -- this is not a fudge, it is the
+  # one place the two differ, and the number is measured off the model.
+  - {section: y1860, reinforcement: tendons, name: tendons, prestress: 679.0e+6}
+
+regions:
+  # rollers 250 mm in from each end, on the soffit
+  sup_l: {box: [0.24, 0.26, -0.01, 0.33, -0.01, 0.01]}
+  sup_r: {box: [8.24, 8.26, -0.01, 0.33, -0.01, 0.01]}
+  # the beam's own plane of symmetry: a node plane, not a restrained edge
+  axis:  {box: [-0.01, 8.51, 0.1599, 0.1601, -0.01, 0.66]}
+  # bearings 3000 mm from each roller: 0.25+3.0 and 8.25-3.0, so the
+  # constant-moment region is 3.25..5.25 and midspan is 4.25
+  load_l: {box: [3.24, 3.26, -0.01, 0.33, 0.6449, 0.6451]}
+  load_r: {box: [5.24, 5.26, -0.01, 0.33, 0.6449, 0.6451]}
+  mid_soffit: {box: [4.24, 4.26, -0.01, 0.33, -0.01, 0.01]}
+  # the constant-moment region as a SOLID: 3.25 and 5.25 are node planes on
+  # this mesh (125 mm divisions), so it owns whole elements
+  span_block: {box: [3.25, 5.25, -0.01, 0.33, -0.01, 0.66]}
+  # and its BOTTOM layer of elements only. The web's node planes are 99 mm
+  # apart, so 0.13 takes exactly the first layer. `span_block` would not do:
+  # under load the most compressed element in the span is at the TOP, and the
+  # bottom fibre is the one that decompresses and then cracks.
+  span_soffit: {box: [3.25, 5.25, -0.01, 0.33, -0.01, 0.13]}
+  # the flat run of the tendon, for the bar monitor: both ends of a segment
+  # must be inside, so this selects the 2 m the 633 MPa was derived at. The
+  # box is wider in z than the strands are, because a region must also select
+  # MESH nodes to exist at all and the web's node planes are 99 mm apart --
+  # the x range is what does the selecting here.
+  tendon_flat: {box: [3.20, 5.30, 0.10, 0.23, -0.01, 0.12]}
+
+constraints:
+  - {region: sup_l, dofs: [1, 0, 1]}
+  - {region: sup_r, dofs: [0, 0, 1]}
+  - {region: axis,  dofs: [0, 1, 0]}
+
+loads:
+  - {region: all, gravity: [0.0, 0.0, -9.81]}
+
+steps:
+  - name: transfer
+    # what the loading test starts from: the tendon force that survived 160
+    # days, and the beam's own weight, in equilibrium
+    load_steps: 1
+    max_steps_per_load: 150000
+    tolerance: 1.0e-5
+
+  - name: load
+    # displacement control at both bearings, as the test was run (one jack in
+    # displacement control, the other force-following). The target is filled
+    # in from step 1's own deflection: see the run script.
+    constraints:
+      # ABSOLUTE, and step 1 left the bearings 3.57 mm UP, so -0.0564 is
+      # 60 mm of deflection measured the way the test measures it -- from the
+      # state the loading started in. The contract reads increments.
+      - {region: load_l, dofs: [0, 0, 1], value: -0.0564}
+      - {region: load_r, dofs: [0, 0, 1], value: -0.0564}
+    # 30 levels of 2 mm. `stage_ramp` defaults to max_steps_per_load/5, so
+    # the budget also sets how long each level takes to ramp IN: 400000 made
+    # that 80000 iterations a level, and the first attempt spent 260000
+    # iterations on level 1 without ever leaving a relative residual of
+    # 1.2e-2. A 2 m constant-moment region cracks many sections at once, so
+    # the increment is small and the tolerance is case_12's, not tighter.
+    load_steps: 30
+    max_steps_per_load: 40000
+    tolerance: 3.0e-4
+
+solver:
+  backend: numba
+  mode: relaxation
+  mass: underwood
+  n_steps: 2000000
+  tolerance: 3.0e-4
+  relaxation_safety: 0.3
+  damping: {type: kinetic}
+
+output:
+  path: results/case_15_chalmers_prc.h5
+  every: 100000
+  fields: [displacement, stress, d, dt, dc]
+  monitors:
+    P_L:  {kind: reaction, region: sup_l, dof: z}
+    P_R:  {kind: reaction, region: sup_r, dof: z}
+    d_L:  {kind: displacement, region: load_l, dof: z}
+    d_R:  {kind: displacement, region: load_r, dof: z}
+    mid:  {kind: displacement, region: mid_soffit, dof: z}
+    # THE TENDON'S OWN STRESS. Bar stress goes to `rebar_steps/`, which a
+    # contract cannot read, so the effective prestress used to be asserted
+    # through the camber. It is a monitor now.
+    sigma_p: {kind: bar, of: tendons, field: axial_stress, reduce: mean,
+              region: tendon_flat}
+    # and the crushing check where it was always meant to be asked. Held
+    # globally, `dc` is decided by the anchorage and the bearings (0.46);
+    # inside the constant-moment region it is 0.14.
+    dc_span:  {kind: element, field: dc, reduce: max, region: span_block}
+    dt_span:  {kind: element, field: dt, reduce: max, region: span_block}
+    # the number v0.1 had to read out of the field by hand: the bottom
+    # fibre of the constant-moment region, whose value after transfer and
+    # whose slope against the load give the decompression load
+    sigma_bot: {kind: element, field: stress, component: xx, reduce: mean,
+                region: span_soffit}

@@ -1,0 +1,260 @@
+# Ghali, A., Elbadry, M. & Megally, S. (2000), "Two-year deflections of the
+# Confederation Bridge", Can. J. Civ. Eng. 27: 1139-1149.
+# FIGURES 18, 19 AND 20 DIGITISED, plus the two numbers the text states
+# outright.
+#
+# Companion to the truck-loading data already used by case_28: same paper,
+# same 440 m portal frame, same 27 benchmarks inside the box girder. This file
+# carries the LONG-TERM half -- what the bridge did in the 669 days after
+# March 9, 1997.
+#
+# WHAT IS AND IS NOT REPRODUCIBLE FROM THIS PAPER. Read this before using any
+# number below as a target.
+#
+#   * The 54 kN/m superimposed dead load, and the instantaneous deflection it
+#     causes, ARE stated (p. 1147) and are reproducible: a stated load on a
+#     structure whose geometry is published. That is what case_28d checks.
+#   * The three analysis CURVES are not reproducible as curves. They are the
+#     whole history -- segment-by-segment erection, external prestressing with
+#     friction losses, steel relaxation, shrinkage, and creep of every one of
+#     those increments at its own loading age. None of the erection dates or
+#     tendon forces are in this paper.
+#   * The "recorded properties" curve is not reproducible AT ALL: it uses
+#     best-fit creep and shrinkage equations given in Ghali, Tadros & Langohr
+#     (1999), which we do not have. Only the MC90 and ACI 209 curves rest on
+#     published models, and both of those models are in this library.
+#   * ALL THREE analyses EXCLUDE daily temperature variation, which the paper
+#     says is why they sit so far above the measurement. Figure 21 puts one
+#     hot summer day at 60 mm UP at midspan -- the same order as the entire
+#     667-day measured movement. The measured points below are therefore NOT
+#     a creep curve; they are creep plus whatever the deck temperature was on
+#     the morning of each survey.
+#
+# ---------------------------------------------------------------------------
+#  THE TWO STATED NUMBERS  (p. 1147, quoted)
+# ---------------------------------------------------------------------------
+#  "the analysis shows that about 70 mm instantaneous deflection occurs at mid
+#   span and 80 mm deflection occurs at cantilever tips, as a result of
+#   placement of the specified superimposed dead load (54 kN/m). The
+#   instantaneous deflection caused by the superimposed dead load is indicated
+#   by the jump in the curves of predicted deflection (Fig. 20) after about
+#   40 days from the reference date (March 9, 1997)."
+#
+#  These are outputs of Ghali's OWN analysis, not measurements -- the paper
+#  says in the same paragraph that the field never measured them. So a model
+#  that reproduces them has reproduced another analysis, which is the weaker
+#  of the two kinds of agreement and is labelled as such in the contract.
+#
+#  The 54 kN/m acts on the drop-in beams too. Each 60 m drop-in beam is simply
+#  supported between the tips of two adjacent overhangs (250 m pier spacing =
+#  95 + 60 + 95), so each overhang tip additionally takes
+#
+#       V = 54 kN/m x 60 m / 2 = 1620 kN
+#
+#  That reaction is drawn as V in the paper's own Fig. 9 frame idealisation.
+#  Leaving it out is not a small error: it moves the tip deflection from 28 mm
+#  to 107 and midspan from 104 to 79 (benchmarks/generate_confederation.py
+#  --check prints both).
+#
+# ---------------------------------------------------------------------------
+#  HOW THE FIGURES WERE DIGITISED
+# ---------------------------------------------------------------------------
+#  Page 1147 rendered at 400 dpi. The two model curves are the only COLOURED
+#  ink on the page -- ACI 209 a magenta dash-dot, CEB-FIP MC90 a blue dot --
+#  so they separate from the axes, the pier drawings and the labels by hue
+#  alone, and each is read as the median row of its own ink in every pixel
+#  column. The "recorded properties" curve is a thin black dash: it is read as
+#  the centroid of every black component 6-70 px wide and <= 12 px tall, which
+#  picks up its dashes and nothing else. The measured series is the one thick
+#  black polyline; its data points are the columns where it is >= 16 px thick,
+#  i.e. the filled markers.
+#
+#  Fig. 20's axes are calibrated on its tick LABELS (six on y, seven on x,
+#  least squares). The check on that fit is independent: it puts the drawn
+#  x-axis line at -0.03 mm where it should be 0.0. Fig. 18 and Fig. 19 are
+#  calibrated vertically on the drawn zero line and the "200" label, and
+#  HORIZONTALLY ON THE TWO PIER CENTRELINES, which are dash-dot verticals at
+#  exactly -125 m and +125 m -- a better ruler than the tick labels.
+#
+#  THE CROSS-CHECK, and it is a real one: Fig. 20 is drawn at 115 m from P32,
+#  i.e. 10 m from midspan, and Figs. 18 and 19 are profiles containing that
+#  same station. Digitised independently, from different panels, with
+#  different calibrations:
+#
+#                        Fig. 20       Fig. 18/19 at midspan
+#      327 d  MC90        126.6              128
+#      327 d  ACI209      157.6              161
+#      467 d  MC90        143.1              144
+#      467 d  ACI209      176.2             ~172
+#
+#  Agreement of about 1-2%, which is the accuracy claimed for everything in
+#  this file. One digit of the printed numbers is therefore not meaningful.
+#
+# ---------------------------------------------------------------------------
+#  FIG. 20 -- deflection against time at 115 m from P32 (10 m from midspan)
+# ---------------------------------------------------------------------------
+#  Downward positive, mm, measured from the reference reading of March 9,
+#  1997 (= day 0). Temperature excluded from all three analyses.
+#
+#  The jump between day 35 and day 45 is the superimposed dead load. Read as
+#  (value at 45 d) - (value at 30 d) it is 72.1 mm for ACI 209, 69.2 for MC90
+#  and 77.2 for the recorded properties -- the 70 mm the text states. The
+#  small pre-jump rise (about 5 mm by day 30) is 40 days of creep of the
+#  erection loads; the recorded-properties curve is drawn from day 43 only.
+#
+#   day     ACI209    MC90   recorded
+      30       5.4     4.9      0.0
+      35      38.4    34.6      0.0
+      40      75.1    72.5      0.0
+      45      77.5    74.1     77.2
+      50      80.4    75.6     77.9
+      60      85.1    78.4     79.3
+      70      89.4    80.0     80.7
+      80      93.2    82.9     82.2
+     100     103.6    88.8     85.1
+     125     114.0    95.0     88.6
+     150     126.0   101.0     92.1
+     175     137.9   107.4     95.7
+     200     145.7   112.8     99.1
+     225     149.6   115.9    101.6
+     250     151.7   118.8    103.4
+     275     153.5   120.9    105.3
+     300     155.5   123.2    107.1
+     327     157.6   126.6    109.3
+     350     160.9   129.1    111.7
+     375     164.0   132.4    114.6
+     400     168.2   135.6    117.0
+     425     172.0   138.4    119.3
+     450     174.6   141.1    121.5
+     467     176.2   143.1    122.9
+     500     179.3   146.2    125.4
+     525     181.0   148.3    126.9
+     550     182.7   150.3    128.4
+     575     184.8   152.2    129.9
+     600     186.3   154.3    131.4
+     625     188.0   156.4    132.9
+     650     189.6   158.1    134.3
+     665     190.3   159.2    134.7
+
+#  MEASURED, same axes -- the eleven survey readings. Note the fall from
+#  50.4 mm at 456 days to 26.2 at 490 and the climb to 90.5 at 664: that is
+#  not creep reversing, it is the deck cooling and warming. Any contract that
+#  tried to fit these points without a temperature history would be fitting
+#  the weather.
+#
+#   day   measured
+     179     22.2
+     208     36.1
+     325     67.3
+     356     65.4
+     382     54.3
+     417     45.3
+     456     50.4
+     490     26.2
+     559     42.2
+     612     65.4
+     664     90.5
+
+# ---------------------------------------------------------------------------
+#  FIG. 18 (327 d) and FIG. 19 (467 d) -- the profiles
+# ---------------------------------------------------------------------------
+#  Downward positive, mm, against distance from midspan. Zero at both piers
+#  by construction: the levelling is relative to benchmarks over P31 and P32.
+#  The girder runs -220 m to +220 m; beyond +212 m the panel is cut off, so
+#  the tip values are extrapolations and are marked.
+#
+#  x (m)   -210  -200  -180  -150  -125   -60   -30     0    30    60   125   180   200   210
+#  Fig. 18 (327 days)
+#   ACI209   112    89    45    11     3    62   122   161   130    65     3    41    79   102
+#   MC90     102    80    44    12     2    50   100   128   103    53     2    43    76    97
+#  Fig. 19 (467 days)
+#   ACI209   128    97    51    11     3    71   135  ~172   138    71     3    48    93   116
+#   MC90     113    88    47    12     3    57   113   144   114    59     3    46    85   108
+#
+#  (Fig. 19's ACI209 value at midspan is the one column where the two coloured
+#  curves cross and the hue mask cannot separate them; it is interpolated from
+#  its neighbours and carries a tilde.)
+#
+#  THE SHAPE IS THE INTERESTING PART, and it is the one thing here that no
+#  unknown history can spoil: a 95 m cantilever tip moves as much as the
+#  middle of a 250 m span. Extrapolating the last two columns, MC90 reaches
+#  about 125 mm at x = -220 against 128 at midspan at 327 days, and about 138
+#  against 144 at 467 days. Whether the tip is a little above or a little
+#  below midspan depends on the load; that it is the SAME ORDER does not, and
+#  it is the same thing the 80-against-70 mm of the superimposed dead load
+#  says. A model that puts the tips at a third of midspan has left the drop-in
+#  beam reaction out.
+#
+# ---------------------------------------------------------------------------
+#  FIG. 7 -- RELAXATION OF THE BRIDGE'S OWN STRAND
+# ---------------------------------------------------------------------------
+#  Relaxation (%) against time (1 to 10 000 h, log), for specimens stressed to
+#  0.8 of their ultimate strength. Five curves: the measured one, and CEB-FIP
+#  MC90 and PCI each for stress-relieved and for low-relaxation steel. The
+#  paper's conclusion from it (p. 1142) is the reason MC90 appears in the
+#  deflection analyses: "With increased time, the measured prestress relaxation
+#  values tend to be close to those values predicted by the CEB-FIP MC90 for
+#  low-relaxation steel."
+#
+#  Read at three times, by the hue-free version of the method above -- these
+#  curves are all black, so they are separated by ORDER (they never cross) and
+#  each is read as the centre of its own ink run in a column that is not on a
+#  vertical gridline. Values carry about +/- 0.1 percentage point.
+#
+#    t (h)     PCI-SR   CEB-SR   measured   CEB-LR   PCI-LR
+#      250       9.4      4.9       3.2       2.20     1.81
+#     1000      11.7      6.9       4.27      3.11     2.25
+#     6000      14.8      9.9       6.04      4.44     2.86
+#
+#  WHAT THIS IS USED FOR, and what it is NOT. It is NOT a statement of MC90's
+#  coefficients: this library does not implement the code formulas, because
+#  their constants could not be sourced verbatim and a relaxation law written
+#  from memory is worse than none. What it IS: a published
+#  MC90 curve for a real strand at a stated stress ratio, which a
+#  `model: power` spec can be fitted to and a case can then cite. Fitting
+#  `rho(t) = rho_1000 (t/1000)^k` to the CEB-LR row gives
+#
+#      rho_1000 = 3.1%      k = 0.198   (from the 1000 h and 6000 h points)
+#                           k = 0.221   (from the 250 h and 6000 h points)
+#
+#  so the curve is a power law to about +/- 0.02 in the exponent over this
+#  decade and a half. `k = 0.21` reproduces the 1000 h and 6000 h readings
+#  within 0.3% and the 250 h one within 5.3%, which is about what the reading
+#  itself is worth at 2% relaxation.
+#  Both numbers are AT 0.8 f_pu; a code's rho_1000 is quoted at 0.7, and the
+#  stress-ratio dependence is strong. Do not carry them to another stress
+#  level.
+#
+#  The measured curve is the one that starts at 1.5% at t = 1 h -- a real
+#  specimen loses something the moment it is stressed -- and it is the only
+#  curve with visible jitter. The two PCI curves are straight on this axis,
+#  i.e. logarithmic in time, which is the older family of relaxation laws.
+#
+# ---------------------------------------------------------------------------
+#  MATERIAL DATA FROM THE SAME PAPER  (for the creep models)
+# ---------------------------------------------------------------------------
+#   Ec(28)                38.7 GPa measured (MC90 predicts 39.7)
+#   f'c at 28 days        63 MPa achieved, 55 MPa design
+#   ageing coefficient    s = 0.25, fitted by the authors to their own measured
+#                         moduli -- so it applies to E directly, not via
+#                         sqrt(strength) (`ageing: {s: 0.25, of: modulus}`)
+#   Es, prestressing      198 GPa measured
+#   Es, ordinary          200 GPa assumed
+#   relaxation            CEB-FIP MC90, low-relaxation steel -- the authors'
+#                         own choice, after their relaxation tests at 0.6, 0.7
+#                         and 0.8 fpu agreed with it
+#   creep tests           80 kN on cylinders at t0 = 2, 7, 28, 90 and 170 days,
+#                         sealed and drying, kept INSIDE the box girder
+#   shrinkage tests       six 100 x 400 mm cylinders per batch, three sealed
+#
+#   NOT in this paper: the notional size used for MC90, the relative humidity
+#   assumed, the concrete age of the monitored segments at any date, and the
+#   best-fit creep/shrinkage equations themselves (Ghali et al. 1999).
+#
+# ---------------------------------------------------------------------------
+#  USED BY
+# ---------------------------------------------------------------------------
+#   cases/case_28d_confederation_sdl.yaml   the 54 kN/m increment and its creep
+#   cases/case_29f_tendon_relaxation.yaml   Fig. 7's CEB-LR curve as a `power` law
+#   v0.4                       why only the increment is built
+#   v0.4                       why the code relaxation formulas are not in

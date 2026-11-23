@@ -1,0 +1,34 @@
+# The fixture of tests/test_result_format.py: a 2 m steel
+# cantilever, 4 beam2 members, a tip load held from t = 0, 0.02 s of explicit
+# dynamics. `cantilever.h5` is its result as vfife 0.5 (result format 2)
+# wrote it, kept so that every later version must still read it. DO NOT
+# regenerate the .h5: that would test the new writer against the new reader.
+version: 1
+name: result_format_2
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: cantilever.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+sections:
+  beam: {type: beam, material: steel, shape: rect, width: 0.1, height: 0.1}
+assign:
+  - {region: bar, section: beam, orientation: [0, 1, 0]}
+constraints:
+  - {region: root, dofs: [1, 1, 1, 1, 1, 1]}
+amplitudes:
+  held: [[0.0, 1.0], [1.0, 1.0]]
+loads:
+  - {region: tip, vector: [0.0, 0.0, -1000.0], amplitude: held}
+solver:
+  backend: numpy
+  mode: dynamic
+  total_time: 0.02
+  damping: {type: viscous, coeff: 50.0}
+output:
+  path: cantilever.h5
+  every: 200
+  checkpoint_every: 200
+  fields: [displacement, rotation, reaction_force, end_actions]
+  monitors:
+    w_tip: {kind: displacement, region: tip, dof: z}
+    R_root: {kind: reaction, region: root, dof: z}

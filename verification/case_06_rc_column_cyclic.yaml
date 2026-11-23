@@ -1,0 +1,116 @@
+version: 1
+case: case_06_rc_column_cyclic
+classification: regression
+reference: >-
+  Project RC-column baseline: a 0.4 x 0.4 x 2.0 m column under 800 kN of
+  constant axial load, cycled to +-0.5% and +-1.0% drift. Not a public
+  response benchmark -- there is no measured specimen behind it -- so what
+  it asserts is a baseline plus the loading invariants that any correct run
+  of this model must satisfy whatever the response turns out to be.
+
+# --------------------------------------------------------------------------- #
+#  THE BASELINE THIS FILE NOW CARRIES, AND WHY IT IS THE FIRST REAL ONE
+# --------------------------------------------------------------------------- #
+#  Three earlier obstacles are gone and the case has been rerun end to end
+#  (numba, about two minutes):
+#
+#    * `host_deduction: E_c` on bars in cracking concrete, which the solver
+#      now refuses. Every response number recorded before
+#      that was taken with it and none of them are comparable.
+#    * a compression band with no length scale. The base of a cyclic column
+#      is where crushing localises, so this is the member most exposed to it;
+#      `Gc: 30.0e3` (250 Gf, the rule case_12 uses) states it.
+#    * `backend: warp`, which made the case unrunnable without an NVIDIA
+#      card and so left it unverified for the whole life of the project. It
+#      is a 256-element model; it runs on a laptop core in two minutes.
+#
+#  It also used to stop at +-0.5% drift because +-1% "diverges in the crushed
+#  concrete at the base". It does not any more, with or without Gc.
+#
+#  RESPONSE, for the record rather than as a target:
+#
+#      drift (mm)   +5     +10    +20    -5     -10    -20
+#      shear (kN)  -75.5  -93.8 -133.6  +93.9 +112.2 +137.9
+#
+#  The loop is pinched (the shear passes through zero near zero drift on the
+#  way back and the reversal yields early, which is what the kinematic
+#  hardening and the wt/wc stiffness recovery are there to produce) and it is
+#  3.2% asymmetric between the two 20 mm peaks, which is the first half-cycle
+#  damaging one side before the other is reached. The hand check in the case
+#  file puts the lateral capacity near 180 kN from an interaction diagram;
+#  this model is at 138 kN at 1% drift and still rising, which is consistent
+#  with a column that has not reached its hinge capacity at that drift.
+
+# THE TARGETS BELOW WERE REFRESHED, AND WHY. `shear_envelope` had drifted
+# +1.95% and `dissipated_energy` -1.39%, both still passing because the bands
+# are 3% and 5%: two thirds of one tolerance spent without a failure. This
+# case is DRIFT controlled, and v0.1 changed how a prescribed
+# displacement ramps into each load level (the `approach` blend that stopped a
+# level from starting with a step discontinuity at the driven nodes); the
+# displacement-controlled cases were never re-verified against it. The values
+# here are the current model's, re-measured.
+
+metrics:
+  # ---- loading invariants: true of any correct run, whatever the response - #
+  - id: peak_drift
+    description: The protocol reaches the drift it asks for
+    source: monitor
+    name: drift
+    reduction: peak_abs
+    expect: {target: 2.0e-2, rtol: 0.0, atol: 1.0e-5}
+
+  - id: return_to_zero
+    description: The last cycle comes back to zero drift
+    source: monitor
+    name: drift
+    reduction: final
+    expect: {target: 0.0, atol: 1.0e-5}
+
+  - id: axial_equilibrium
+    # The axial load is held by a model-level load while the head is driven
+    # laterally; if the steps leaked into each other this is where it shows.
+    description: The 800 kN axial load is still there at the end
+    source: monitor
+    name: axial
+    reduction: final
+    expect: {target: 8.0e+5, rtol: 5.0e-3, atol: 100.0}
+
+  # ---- the baseline response ------------------------------------------- #
+  - id: shear_envelope
+    description: Peak base shear over the protocol
+    source: monitor
+    name: shear
+    reduction: peak_abs
+    expect: {target: 140658.0, rtol: 0.03}
+
+  - id: shear_at_positive_peak_drift
+    # -133.6 kN at +20 mm against +138.0 at -20 mm: the 3.2% asymmetry the
+    # note above accounts for. Asserting both is what makes a change to it
+    # visible; asserting the envelope alone would hide it.
+    description: Base shear at +1% drift
+    source: monitor
+    name: shear
+    reduction: at
+    against: drift
+    value: 2.0e-2
+    expect: {target: -133936.0, rtol: 0.03}
+
+  - id: dissipated_energy
+    # The area of the hysteresis loop, which is the one number that says the
+    # cyclic machinery worked: kinematic hardening, stiffness recovery and
+    # the staged path all have to be right for it. A model that lost its
+    # pinching, or its damage, or reverted to elasticity would keep the
+    # envelope and lose this.
+    description: Energy dissipated over the two cycles (area of the loop)
+    source: monitor
+    name: shear
+    reduction: energy
+    against: drift
+    expect: {target: 7377.1, rtol: 0.05}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-3}

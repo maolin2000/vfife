@@ -1,0 +1,146 @@
+# Xihoumen rail-cum-road bridge, main span 1488 m: modal model.
+# Written by benchmarks/generate_xihoumen.py -- do not edit by hand; see its
+# docstring for every source and every assumption. Modes and the comparison
+# with both papers: python benchmarks/run_xihoumen_modal.py
+#   vfife modal cases/_xihoumen.yaml --modes 40
+version: 1
+name: xihoumen_rail_road
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/xihoumen.msh}
+materials:
+  rail_box: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 35692.2}
+  road_box: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 22223.5}
+  xbeam: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 1}
+  rigid: {type: linear_elastic, E: 2.1e+12, nu: 0.3, rho: 1}
+  tower: {type: linear_elastic, E: 3.6e+10, nu: 0.2, rho: 2650}
+  stay: {type: linear_elastic, E: 1.81e+11, nu: 0.3, rho: 7810}
+  hanger: {type: linear_elastic, E: 2e+11, nu: 0.3, rho: 7850}
+  main: {type: linear_elastic, E: 2e+11, nu: 0.3, rho: 8400}
+sections:
+  rail_box: {type: beam, material: rail_box, shape: general, area: 0.88, iy: 9.6, iz: 4.5, j: 8.3}
+  road_box: {type: beam, material: road_box, shape: general, area: 1.06, iy: 18.3, iz: 4.7, j: 9.8}
+  xbeam: {type: beam, material: xbeam, shape: general, area: 1.82123, iy: 22.1222, iz: 53.9229, j: 6.40278}
+  xbeam_in: {type: beam, material: xbeam, shape: general, area: 1.21778, iy: 6.61356, iz: 16.1206, j: 4.28125}
+  xbeam_out: {type: beam, material: xbeam, shape: general, area: 6.64889, iy: 192, iz: 468, j: 23.375}
+  rigid: {type: beam, material: rigid, shape: general, area: 2, iy: 20, iz: 20, j: 20}
+  leg_lower: {type: beam, material: tower, shape: general, area: 54.24, iy: 448.315, iz: 1886.36, j: 1119.85}
+  leg_middle: {type: beam, material: tower, shape: general, area: 68.76, iy: 409.127, iz: 1755.5, j: 984.703}
+  wall: {type: beam, material: tower, shape: general, area: 179.2, iy: 4642.13, iz: 3806.55, j: 5562.51}
+  upper: {type: beam, material: tower, shape: general, area: 65.52, iy: 1496.99, iz: 1535.5, j: 2241.93}
+  crossbeam: {type: beam, material: tower, shape: general, area: 32, iy: 410.667, iz: 282.667, j: 496.125}
+  corbel: {type: beam, material: tower, shape: general, area: 58.4, iy: 311.467, iz: 259.345, j: 400}
+  stay_00: {type: bar, material: stay, shape: general, area: 0.0233986}
+  stay_01: {type: bar, material: stay, shape: general, area: 0.0243222}
+  stay_02: {type: bar, material: stay, shape: general, area: 0.0252458}
+  stay_03: {type: bar, material: stay, shape: general, area: 0.0261695}
+  stay_04: {type: bar, material: stay, shape: general, area: 0.0270931}
+  stay_05: {type: bar, material: stay, shape: general, area: 0.0280167}
+  stay_06: {type: bar, material: stay, shape: general, area: 0.0289404}
+  stay_07: {type: bar, material: stay, shape: general, area: 0.029864}
+  stay_08: {type: bar, material: stay, shape: general, area: 0.0307876}
+  stay_09: {type: bar, material: stay, shape: general, area: 0.0317112}
+  stay_10: {type: bar, material: stay, shape: general, area: 0.0326349}
+  stay_11: {type: bar, material: stay, shape: general, area: 0.0335585}
+  stay_12: {type: bar, material: stay, shape: general, area: 0.0344821}
+  stay_13: {type: bar, material: stay, shape: general, area: 0.0354057}
+  stay_14: {type: bar, material: stay, shape: general, area: 0.0363294}
+  stay_15: {type: bar, material: stay, shape: general, area: 0.037253}
+  stay_16: {type: bar, material: stay, shape: general, area: 0.0381766}
+  stay_17: {type: bar, material: stay, shape: general, area: 0.0391003}
+  hang_cross: {type: bar, material: hanger, shape: general, area: 0.0140084}
+  hang_pure: {type: bar, material: hanger, shape: general, area: 0.0213974}
+  main_cable: {type: bar, material: main, shape: general, area: 0.449977}
+  bearing: {type: bar, material: rigid, shape: general, area: 0.05}
+assign:
+  - {region: rail_box, section: rail_box, orientation: [0, 0, 1]}
+  - {region: road_box, section: road_box, orientation: [0, 0, 1]}
+  - {region: xbeam, section: xbeam, orientation: [0, 0, 1]}
+  - {region: xbeam_in, section: xbeam_in, orientation: [0, 0, 1]}
+  - {region: xbeam_out, section: xbeam_out, orientation: [0, 0, 1]}
+  - {region: crossbeam, section: crossbeam, orientation: [0, 0, 1]}
+  - {region: corbel, section: corbel, orientation: [0, 0, 1]}
+  - {region: leg_lower, section: leg_lower, orientation: [1, 0, 0]}
+  - {region: leg_middle, section: leg_middle, orientation: [1, 0, 0]}
+  - {region: wall, section: wall, orientation: [1, 0, 0]}
+  - {region: upper, section: upper, orientation: [1, 0, 0]}
+  - {region: rigid, section: rigid, orientation: [1, 0, 0]}
+  - {region: arm, section: rigid, orientation: [1, 0, 0]}
+  - region: stay_00
+    section: stay_00
+    unstressed_lengths: [147.3381944, 147.3381944, 147.3381944, 147.3381944, 147.3381944, 147.3381944, 147.3381944, 147.3381944]
+  - region: stay_01
+    section: stay_01
+    unstressed_lengths: [160.8581651, 160.8581651, 160.8581651, 160.8581651, 160.8581651, 160.8581651, 160.8581651, 160.8581651]
+  - region: stay_02
+    section: stay_02
+    unstressed_lengths: [177.8579294, 177.8579294, 177.8579294, 177.8579294, 177.8579294, 177.8579294, 177.8579294, 177.8579294]
+  - region: stay_03
+    section: stay_03
+    unstressed_lengths: [197.4759172, 197.4759172, 197.4759172, 197.4759172, 197.4759172, 197.4759172, 197.4759172, 197.4759172]
+  - region: stay_04
+    section: stay_04
+    unstressed_lengths: [219.0083717, 219.0083717, 219.0083717, 219.0083717, 219.0083717, 219.0083717, 219.0083717, 219.0083717]
+  - region: stay_05
+    section: stay_05
+    unstressed_lengths: [241.943762, 241.943762, 241.943762, 241.943762, 241.943762, 241.943762, 241.943762, 241.943762]
+  - region: stay_06
+    section: stay_06
+    unstressed_lengths: [265.9187908, 265.9187908, 265.9187908, 265.9187908, 265.9187908, 265.9187908, 265.9187908, 265.9187908]
+  - region: stay_07
+    section: stay_07
+    unstressed_lengths: [290.6761019, 290.6761019, 290.6761019, 290.6761019, 290.6761019, 290.6761019, 290.6761019, 290.6761019]
+  - region: stay_08
+    section: stay_08
+    unstressed_lengths: [316.031914, 316.031914, 316.031914, 316.031914, 316.031914, 316.031914, 316.031914, 316.031914]
+  - region: stay_09
+    section: stay_09
+    unstressed_lengths: [341.8532531, 341.8532531, 341.8532531, 341.8532531, 341.8532531, 341.8532531, 341.8532531, 341.8532531]
+  - region: stay_10
+    section: stay_10
+    unstressed_lengths: [368.0424327, 368.0424327, 368.0424327, 368.0424327, 368.0424327, 368.0424327, 368.0424327, 368.0424327]
+  - region: stay_11
+    section: stay_11
+    unstressed_lengths: [394.5265547, 394.5265547, 394.5265547, 394.5265547, 394.5265547, 394.5265547, 394.5265547, 394.5265547]
+  - region: stay_12
+    section: stay_12
+    unstressed_lengths: [421.2503786, 421.2503786, 421.2503786, 421.2503786, 421.2503786, 421.2503786, 421.2503786, 421.2503786]
+  - region: stay_13
+    section: stay_13
+    unstressed_lengths: [448.1714279, 448.1714279, 448.1714279, 448.1714279, 448.1714279, 448.1714279, 448.1714279, 448.1714279]
+  - region: stay_14
+    section: stay_14
+    unstressed_lengths: [475.4976719, 475.4976719, 475.4976719, 475.4976719, 475.4976719, 475.4976719, 475.4976719, 475.4976719]
+  - region: stay_15
+    section: stay_15
+    unstressed_lengths: [503.1408041, 503.1408041, 503.1408041, 503.1408041, 503.1408041, 503.1408041, 503.1408041, 503.1408041]
+  - region: stay_16
+    section: stay_16
+    unstressed_lengths: [530.9503449, 530.9503449, 530.9503449, 530.9503449, 530.9503449, 530.9503449, 530.9503449, 530.9503449]
+  - region: stay_17
+    section: stay_17
+    unstressed_lengths: [558.908663, 558.908663, 558.908663, 558.908663, 558.908663, 558.908663, 558.908663, 558.908663]
+  - region: main_cable
+    section: main_cable
+    unstressed_lengths: [37.69882413, 30.11790243, 30.08165281, 30.04571424, 30.01007986, 29.9747637, 29.93975177, 29.9050473, 29.87065033, 29.83656836, 29.80278668, 29.76931644, 29.73615025, 29.70329497, 29.67074083, 29.59564722, 29.45704962, 29.26282113, 29.02480324, 28.75917104, 28.52804194, 28.33216653, 28.17220104, 28.04869412, 27.96207999, 27.91266671, 17.93573902, 27.91266671, 27.96207999, 28.04869412, 28.17220104, 28.33216653, 28.52804194, 28.75917104, 29.02480324, 29.26282113, 29.45704962, 29.59564722, 29.67074083, 29.70329497, 29.73615025, 29.76931644, 29.80278668, 29.83656836, 29.87065033, 29.9050473, 29.93975177, 29.9747637, 30.01007986, 30.04571424, 30.08165281, 30.11790243, 37.69882413, 37.69882413, 30.11790243, 30.08165281, 30.04571424, 30.01007986, 29.9747637, 29.93975177, 29.9050473, 29.87065033, 29.83656836, 29.80278668, 29.76931644, 29.73615025, 29.70329497, 29.67074083, 29.59564722, 29.45704962, 29.26282113, 29.02480324, 28.75917104, 28.52804194, 28.33216653, 28.17220104, 28.04869412, 27.96207999, 27.91266671, 17.93573902, 27.91266671, 27.96207999, 28.04869412, 28.17220104, 28.33216653, 28.52804194, 28.75917104, 29.02480324, 29.26282113, 29.45704962, 29.59564722, 29.67074083, 29.70329497, 29.73615025, 29.76931644, 29.80278668, 29.83656836, 29.87065033, 29.9050473, 29.93975177, 29.9747637, 30.01007986, 30.04571424, 30.08165281, 30.11790243, 37.69882413, 61.05417926, 60.90456935, 60.75754468, 60.61308138, 60.47116493, 60.33182341, 60.19501846, 60.06074672, 59.92902962, 59.7998391, 59.67316198, 59.54902669, 61.05417926, 60.90456935, 60.75754468, 60.61308138, 60.47116493, 60.33182341, 60.19501846, 60.06074672, 59.92902962, 59.7998391, 59.67316198, 59.54902669, 60.81703333, 60.66818549, 60.52189747, 60.37813424, 60.23688499, 60.09818131, 59.96197777, 59.8282814, 59.69710325, 59.56841878, 59.44221803, 59.31852296, 60.81703333, 60.66818549, 60.52189747, 60.37813424, 60.23688499, 60.09818131, 59.96197777, 59.8282814, 59.69710325, 59.56841878, 59.44221803, 59.31852296]
+  - region: hang_cross
+    section: hang_cross
+    unstressed_lengths: [76.40489549, 66.42652931, 56.88980138, 47.99464033, 47.99464033, 56.88980138, 66.42652931, 76.40489549, 76.40489549, 66.42652931, 56.88980138, 47.99464033, 47.99464033, 56.88980138, 66.42652931, 76.40489549]
+  - region: hang_pure
+    section: hang_pure
+    unstressed_lengths: [39.99319681, 32.99580817, 27.02560285, 22.08191827, 18.16420301, 15.27202699, 13.40506928, 12.5687989, 12.5687989, 13.40506928, 15.27202699, 18.16420301, 22.08191827, 27.02560285, 32.99580817, 39.99319681, 39.99319681, 32.99580817, 27.02560285, 22.08191827, 18.16420301, 15.27202699, 13.40506928, 12.5687989, 12.5687989, 13.40506928, 15.27202699, 18.16420301, 22.08191827, 27.02560285, 32.99580817, 39.99319681]
+  - {region: bearing, section: bearing}
+nodal_masses:
+  - {region: ip, mass: 200000, per_node: true}
+  - {region: anchor_t, mass: 55555.6, per_node: true}
+constraints:
+  - {region: tower_base, dofs: [1, 1, 1, 1, 1, 1]}
+  - {region: anchorage,  dofs: [1, 1, 1, 1, 1, 1]}
+  - {region: pier_z,     dofs: [0, 0, 1, 0, 0, 0]}
+  - {region: pier_y,     dofs: [0, 1, 0, 0, 0, 0]}
+loads: []
+steps: [{name: dead, load_steps: 1}]
+solver: {backend: numba, mode: relaxation, tolerance: 1.0e-4, n_steps: 1000}
+output:
+  path: results/xihoumen.h5
+  monitors:
+    w_mid: {kind: displacement, region: rail_nodes, dof: z}

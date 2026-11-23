@@ -1,0 +1,555 @@
+# Li, S. et al. (2024), Buildings 14, 3322 -- FIGURE 9 DIGITISED
+# Moment-deflection response at midspan, eight post-tensioned scaled T-beams.
+# https://doi.org/10.3390/buildings14103322  (CC BY)
+#
+# Companion to Li2024_corroded_pc_beam.txt, which carries the tables. This
+# file carries the CURVES, which the tables do not: the shape of the response
+# and the deflection at which each beam failed.
+#
+# HOW. Each panel is one black curve with square markers on a GREEN dashed
+# grid, so colour separates the data from its own calibration -- the grid sits
+# at x = 5,10,...,30 mm and M = 10,...,60 kN m. The page is rendered at
+# 600 dpi, the eight panels are found from the grid blobs themselves, ink is
+# anything clearly off the white page and not green, and the value read at
+# each pixel column is the MIDDLE of the ink run (its top edge is half a
+# marker high -- about 1.1 kN m -- and reading that puts every curve high).
+#
+# THE CHECK, and it is an independent one: the peak of each digitised curve
+# against the flexural capacity in Table 2, which was NOT used anywhere in the
+# calibration.
+#
+#   beam   rho%   digitised   Table 2    error
+#   A0     0.01      61.78     61.63   +0.25%
+#   A1     0.33      61.89     61.71   +0.29%
+#   A2     1.24      59.89     59.93   -0.07%
+#   A3     2.37      56.88     56.70   +0.32%
+#   A4     4.52      53.93     53.72   +0.39%
+#   A5     6.15      49.08     49.39   -0.63%
+#   A6     7.47      47.91     47.86   +0.10%
+#   A7     8.31      44.16     44.54   -0.84%
+#
+# All eight inside 0.9%. The x axis needs no such check -- it is the grid.
+#
+# THE TERMINAL DROP is the last row of each block. Every beam ends with a
+# near-vertical fall, which section 3.1 of the paper attributes to the steel
+# wires rupturing. The deflection at which it happens is the beam's ULTIMATE
+# DEFLECTION, and it is not in any table:
+#
+#   beam    rho%   drop at (mm)   M before -> after (kN m)
+#   A0      0.01        34.24       61.78 ->  47.00
+#   A1      0.33        33.69       61.89 ->  44.25
+#   A2      1.24        31.59       59.89 ->  43.28
+#   A3      2.37        28.92       56.88 ->  42.90
+#   A4      4.52        25.32       53.93 ->  41.26
+#   A5      6.15        22.74       49.08 ->  39.51
+#   A6      7.47        19.88       47.91 ->  34.50
+#   A7      8.31        16.50       44.16 ->  31.90
+#
+#   -- 34.2 mm down to 16.5 mm over 8.3% of mass loss. That column is what a
+#      corrosion model has to reproduce and it cannot be fitted to a table.
+#      But it lives on the DEFLECTION axis, so use the RATIOS (A7/A0 = 0.48)
+#      and not the millimetres -- see the block above.
+#
+# DEFLECTION IS MEASURED FROM THE START OF LOADING (one dial gauge at
+# midspan), so it already excludes the camber -- directly comparable to a
+# model's deflection measured from the state after prestress transfer.
+# Convert to total applied load with P = M / 0.425 (shear span 850 mm).
+#
+# --------------------------------------------------------------------------- #
+#  THE MOMENT AXIS IS SOUND. THE DEFLECTION AXIS CARRIES ABOUT 1.4 mm THAT
+#  IS NOT THE BEAM -- read this before using the x values.
+# --------------------------------------------------------------------------- #
+#  The uncracked section has no free parameters: the transformed EI of A0's
+#  midspan section is 6.695 MN m2, which under this four-point rig is
+#  19.25 kN m of moment per mm of midspan deflection. The paper's own
+#  cracking moment is "approximately 22 kN m". At M = 22 the beam is by
+#  definition still uncracked, and it should therefore be at
+#
+#      1.14 mm   by hand from the transformed section
+#      1.06 mm   from the model (cases/case_31), which agrees with it
+#
+#  The digitised curve is at 2.44 mm. The difference, 1.38 mm, is present
+#  BEFORE the beam cracks, where neither tension stiffening, bond-slip nor
+#  any constitutive choice can reach it. All eight curves show it: their
+#  1-2 mm slopes are 4.8 to 8.8 kN m/mm against the 19.25 the section
+#  requires, and corrosion cannot be the reason (8% of strand area moves the
+#  uncracked EI by under 2%). It is the rig -- support seating, the
+#  distribution beam bedding in, or a gauge reading actuator travel.
+#
+#  As a series compliance that is k = 15.9 kN m/mm. Removing it -- calibrated
+#  on that ONE point and on nothing from any model -- puts A0 within 1.2 mm
+#  of cases/case_31 over the whole ascending branch, to 95% of capacity:
+#
+#      M kN m     25     30     40     45     50    58.5
+#      raw      2.93   4.51   6.85   8.23  11.24   17.78
+#      minus M/k  1.36   2.63   4.34   5.41   8.11   14.11
+#      model    1.28   1.89   4.01   5.64   7.41   12.88
+#
+#  SO: use the MOMENT axis freely -- it is checked to 0.9% against Table 2
+#  below. Use the deflection axis only RELATIVELY, beam against beam, where
+#  a common rig compliance largely cancels. Do not compare a model's
+#  deflection to a raw x value, and do not fit a constitutive parameter to
+#  the early shape of these curves: 1.4 mm of it is the testing machine.
+#
+# THE FIRST MILLIMETRE IS NOT RELIABLE. The elastic branch rises about
+# 11 kN m per mm, so it crosses a whole pixel column in one step and the
+# column's midpoint over-reads it (A0 comes out at 12.4 kN m where the
+# authors' first marker is nearer 8.5). The origin is prepended because a
+# beam under no load has no deflection; everything below 1 mm is that
+# interpolation, not a reading. Use points at 2 mm and beyond.
+#
+# Curves are resampled every 0.5 mm from the origin. Columns:
+#   beam   deflection[mm]   moment[kN.m]
+#
+# --- A0   rho = 0.01%   ultimate load 145.0 kN   capacity 61.63 kN.m ---
+A0    0.00    0.000
+A0    0.50   10.321
+A0    1.00   12.622
+A0    1.50   16.761
+A0    2.00   19.563
+A0    2.50   22.338
+A0    3.00   25.441
+A0    3.50   26.095
+A0    4.00   28.428
+A0    4.50   29.959
+A0    5.00   31.631
+A0    5.50   33.943
+A0    6.00   34.559
+A0    6.50   37.805
+A0    7.00   40.980
+A0    7.50   42.593
+A0    8.00   44.214
+A0    8.50   45.927
+A0    9.00   46.817
+A0    9.50   47.509
+A0   10.00   48.310
+A0   10.50   48.893
+A0   11.00   49.646
+A0   11.50   50.373
+A0   12.00   51.187
+A0   12.50   52.134
+A0   13.00   53.462
+A0   13.50   55.371
+A0   14.00   55.375
+A0   14.50   56.031
+A0   15.00   56.176
+A0   15.50   56.759
+A0   16.00   57.017
+A0   16.50   57.503
+A0   17.00   57.841
+A0   17.50   58.325
+A0   18.00   58.639
+A0   18.50   59.053
+A0   19.00   59.563
+A0   19.50   59.661
+A0   20.00   59.709
+A0   20.50   59.709
+A0   21.00   59.887
+A0   21.50   60.000
+A0   22.00   60.000
+A0   22.50   60.000
+A0   23.00   60.255
+A0   23.50   60.291
+A0   24.00   60.291
+A0   24.50   60.291
+A0   25.00   60.510
+A0   25.50   60.546
+A0   26.00   60.660
+A0   26.50   60.656
+A0   27.00   60.801
+A0   27.50   60.801
+A0   28.00   61.056
+A0   28.50   61.056
+A0   29.00   61.093
+A0   29.50   61.093
+A0   30.00   61.129
+A0   30.50   61.238
+A0   31.00   61.493
+A0   31.50   61.493
+A0   32.00   61.748
+A0   32.50   61.748
+A0   33.00   61.639
+A0   33.50   61.585
+A0   34.00   54.683
+# A0  rupture drop at 34.24 mm: 54.68 -> 47.00 kN.m
+#
+# --- A1   rho = 0.33%   ultimate load 145.2 kN   capacity 61.71 kN.m ---
+A1    0.00    0.000
+A1    0.50    9.018
+A1    1.00   12.136
+A1    1.50   17.198
+A1    2.00   20.297
+A1    2.50   22.657
+A1    3.00   25.448
+A1    3.50   26.609
+A1    4.00   27.932
+A1    4.50   29.314
+A1    5.00   30.534
+A1    5.50   32.001
+A1    6.00   34.040
+A1    6.50   36.347
+A1    7.00   41.023
+A1    7.50   42.617
+A1    8.00   43.432
+A1    8.50   44.288
+A1    9.00   45.093
+A1    9.50   45.893
+A1   10.00   46.805
+A1   10.50   48.910
+A1   11.00   51.179
+A1   11.50   51.846
+A1   12.00   52.639
+A1   12.50   53.477
+A1   13.00   54.307
+A1   13.50   55.367
+A1   14.00   55.633
+A1   14.50   56.145
+A1   15.00   56.738
+A1   15.50   57.035
+A1   16.00   57.517
+A1   16.50   58.069
+A1   17.00   58.377
+A1   17.50   58.888
+A1   18.00   59.592
+A1   18.50   59.589
+A1   19.00   59.703
+A1   19.50   59.703
+A1   20.00   60.000
+A1   20.50   60.000
+A1   21.00   60.000
+A1   21.50   60.000
+A1   22.00   60.222
+A1   22.50   60.222
+A1   23.00   60.222
+A1   23.50   60.519
+A1   24.00   60.519
+A1   24.50   60.519
+A1   25.00   60.519
+A1   25.50   60.804
+A1   26.00   60.978
+A1   26.50   60.889
+A1   27.00   60.927
+A1   27.50   61.112
+A1   28.00   61.119
+A1   28.50   61.223
+A1   29.00   61.223
+A1   29.50   61.483
+A1   30.00   61.483
+A1   30.50   61.594
+A1   31.00   61.594
+A1   31.50   61.742
+A1   32.00   61.853
+A1   32.50   61.890
+A1   33.00   61.890
+A1   33.50   61.742
+# A1  rupture drop at 33.69 mm: 61.74 -> 44.25 kN.m
+#
+# --- A2   rho = 1.24%   ultimate load 141.0 kN   capacity 59.93 kN.m ---
+A2    0.00    0.000
+A2    0.50    6.457
+A2    1.00   12.914
+A2    1.50   17.158
+A2    2.00   17.734
+A2    2.50   20.952
+A2    3.00   23.221
+A2    3.50   25.516
+A2    4.00   26.714
+A2    4.50   28.053
+A2    5.00   29.531
+A2    5.50   30.504
+A2    6.00   31.876
+A2    6.50   33.390
+A2    7.00   34.310
+A2    7.50   38.107
+A2    8.00   41.983
+A2    8.50   42.663
+A2    9.00   43.810
+A2    9.50   44.593
+A2   10.00   45.429
+A2   10.50   46.628
+A2   11.00   46.758
+A2   11.50   48.130
+A2   12.00   49.154
+A2   12.50   50.428
+A2   13.00   50.952
+A2   13.50   51.625
+A2   14.00   52.374
+A2   14.50   52.930
+A2   15.00   53.652
+A2   15.50   54.291
+A2   16.00   55.240
+A2   16.50   55.167
+A2   17.00   55.531
+A2   17.50   55.676
+A2   18.00   55.706
+A2   18.50   55.967
+A2   19.00   56.185
+A2   19.50   56.221
+A2   20.00   56.475
+A2   20.50   56.722
+A2   21.00   56.766
+A2   21.50   57.020
+A2   22.00   57.259
+A2   22.50   57.275
+A2   23.00   57.420
+A2   23.50   57.711
+A2   24.00   57.814
+A2   24.50   58.219
+A2   25.00   58.256
+A2   25.50   58.764
+A2   26.00   58.815
+A2   26.50   58.946
+A2   27.00   58.946
+A2   27.50   59.019
+A2   28.00   58.996
+A2   28.50   59.201
+A2   29.00   59.303
+A2   29.50   59.600
+A2   30.00   59.564
+A2   30.50   59.709
+A2   31.00   59.709
+A2   31.50   59.891
+# A2  rupture drop at 31.59 mm: 59.89 -> 43.28 kN.m
+#
+# --- A3   rho = 2.37%   ultimate load 133.4 kN   capacity 56.70 kN.m ---
+A3    0.00    0.000
+A3    0.50    8.089
+A3    1.00    9.783
+A3    1.50   16.182
+A3    2.00   18.542
+A3    2.50   20.192
+A3    3.00   21.951
+A3    3.50   23.709
+A3    4.00   25.471
+A3    4.50   26.828
+A3    5.00   28.297
+A3    5.50   29.287
+A3    6.00   30.728
+A3    6.50   31.990
+A3    7.00   33.952
+A3    7.50   34.212
+A3    8.00   36.915
+A3    8.50   38.941
+A3    9.00   41.793
+A3    9.50   42.609
+A3   10.00   43.529
+A3   10.50   44.527
+A3   11.00   45.416
+A3   11.50   46.812
+A3   12.00   46.840
+A3   12.50   47.721
+A3   13.00   48.393
+A3   13.50   49.061
+A3   14.00   49.524
+A3   14.50   50.381
+A3   15.00   51.159
+A3   15.50   51.963
+A3   16.00   52.860
+A3   16.50   53.830
+A3   17.00   55.271
+A3   17.50   55.399
+A3   18.00   55.471
+A3   18.50   55.601
+A3   19.00   55.652
+A3   19.50   55.652
+A3   20.00   55.652
+A3   20.50   55.942
+A3   21.00   55.942
+A3   21.50   55.942
+A3   22.00   55.942
+A3   22.50   56.189
+A3   23.00   56.232
+A3   23.50   56.196
+A3   24.00   56.196
+A3   24.50   56.341
+A3   25.00   56.377
+A3   25.50   56.486
+A3   26.00   56.486
+A3   26.50   56.630
+A3   27.00   56.594
+A3   27.50   56.739
+A3   28.00   56.739
+A3   28.50   56.739
+# A3  rupture drop at 28.92 mm: 56.88 -> 42.90 kN.m
+#
+# --- A4   rho = 4.52%   ultimate load 126.4 kN   capacity 53.72 kN.m ---
+A4    0.00    0.000
+A4    0.50    8.751
+A4    1.00   10.349
+A4    1.50   15.654
+A4    2.00   17.034
+A4    2.50   19.168
+A4    3.00   20.855
+A4    3.50   22.183
+A4    4.00   23.524
+A4    4.50   25.492
+A4    5.00   26.137
+A4    5.50   27.650
+A4    6.00   28.981
+A4    6.50   30.476
+A4    7.00   31.445
+A4    7.50   32.802
+A4    8.00   34.041
+A4    8.50   36.621
+A4    9.00   39.083
+A4    9.50   42.351
+A4   10.00   42.903
+A4   10.50   43.702
+A4   11.00   44.539
+A4   11.50   45.345
+A4   12.00   46.539
+A4   12.50   46.846
+A4   13.00   47.463
+A4   13.50   48.002
+A4   14.00   48.346
+A4   14.50   48.904
+A4   15.00   49.532
+A4   15.50   49.951
+A4   16.00   50.474
+A4   16.50   51.172
+A4   17.00   51.452
+A4   17.50   51.452
+A4   18.00   51.556
+A4   18.50   51.835
+A4   19.00   52.083
+A4   19.50   52.114
+A4   20.00   52.394
+A4   20.50   52.533
+A4   21.00   52.812
+A4   21.50   52.812
+A4   22.00   53.056
+A4   22.50   53.056
+A4   23.00   53.360
+A4   23.50   53.365
+A4   24.00   53.475
+A4   24.50   53.512
+A4   25.00   53.894
+# A4  rupture drop at 25.32 mm: 53.89 -> 41.26 kN.m
+#
+# --- A5   rho = 6.15%   ultimate load 116.2 kN   capacity 49.39 kN.m ---
+A5    0.00    0.000
+A5    0.50    6.449
+A5    1.00    8.929
+A5    1.50   13.232
+A5    2.00   17.015
+A5    2.50   18.226
+A5    3.00   19.552
+A5    3.50   20.879
+A5    4.00   22.136
+A5    4.50   23.297
+A5    5.00   25.308
+A5    5.50   25.549
+A5    6.00   27.304
+A5    6.50   28.919
+A5    7.00   30.272
+A5    7.50   31.626
+A5    8.00   33.855
+A5    8.50   34.050
+A5    9.00   35.894
+A5    9.50   37.230
+A5   10.00   38.089
+A5   10.50   39.623
+A5   11.00   40.973
+A5   11.50   42.550
+A5   12.00   43.207
+A5   12.50   43.760
+A5   13.00   44.467
+A5   13.50   45.254
+A5   14.00   45.937
+A5   14.50   46.766
+A5   15.00   47.042
+A5   15.50   47.042
+A5   16.00   47.284
+A5   16.50   47.284
+A5   17.00   47.560
+A5   17.50   47.837
+A5   18.00   47.837
+A5   18.50   48.104
+A5   19.00   48.252
+A5   19.50   48.390
+A5   20.00   48.390
+A5   20.50   48.550
+A5   21.00   48.770
+A5   21.50   49.046
+A5   22.00   49.081
+A5   22.50   49.081
+# A5  rupture drop at 22.74 mm: 45.00 -> 39.51 kN.m
+#
+# --- A6   rho = 7.47%   ultimate load 112.6 kN   capacity 47.86 kN.m ---
+A6    0.00    0.000
+A6    0.50    7.723
+A6    1.00    8.923
+A6    1.50   12.058
+A6    2.00   14.531
+A6    2.50   16.915
+A6    3.00   17.932
+A6    3.50   18.941
+A6    4.00   19.690
+A6    4.50   20.648
+A6    5.00   21.675
+A6    5.50   22.532
+A6    6.00   23.555
+A6    6.50   24.397
+A6    7.00   25.497
+A6    7.50   26.637
+A6    8.00   27.954
+A6    8.50   29.311
+A6    9.00   30.673
+A6    9.50   32.032
+A6   10.00   34.044
+A6   10.50   34.324
+A6   11.00   35.598
+A6   11.50   36.660
+A6   12.00   37.716
+A6   12.50   38.798
+A6   13.00   39.879
+A6   13.50   40.752
+A6   14.00   42.493
+A6   14.50   42.627
+A6   15.00   43.426
+A6   15.50   43.947
+A6   16.00   44.503
+A6   16.50   45.085
+A6   17.00   45.626
+A6   17.50   46.727
+A6   18.00   46.796
+A6   18.50   47.287
+A6   19.00   47.352
+A6   19.50   47.794
+# A6  rupture drop at 19.88 mm: 47.91 -> 34.50 kN.m
+#
+# --- A7   rho = 8.31%   ultimate load 104.8 kN   capacity 44.54 kN.m ---
+A7    0.00    0.000
+A7    0.50    8.709
+A7    1.00   10.069
+A7    1.50   12.536
+A7    2.00   16.923
+A7    2.50   17.831
+A7    3.00   18.428
+A7    3.50   19.217
+A7    4.00   19.983
+A7    4.50   20.780
+A7    5.00   21.365
+A7    5.50   22.197
+A7    6.00   22.951
+A7    6.50   23.767
+A7    7.00   24.345
+A7    7.50   25.523
+A7    8.00   25.545
+A7    8.50   27.259
+A7    9.00   28.384
+A7    9.50   29.401
+A7   10.00   30.547
+A7   10.50   31.611
+A7   11.00   32.681
+A7   11.50   34.047
+A7   12.00   35.410
+A7   12.50   36.736
+A7   13.00   38.346
+A7   13.50   39.538
+A7   14.00   42.050
+A7   14.50   42.571
+A7   15.00   43.333
+A7   15.50   44.165
+A7   16.00   44.165
+# A7  rupture drop at 16.50 mm: 38.79 -> 31.90 kN.m

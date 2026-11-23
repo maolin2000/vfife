@@ -1,0 +1,73 @@
+version: 1
+case: case_28c_confederation_uniform
+classification: analytical
+reference: >-
+  The same model and the same published profile as case_28b with the gradient
+  taken out: only the section-mean rise of Ghali (2000) Fig. 21 is applied,
+  19.1 K at the pier to 21.0 K at midspan, with alpha = 8.5e-6/C. There is no
+  published curve for this load -- it is half of one -- so the targets are the
+  independent plane-frame solution in benchmarks/generate_confederation.py,
+  and the point of the case is the DIFFERENCE from case_28b.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THE GRADIENT OF A PUBLISHED PROFILE IS WORTH
+# --------------------------------------------------------------------------- #
+#                     this case      case_28b       Fig. 21
+#    midspan           +67.4 mm       +58.2 mm       +60.6
+#    x = -180 m        -34.1          -43.9          -43.7
+#    tips              -59.2 / -66.5  -90.0 / -97.2  -73.5
+#
+#  Nine millimetres at midspan and thirty-one at every tip. The frame span
+#  holds both ends of itself, so a curvature there is mostly resisted; a 95 m
+#  cantilever is free to curl, so there it is not. The same split is why
+#  case_27's two-span beam deflects a quarter of what one span would.
+#
+#  AND WHY THE MEAN HALF IS WORTH ISOLATING: its response is independent of E
+#  -- every stiffness in the frame scales together and E cancels -- and it
+#  moves 4% over a fourfold change in the assumed pier wall, where case_28's
+#  truck deflection moves 25%. So this case is close to a pure check on
+#  geometry and alpha, which is not something a load case usually gets to be.
+
+metrics:
+  - id: midspan_without_the_gradient
+    description: >-
+      68.1 mm from the plane frame, 67.4 from the solver. The gradient of the
+      published profile is worth the 9 mm between this and case_28b.
+    source: monitor
+    name: w_mid
+    reduction: final
+    expect: {target: 0.0674, rtol: 0.03}
+
+  - id: the_tips_without_the_gradient
+    description: 59.2 mm down, against 90.0 with the gradient on
+    source: monitor
+    name: w_tip_west
+    reduction: final
+    expect: {target: -0.0592, rtol: 0.03}
+
+  - id: the_east_tip
+    description: >-
+      66.5 mm, 12% more than the west: the same load, the same girder, and a
+      7.6 m taller pier
+    source: monitor
+    name: w_tip_east
+    reduction: final
+    expect: {target: -0.0665, rtol: 0.03}
+
+  - id: x_180_without_the_gradient
+    description: 34.1 mm down, against 43.9 with the gradient on
+    source: monitor
+    name: w_o_west
+    reduction: final
+    expect: {target: -0.0341, rtol: 0.04}
+
+  - id: the_pier_top_moves_the_same_either_way
+    description: >-
+      19.1 mm against case_28b's 19.5. The pier top is pushed out by the
+      girder GROWING, which is the mean rise; the gradient bends the girder
+      and hardly lengthens it, so this is the one monitor the two cases very
+      nearly share.
+    source: monitor
+    name: ux_p31
+    reduction: final
+    expect: {target: 0.0191, rtol: 0.05}

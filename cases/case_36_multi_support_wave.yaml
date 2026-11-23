@@ -1,0 +1,65 @@
+# case_36 -- multiple-support excitation with a travelling wave.
+#
+# A 100 t deck mass between two piers 400 m apart, tied to each by an axial
+# member of stiffness k = EA/L = 7.8957e6 N/m (omega = sqrt(2k/m) = 2 Hz).
+# The ground moves along the bridge, u_g(t) = 0.1 sin(2 pi 1.3 t) m, and the
+# wave that carries it runs from west to east at 1000 m/s: the east pier gets
+# the record 0.4 s late, nearly half a period (187 degrees) behind the west.
+#
+#     m u'' + 2 k u = k u_g(t) + k u_g(t - 0.4) H(t - 0.4)
+#
+# is linear, so from rest the answer is the sum of the two support terms
+#     u_j(t) = (k D / m) / (omega^2 - Omega^2) [sin Omega s - (Omega/omega) sin omega s],
+#     s = t - tau_j,
+# and the pier reactions are k (u_g,j - u). The contract holds the deck's
+# peak and the two pier forces to 0.5% (they come out within 0.02%).
+#
+# What the wave changes: with the SAME record at both piers -- what a
+# uniform `ground_motion` load assumes -- the deck's peak is 0.285 m, 2.8
+# times this one, and the members' peak force about the same (1.46 MN
+# against 1.50). The piers half a period apart hold the deck still and
+# strain the members by their difference instead.
+version: 1
+name: case_36_multi_support_wave
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/multi_support_bar_2.msh}
+materials:
+  bar: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+sections:
+  bar: {type: beam, material: bar, shape: general, area: 7.8957e-3, iy: 1.0e-4, iz: 1.0e-4, j: 2.0e-4}
+assign:
+  - {region: bars, section: bar, orientation: [0, 0, 1]}
+nodal_masses:
+  # 100 t at the deck in all: each member lumps half its 12396.25 kg there
+  # (the halves at the piers ride with the ground)
+  - {region: deck, mass: 87603.751}
+constraints:
+  # the piers are clamped, and their x follows the record ...
+  - {region: piers, dofs: [1, 1, 1, 1, 1, 1]}
+  - region: piers
+    dofs: [1, 0, 0, 0, 0, 0]
+    record:
+      path: ../benchmarks/assets/multi_support_sine.dat
+      quantity: displacement
+      # ... late by the distance from the west pier over the wave speed
+      wave: {speed: 1000.0, direction: [1, 0, 0], origin: [0.0, 0.0, 0.0]}
+  # the deck moves along the bridge only
+  - {region: deck, dofs: [0, 1, 1, 1, 1, 1]}
+loads: []
+solver:
+  backend: numpy
+  mode: dynamic
+  total_time: 6.0
+  # the deck's own stable step is 0.08 s; a step of a few ms keeps the
+  # central-difference period error near 1e-4
+  dt_safety: 0.05
+output:
+  path: results/case_36_multi_support_wave.h5
+  fields: [displacement]
+  every: 1
+  monitors:
+    deck: {kind: displacement, region: deck, dof: x}
+    west_ground: {kind: displacement, region: west, dof: x}
+    east_ground: {kind: displacement, region: east, dof: x}
+    west_force: {kind: reaction, region: west, dof: x}
+    east_force: {kind: reaction, region: east, dof: x}

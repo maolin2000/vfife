@@ -1,0 +1,114 @@
+version: 1
+name: case_20_rolled_cantilever
+
+# A SOLID CANTILEVER ROLLED INTO A CIRCLE BY AN END COUPLE
+#
+# Wu & Ting (2020), "Analysis of the changing geometry of flexible structure:
+# 2. Analysis of flexible solid", Proc. R. Soc. A 476:20200045, example 2,
+# and before them every finite-rotation paper since Bathe & Bolourchi
+# (1979): a cantilever under an end moment M = 2 pi E I / L bends into a
+# complete circle, its tip meeting its root. The elastica is exact and
+# closed-form -- with theta = M L / (E I) the tip sits at
+#
+#     u / L = sin(theta) / theta - 1        w / L = -(1 - cos(theta)) / theta
+#
+# -- so every load level is a check, and the tip passes 90, 180, 270 and 360
+# degrees of rotation on the way. Here the beam is a SOLID (hexa8), which is
+# what makes it a test of anything at all: a beam element has a rotational
+# dof to hang a couple on and a moment-curvature law that IS the elastica;
+# a solid has neither, and has to make the circle out of a traction on its
+# end face and 16% strain in its outer fibres.
+#
+# THE MODEL. L = 1 m, section 50 x 50 mm, E = 12 MPa, nu = 0 (E I = 6.25
+# N m^2, M = 39.27 N m), 40 x 6 reduced hexa8 elements over the half width
+# (one element across it: nu = 0 leaves the width direction inert) with the
+# mid-plane as a symmetry plane. Forty load levels, so m = M L / (2 pi E I)
+# = 0.25, 0.5, 0.75 and 1 are levels 10, 20, 30, 40 -- the `time` monitor of
+# a staged relaxation is the LEVEL INDEX, which is what the contract reads.
+#
+# HOW THE COUPLE IS APPLIED (mesh.FaceMoment). `moment` on a
+# solid face is a couple about a fixed axis with a potential: -|M| theta(x),
+# theta the angle the face's best-fit rigid rotation has turned about M's
+# axis. Its gradient is, in the reference configuration, the textbook
+# bending traction M z / I as tributary-area nodal forces, and on the
+# turned face that distribution rigidly rotated: a couple of magnitude M
+# about the face's own section through the full turn, smooth, stateless.
+# It was first written as the textbook traction re-evaluated on the current
+# face -- centroid, normal and second moments every step -- and that force
+# is not the gradient of anything: its tangent was almost purely skew, and
+# though a thousandth of the element stiffness it was a thousand times the
+# softest mode of the rolled beam. Kinetic damping, a descent method,
+# thrashed from level 16 on and stalled at m = 0.65; without the symmetry
+# plane an out-of-plane flutter grew from round-off at m = 0.4. The
+# finite-difference tangent (`vfife probe`) found it: the
+# element's part symmetric to 1e-9 at 10% strain, its stiffest mode at half
+# the stability limit, the load's part skew. The second version, the
+# potential -M . phi of the face's rotation vector, was exact in the plane
+# but singular at a full turn (the tangent map divides the transverse part
+# of M by |2 sin(theta/2)/theta|), and a 1e-4 tilt at 349 degrees grew 25%
+# a step into a sign-alternating oscillation: the explicit step cannot
+# carry a transverse stiffness that large. The angle about a fixed axis
+# has no such point.
+#
+# WHY THE SYMMETRY PLANE. Unconstrained, the planar state of this solid
+# loses its out-of-plane stability at 315-333 degrees of tip rotation (two
+# negative eigenvalues of the finite-difference tangent, both out of the
+# plane, on a 2 x 6 and on a 4 x 4 section alike): the lateral buckling of
+# a nearly closed thick ring under a couple, physical or the discrete
+# model's, is not this case's question. The problem is planar; the plane
+# is imposed; in it the couple is exact.
+#
+# ACCURACY. Tip position within 3% of L of the elastica at every quarter
+# turn on this mesh; at m = 1 the tip is 2.9% of L short of the root. That
+# is the solid, not the load: at m = 1 the beam's depth is a third of the
+# circle's radius, where a linear-strain section is no longer the elastica's
+# (the moment-curvature law of a thick block departs at O((h/R)^2)), and
+# the reduced element with hourglass control is a few tenths of a percent
+# soft in bending on 25 x 8 mm elements. Sixteen elements per depth-length
+# on a short roll (m = 0.1, tests/test_face_moment.py) are within 1.5%.
+#
+# 40 levels, ~850 000 iterations, 3.5 minutes on one core with numba.
+
+units: {length: m, force: N, stress: Pa}
+mesh: {type: box, dimensions: [1.0, 0.025, 0.05], divisions: [40, 1, 6]}
+
+materials:
+  # a soft polymer: E = 12 MPa, rho = 1000 (wave speed 110 m/s; the mass is
+  # fictitious under relaxation, rho only feeds the units check)
+  polymer: {type: linear_elastic, E: 1.2e7, nu: 0.0, rho: 1000.0}
+
+sections:
+  body: {type: solid, material: polymer, formulation: reduced}
+
+regions:
+  root: {plane: {point: [0, 0, 0], normal: [1, 0, 0]}}
+  tip:  {plane: {point: [1, 0, 0], normal: [1, 0, 0]}}
+  # the beam's mid-plane: the model is the half y in [0, 25 mm]
+  symmetry: {plane: {point: [0, 0.025, 0], normal: [0, 1, 0]}}
+
+constraints:
+  - {region: root, dofs: [1, 1, 1]}
+  - {region: symmetry, dofs: [0, 1, 0]}
+
+steps:
+  - name: roll
+    loads:
+      # half the couple on the half width: 2 pi E I / L / 2 = pi x 6.25
+      - {region: tip, moment: [0.0, 19.634954084936208, 0.0], follower: true}
+    load_steps: 40
+    max_steps_per_load: 100000
+    tolerance: 1.0e-4
+
+solver:
+  mode: relaxation
+  backend: numba
+  damping: {type: kinetic}
+  tolerance: 1.0e-4
+
+output:
+  path: results/case_20_rolled_cantilever.h5
+  every: 1000000
+  fields: [displacement, von_mises]
+  monitors:
+    u_tip: {kind: displacement, region: tip, dof: x}    # / L, with L = 1
+    w_tip: {kind: displacement, region: tip, dof: z}

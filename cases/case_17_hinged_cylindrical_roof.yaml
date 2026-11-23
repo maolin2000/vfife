@@ -1,0 +1,84 @@
+version: 1
+name: case_17_hinged_cylindrical_roof
+
+# HINGED CYLINDRICAL ROOF UNDER A CENTRAL POINT LOAD: SNAP-THROUGH
+#
+# Sze, Liu & Lo (2004), "Popular benchmark problems for geometric nonlinear
+# analysis of shells", Finite Elements in Analysis and Design 40:1551-1569,
+# problem 3.8, the 12.7-thick isotropic roof (their Table 9a). Originally
+# Sabir & Lock (1972); NAFEMS; attempted in dozens of shell-element papers.
+#
+# R = 2540, half-length L = 254, half-angle 0.1 rad, h = 12.7, E = 3102.75,
+# nu = 0.3 (mm, N, MPa). The two straight edges are hinged (all translations
+# held, rotations free), the two curved edges free, a point load P at the
+# crown. Quarter model with symmetry on x = 0 and y = 0: the crown carries
+# P/4 and the reaction there IS the load.
+#
+# WHAT THE PATH DOES. P rises to a limit at 0.742 P_max (P_max = 3000) near
+# w_C = 11, falls to 0.173 P_max at w_C = 20 while the roof snaps through,
+# then climbs again. It is THE textbook snap-through: Abaqus needs Riks for
+# it (the paper tabulates Riks increments, not load levels). Under
+# displacement control at the crown it is a monotone path -- w_C never folds
+# for this thickness -- so staged relaxation traces the whole curve,
+# descending branch included, with nothing special. The
+# 6.35-thick roof of the same paper does fold (snap-back) and would jump
+# across it the way cases/case_16 does.
+#
+# The reference is Riks output at uneven load levels; the contract reads the
+# load at fixed deflections by interpolating the table, which is in
+# verification/Sze2004_roof_12p7_isotropic.txt.
+
+units: {length: mm, force: N, stress: MPa}
+mesh: {type: gmsh, path: ../benchmarks/assets/sze_roof_16_v22.msh}   # benchmarks/generate_sze_shells.py roof --n 16
+
+materials:
+  # rho is not in the benchmark (static); 3.1e-9 t/mm^3 puts the wave speed
+  # at 1000 m/s, inside the range the units check accepts
+  roof: {type: linear_elastic, E: 3102.75, nu: 0.3, rho: 3.1e-9}
+
+sections:
+  shell:
+    type: shell
+    material: roof
+    thickness: 12.7
+    shear_correction: 0.8333333333
+    drilling_factor: 1.0
+    hourglass_coeff: 0.1
+    formulation: selective
+
+assign:
+  - {region: all, section: shell}
+
+constraints:
+  - {region: sym_x,  dofs: [1, 0, 0, 0, 1, 1]}    # x = 0 plane: no u_x, no rotation about y or z
+  - {region: sym_y,  dofs: [0, 1, 0, 1, 0, 1]}    # y = 0 plane: no u_y, no rotation about x or z
+  - {region: hinged, dofs: [1, 1, 1, 0, 0, 0]}    # the straight edge: translations held, rotations free
+
+steps:
+  - name: push
+    # the crown driven down 30 mm in 60 levels of 0.5 mm: the reference table
+    # ends at w_C = 29.4 (P = 1.08 P_max)
+    constraints:
+      - {region: crown, dofs: [0, 0, 1, 0, 0, 0], value: -30.0}
+    load_steps: 60
+    max_steps_per_load: 40000
+    tolerance: 1.0e-5
+
+solver:
+  mode: relaxation
+  # numba: the same force to 1e-13 (tests/test_shell_at_scale.py pins it),
+  # 3.5x the numpy iteration rate on 256 elements. `backend: warp, device:
+  # cuda, precision: mixed` runs the whole staged relaxation on the GPU;
+  # warp-mixed stays within 1e-6 of this curve.
+  backend: numba
+  n_steps: 2400000
+  damping: {type: kinetic}
+  tolerance: 1.0e-5
+
+output:
+  path: results/case_17_hinged_cylindrical_roof.h5
+  every: 1000000
+  fields: [displacement, rotation, moment_x, moment_y, membrane_x, membrane_y]
+  monitors:
+    w_C: {kind: displacement, region: crown, dof: z}   # down is negative
+    P4:  {kind: reaction, region: crown, dof: z}       # the quarter load P/4 (upward reaction, so positive... see the contract)

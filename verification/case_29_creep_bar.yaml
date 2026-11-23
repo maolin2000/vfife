@@ -1,0 +1,81 @@
+version: 1
+case: case_29_creep_bar
+classification: analytical
+reference: >-
+  Closed form. A bar loaded at age t0 and held carries the same force for
+  ever -- nothing is redundant, so nothing can redistribute -- and its
+  strain grows to sigma [1 + phi(t, t0)] / Ec(t0). The creep function is a
+  standard linear solid, phi(d) = phi_inf (1 - exp(-d/tau)) with phi_inf = 2
+  and tau = 40 d, supplied to the case as a measured `curve`, so the
+  elongation at 1028 days is exactly three times the elastic one and the
+  axial force is exactly P. benchmarks/generate_creep_bar.py --check prints
+  both.
+
+# --------------------------------------------------------------------------- #
+#  THE HALF OF CREEP THAT IS NOT ABOUT REDISTRIBUTION
+# --------------------------------------------------------------------------- #
+#  This case is deliberately the boring one, and it is the one that catches
+#  the commonest mistake. A determinate member under a held load creeps and
+#  its member actions DO NOT MOVE. If a creep implementation reports a
+#  changed force here, it has put the creep strain in as a load instead of as
+#  a free strain -- the same error temperature invites (case_27), and
+#  the same test finds it: the elongation must triple while the force sits
+#  still.
+#
+#        elastic elongation   10.000 mm
+#        at 1028 days         30.000 mm   = (1 + 2) x elastic
+#        axial force          300.0 kN throughout
+#
+#  Every number below is hit to six figures, which is what a free strain
+#  handed to a determinate structure should do: there is nothing for the
+#  time discretisation to get wrong, because there is no redistribution to
+#  discretise. case_29b is where the time axis has to earn its keep.
+
+metrics:
+  - id: the_bar_creeps_to_three_times_its_elastic_strain
+    description: >-
+      P L / (E A) (1 + phi_inf) = 10 mm x 3. The whole creep model -- the
+      curve, the superposition, the imposed-strain path -- reduced to one
+      number that a wrong phi cannot hit.
+    source: monitor
+    name: u_right
+    reduction: final
+    expect: {target: 0.030, rtol: 0.002}
+
+  - id: the_elastic_step_is_still_exact
+    description: >-
+      the first station, at age 28, is the elastic answer: 10.000 mm. Creep
+      must not touch the instant the load arrives.
+    source: monitor
+    name: u_right
+    reduction: first
+    expect: {target: 0.010, rtol: 0.002}
+
+  - id: midspan_creeps_by_the_same_factor
+    description: >-
+      half the bar, half the movement: 15.000 mm. A uniform stress field must
+      creep uniformly, which is what says the history is kept per member and
+      not globally.
+    source: monitor
+    name: u_mid
+    reduction: final
+    expect: {target: 0.015, rtol: 0.002}
+
+  - id: a_determinate_member_carries_what_it_always_carried
+    description: >-
+      300.0 kN at 1028 days, the same as on day one. This is the metric that
+      fails if creep is implemented as a load.
+    source: monitor
+    name: N_left
+    reduction: final
+    expect: {target: -3.0e+5, rtol: 0.002}
+
+  - id: and_it_never_moved_on_the_way
+    description: >-
+      the extreme of the whole record is the same 300.0 kN: not merely the
+      same at the two ends of the analysis, but constant across all thirteen
+      stations.
+    source: monitor
+    name: N_left
+    reduction: peak_abs
+    expect: {target: 3.0e+5, rtol: 0.002}

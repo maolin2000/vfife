@@ -1,0 +1,69 @@
+# The same beam and the same axle, walked across quasi-statically: the
+# influence line.
+#
+# `stop` instead of `speed` sweeps the load from `start` to `stop` over the
+# step's progress, so with `load_steps: 40` the axle stands at 0.5, 1.0, ...
+# 20.0 m and each position is relaxed to equilibrium. No dynamics, no speed:
+# this is the line a bridge engineer draws before anything else, and it is
+# also the alpha -> 0 limit of case_26 (whose peak is 1.70 times this one).
+#
+# WHAT IT CHECKS THAT case_26 DOES NOT: the load spends half its life BETWEEN
+# nodes, and the consistent distribution is exact at the nodes for a prismatic
+# beam -- so the whole line, not just the values at mesh nodes, must sit on
+# P a (3 L^2 - 4 a^2) / 48 EI. tests/test_moving_load.py walks all 41 stations
+# against that formula; here the run shows it end to end through the solver
+# (static since 1.5: 55 s of relaxation became 1 s, the 39 stations as 39
+# load levels).
+#
+#   python benchmarks/plot_moving_load.py
+
+version: 1
+name: case_26b_moving_load_influence
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/moving_load_beam_20.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 7850.0}
+sections:
+  deck:
+    type: beam
+    material: steel
+    shape: general
+    area: 0.10
+    iy: 9.70e-4
+    iz: 9.70e-4
+    j: 1.94e-3
+assign:
+- {region: all, section: deck, orientation: [0, 1, 0]}
+
+constraints:
+- {region: left, dofs: [1, 1, 1, 1, 0, 0]}
+- {region: right, dofs: [0, 1, 1, 1, 0, 0]}
+
+loads:
+- region: deck
+  moving_load:
+    axles: [[0.0, 1.0e+5]]
+    start: 0.0
+    stop: 19.5
+
+solver:
+  mode: static
+  backend: numpy
+  # 39 stations 0.5 m apart, 0.5 to 19.5 m -- every node and every midpoint
+  # of the 1 m mesh, midspan included, and NEITHER SUPPORT. A station exactly
+  # on a support is a degenerate equilibrium: the whole axle goes into the
+  # reaction, nothing deflects, and the relative residual is then an absolute
+  # 1e-6 N measured against the scale floor. The influence
+  # line is zero there by inspection, so nothing is lost by not asking.
+  load_steps: 39
+  tolerance: 1.0e-5
+
+output:
+  path: results/case_26b_moving_load_influence.h5
+  every: 1
+  fields: [displacement, bending_y]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    w_quarter: {kind: displacement, region: quarter, dof: z}
+    R_left: {kind: reaction, region: left, dof: z}
+    R_right: {kind: reaction, region: right, dof: z}

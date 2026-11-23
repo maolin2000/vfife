@@ -1,0 +1,13 @@
+version: 1
+kind: element
+name: beam2
+target_level: verified
+evidence:
+  - category: rigid_body
+    reference: tests/test_beam2.py::test_corotational_beam_has_no_force_under_rigid_motion
+  - category: fundamental_response
+    reference: tests/test_beam2.py::test_beam_line2_import_and_cantilever_matches_euler_bernoulli
+  - category: equilibrium
+    reference: verification/case_01_beam_cantilever.yaml
+  - category: mixed_assembly
+    reference: tests/test_mixed_structural.py::test_mixed_frame_solution_is_beam_bending_plus_truss_shortening

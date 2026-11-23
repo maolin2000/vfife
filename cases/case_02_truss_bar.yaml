@@ -1,0 +1,29 @@
+# Independent Line2 truss: u = PL/(EA) = 5e-5 m at the loaded node.
+
+version: 1
+name: case_02_truss_bar
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/beam_cantilever_v22.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+sections:
+  bar: {type: bar, material: steel, shape: general, area: 0.0001}
+assign:
+- {region: all, section: bar}
+constraints:
+- {region: fixed, dofs: [1, 1, 1]}
+- {region: loaded, dofs: [0, 1, 1]}
+loads:
+- {region: loaded, vector: [1000.0, 0, 0]}
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 500
+  damping: {type: kinetic}
+output:
+  path: results/case_02_truss_bar.h5
+  every: 500
+  fields: [displacement, axial_stress, axial_force, von_mises]
+  monitors:
+    loaded_ux: {kind: displacement, region: loaded, dof: x}
+    support_fx: {kind: reaction, region: fixed, dof: x}

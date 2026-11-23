@@ -1,0 +1,105 @@
+# A single-span suspension bridge: form-found dead load, then a live load
+# against the linearised deflection theory.
+#
+#   Irvine, H.M., "Cable Structures", MIT Press, 1981, ch. 3 (the parabolic
+#   cable under its dead load) and ch. 6 (the linearised deflection theory
+#   of the suspension bridge); the same equations are in every bridge text.
+#   benchmarks/generate_suspension_bridge.py writes the mesh and evaluates
+#   both closed forms.
+#
+# THE BRIDGE
+#   span l = 300 m, sag f = 30 m (f/l = 0.1), hangers every 10 m; the deck
+#   at z = 0 is a girder EI = 2e11 N m^2 (E = 200 GPa, I = 1 m^4, A = 0.5),
+#   pinned at x = 0 and on a roller at x = 300; the main cable (A = 0.1 m^2)
+#   is a parabola from z = 35 at the ends to z = 5 at midspan, fixed at both
+#   ends (rigid tower tops); 29 vertical hangers (A = 0.02). Everything is
+#   the same steel -- here a SIMPLIFICATION and not a constraint: since
+#   v0.4 a member group may name its own material, and this case
+#   keeps one because Irvine's closed form assumes one. Nothing weighs
+#   anything -- the dead load is the deck's 100 kN/m, applied as 1 MN at
+#   every hung deck node (`vector` is the region's total).
+#
+# THE DEAD LOAD STATE IS FORM-FOUND
+#   The `unstressed_lengths` on the cable and the hangers are the output of
+#       vfife formfind cases/case_23_suspension_bridge.yaml --groups main_cable,hangers
+#   run on this file without them: four relaxations from L_u = L_0 brought
+#   the largest dead-load displacement from 1.1 m to 2e-4 m. With the cable
+#   and hangers weightless the answer is closed-form -- the cable is exactly
+#   the parabola through the hanger points --
+#       H_w = w l^2 / (8 f) = 37.5 MN,   every hanger carries w s = 1 MN,
+#       T_e = H_w L_e / s,   L_u = L_0 / (1 + T / E A)
+#   and the found lengths reproduce it to 4e-7 (tests/test_formfind.py holds
+#   this on a ten-hanger version). The deck carries nothing at dead load:
+#   the girder was built to profile and the hangers took the weight.
+#
+# THE LIVE LOAD
+#   p = 20 kN/m over the whole span (a fifth of the dead load), 200 kN at
+#   every hung node, as a second step. The linearised deflection theory --
+#   elastic parabolic cable, inextensible vertical hangers, girder simply
+#   supported --
+#       E I v'''' - (H_w + h) v'' = p - 8 f h / l^2
+#       h L_E / (E A_c) = (8 f / l^2) * integral v dx,  L_E = l (1 + 8 (f/l)^2)
+#   gives h = 7.022 MN, v(150) = 0.2205 m, v(70) = 0.1506 m. The girder
+#   carries only p - 8 f h / l^2 = 1.3 kN/m of the 20: the cable takes 94%
+#   of the live load, which is what makes the deflection a small difference
+#   of two larger terms and the theory's linearisation visible at all.
+#
+# WHAT THE MODEL GETS
+#   h 0.11% low, v(150) 0.5% high, v(70) 0.05% high with 30 elements; 60
+#   elements bring v(150) to 0.2%. The rest is the nonlinear cable against
+#   the linearised one and the hangers' 2.5e-4 elastic strain. 20 s.
+
+version: 1
+name: case_23_suspension_bridge
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/suspension_bridge_30.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+sections:
+  girder: {type: beam, material: steel, shape: general, area: 0.5, iy: 1.0, iz: 1.0, j: 1.0}
+  cable: {type: bar, material: steel, shape: general, area: 0.1}
+  hanger: {type: bar, material: steel, shape: general, area: 0.02}
+assign:
+- {region: deck, section: girder}
+- region: main_cable
+  section: cable
+  tension_only: true
+  # vfife formfind (see the header): the closed form to 4e-7
+  unstressed_lengths: [10.70001924, 10.60712996, 10.52013693, 10.43918838, 10.36442687, 10.29598804, 10.2339995, 10.17857981, 10.12983745, 10.08786976, 10.05276208, 10.02458692, 10.00340317, 9.989255582, 9.982174224, 9.982174225, 9.989255582, 10.00340318, 10.02458692, 10.05276208, 10.08786976, 10.12983745, 10.17857982, 10.2339995, 10.29598804, 10.36442688, 10.43918838, 10.52013693, 10.60712997, 10.70001924]
+- region: hangers
+  section: hanger
+  tension_only: true
+  unstressed_lengths: [31.12555558, 27.52645152, 24.19395225, 21.12805182, 18.32875153, 15.79605129, 13.52995108, 11.53045091, 9.797550761, 8.331250641, 7.131550555, 6.198450478, 5.53195043, 5.132050401, 4.99875039, 5.132050401, 5.53195043, 6.198450478, 7.131550555, 8.331250642, 9.797550762, 11.53045091, 13.52995109, 15.79605129, 18.32875153, 21.12805182, 24.19395225, 27.52645152, 31.12555557]
+regions:
+  towers: {union: [cable_left, cable_right]}
+constraints:
+- {region: all, dofs: [0, 1, 0, 1, 0, 1]}        # a plane bridge
+- {region: deck_left, dofs: [1, 1, 1, 1, 0, 1]}  # pin
+- {region: deck_right, dofs: [0, 1, 1, 1, 0, 1]} # roller
+- {region: towers, dofs: [1, 1, 1, 1, 1, 1]}     # cable anchored at rigid tower tops
+loads:
+- {region: deck_hung, vector: [0.0, 0.0, -2.9e+7]}   # 29 x 1 MN: w = 100 kN/m
+steps:
+- {name: dead}
+- name: live
+  loads:
+  - {region: deck_hung, vector: [0.0, 0.0, -5.8e+6]}   # 29 x 200 kN: p = 20 kN/m
+solver:
+  backend: numpy
+  mode: relaxation
+  load_steps: 1
+  max_steps_per_load: 100000
+  stage_ramp_iterations: 100   # nothing is prescribed; see case_22
+  tolerance: 1.0e-6
+  kinetic_tolerance: 1.0e-9
+  n_steps: 100
+output:
+  path: results/case_23_suspension_bridge.h5
+  every: 1
+  fields: [displacement, rotation, reaction_force, end_actions]   # rotation: so `vfife modal --result` reads the state whole
+  monitors:
+    H_left: {kind: reaction, region: cable_left, dof: x}
+    V_left: {kind: reaction, region: cable_left, dof: z}
+    v_mid: {kind: displacement, region: deck_mid, dof: z}
+    v_70m: {kind: displacement, region: deck_probe, dof: z}
+    u_mid_x: {kind: displacement, region: deck_mid, dof: x}

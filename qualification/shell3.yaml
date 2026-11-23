@@ -1,0 +1,11 @@
+version: 1
+kind: element
+name: shell3
+target_level: verified
+evidence:
+  - category: rigid_body
+    reference: tests/test_shell3.py::test_shell3_frame_and_area
+  - category: fundamental_response
+    reference: tests/test_shell3.py::test_shell3_shape_partition
+  - category: equilibrium
+    reference: tests/test_shell3.py::test_shell3_cantilever

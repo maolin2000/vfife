@@ -1,0 +1,119 @@
+# Relaxation of prestressing steel, on its own definition.
+#
+# A 10 m bar with a centroidal tendon, BOTH ENDS HELD. The concrete cannot
+# shorten, so the section strain is zero, so the concrete carries nothing and
+# the whole axial force at the support is the tendon's:
+#
+#     sigma_p(t) = E_p eps_pre(t) = sigma_pi [1 - r(t)]
+#
+# which is the textbook definition of relaxation -- the stress a tendon loses
+# while its STRAIN is held -- read directly off a reaction. Nothing about the
+# structure enters; that is the point. The companion case_29g puts the same
+# tendon in a member that is free to shorten and creeping, where the three
+# losses interact and none of them is its own intrinsic value.
+#
+# THE MECHANISM. Relaxation is not a strain added to the tendon, it is the
+# tendon's own prestrain going away: `sigma_p = E_p (eps_section + eps_pre)`,
+# so a stress loss at held section strain IS `eps_pre` falling by
+# `d_sigma_pr / E_p`. It therefore rides the imposed-strain slot the tendon
+# already uses, and nothing in the solver had to learn a new kind of quantity.
+#
+# WHERE THE NUMBERS COME FROM, and this case exists partly to make that
+# question unavoidable. `vfife.core.relaxation` has NO `mc90` and NO `ec2`
+# model: those coefficients could not be sourced verbatim, and a recalled
+# version of one FAILED its own definition when checked (at the stress ratio
+# where it must reduce to rho_1000 it returned 0.96% for a declared 2.5%).
+# What the library has is the SHAPE the codes share,
+#
+#     r(t) = rho_1000 (t / 1000 h)^k
+#
+# with both coefficients required and no default. The pair used here is read
+# off a published curve for a real strand: Ghali, Elbadry & Megally (2000)
+# Fig. 7 plots CEB-FIP MC90's prediction for low-relaxation steel at
+# sigma_pi = 0.8 f_pu, for the Confederation Bridge's own strand, and it gives
+# 3.11% at 1000 h and 4.44% at 6000 h -- a power law with k = 0.198 to 0.221
+# over that range. `rho_1000 = 0.031, k = 0.21` reproduces the 1000 h and
+# 6000 h readings within 0.3% and the 250 h one within 5.3%, which is about the
+# digitisation's own accuracy (verification/Ghali2000_confederation_longterm.txt).
+#
+# BOTH NUMBERS BELONG TO 0.8 f_pu. A code quotes rho_1000 at 0.7, and the
+# stress-ratio dependence is strong in every code there is. So the tendon here
+# is stressed to 0.8 of a 1860 MPa strand, and a case at another stress level
+# needs another pair.
+
+version: 1
+name: case_29f_tendon_relaxation
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/creep_bar_8.msh}
+
+materials:
+  # Linear elastic on purpose: this case is about the STEEL, and the concrete
+  # is here only to hold the tendon. It carries no stress at all (the section
+  # strain is zero), so its law never matters -- which is worth saying out
+  # loud, because it is why the answer below is exact rather than nearly so.
+  concrete: {type: linear_elastic, E: 3.0e+10, nu: 0.2, rho: 2400.0}
+  strand:
+    type: steel02
+    E: 1.95e+11
+    Fy: 1.674e+9          # 0.9 f_pu; the tendon sits at 0.89 of it, 0.45% under E eps
+                          # on OpenSees' rounded first branch
+    b: 0.01
+    R0: 20.0
+    rho: 7850.0
+    # `tensioned_at` is the concrete age in days when the tendon was
+    # stressed; relaxation's own clock is HOURS from there. It defaults to
+    # the analysis start age, which is what this case uses.
+    relaxation: {model: power, rho_1000: 0.031, k: 0.21}
+
+sections:
+  strand15: {type: bar, material: strand, area: 1.40e-4}
+  bar:
+    type: fiber
+    material: concrete
+    shape: rect
+    width: 0.1
+    height: 0.1
+    ny: 4
+    nz: 4
+    integration: lobatto3
+    tendons:
+      # Centroidal and straight: no eccentricity, so no curvature, so the
+      # whole problem is one number.
+      - section: strand15
+        profile: [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]]
+        extent: [0.0, 10.0]
+        prestress: 1.488e+9        # 0.8 x 1860 MPa; P0 = 208.32 kN
+
+assign:
+- {region: bar, section: bar, orientation: [0, 0, 1]}
+
+constraints:
+- {region: all, dofs: [0, 1, 1, 1, 1, 1]}     # an axial problem: only ux is free
+# BOTH ends held: that is what makes it relaxation and not prestress loss.
+- {region: left, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: right, dofs: [1, 1, 1, 1, 1, 1]}
+
+steps:
+# Step 1 is the instant of stressing, at a concrete age of 28 days. No time
+# passes, so nothing has relaxed and the reaction is exactly A_p sigma_pi.
+- {name: stress, age: 28.0, load_steps: 1, max_steps_per_load: 40000}
+# Step 2 runs to 28 + 10000 h = 444.667 days, the right-hand end of the
+# published figure the coefficients came from.
+- {name: relax, to_age: 444.667, load_steps: 12, max_steps_per_load: 40000}
+
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 400000
+  age: 28.0
+  damping: {type: kinetic}
+  tolerance: 1.0e-6
+
+output:
+  path: results/case_29f_tendon_relaxation.h5
+  every: 1
+  fields: [displacement, axial_force, fiber_stress]
+  monitors:
+    N_left: {kind: reaction, region: left, dof: x}
+    N_right: {kind: reaction, region: right, dof: x}
+    u_mid: {kind: displacement, region: mid, dof: x}

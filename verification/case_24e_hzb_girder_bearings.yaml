@@ -1,0 +1,152 @@
+version: 1
+case: case_24e_hzb_girder_bearings
+classification: analytical
+reference: >-
+  Two sources, neither of them this solver. The dead-load state is the
+  classical three-span continuous beam: equal spans under a uniform load put
+  1.1 qL on each interior support and 0.4 qL on each end, and the middle span
+  sags `5 q L^4 / 384 EI - M_pier L^2 / 8 EI`. The deflected shape with the
+  bearings and the prestress shortening in it comes from the independent
+  direct-stiffness plane frame in benchmarks/generate_hzb_girder.py
+  (`bearing_price`), built on the same verified `Frame` class
+  benchmarks/generate_confederation.py uses, with a spring block added between
+  the girder node and the pier top. `python benchmarks/generate_hzb_girder.py
+  --check` prints the whole comparison.
+
+# --------------------------------------------------------------------------- #
+#  WHAT A BEARING IS WORTH -- the half-stage that prices the next one
+# --------------------------------------------------------------------------- #
+#  v0.4 built case_24d and measured a cost nobody asked for: the piers
+#  are MONOLITHIC with the girder, because a bearing is a `connector2` and the
+#  fibre-beam solver cannot host one. The girder shortens under prestress, the
+#  piers are dragged with it and lean, and the moment they hand back DOUBLES
+#  the middle-span dead-load deflection. An earlier evaluation said
+#  the fibre solver can be taught to hold a connector in one stage; this case
+#  is the elastic twin that says whether it is worth it.
+#
+#                                   middle span      what the shortening costs
+#    fibre, rollers   (case_24c)      -9.11 mm                --
+#    fibre, monolithic (case_24d)    -18.99                 -9.88 mm
+#    elastic twin, monolithic        -22.91                 -7.15
+#    elastic twin, rigid links       -23.53                 -7.60
+#    ELASTIC TWIN, POT BEARINGS       -7.59                 -0.11
+#
+#  (A record of v0.4, on v0.4's solid 1.80 m pier. On the literature pier
+#  case_24d reads -27.77 and case_24f -7.98: the joint costs twice what this
+#  table says, the bearing still takes it all back -- verification/case_24d
+#  and case_24f carry the current numbers.)
+#
+#  So the answer is yes, and by a wide margin: the bearing is worth 15 mm of a
+#  23 mm deflection on the grant's own model. The twin's monolithic penalty
+#  (-7.15) is 72% of the fibre model's (-9.88), which is the accuracy claimable
+#  for an elastic twin that replaces the tendons by their axial free strain
+#  alone -- and the "rigid links" row is the CONNECTOR reproducing the
+#  monolithic joint to 6%, which is the check that the spring is doing what a
+#  rigid connection does.
+#
+#  TWO THINGS THE SWEEP SAYS THAT THE HEADLINE DOES NOT.
+#
+#  1. EITHER RELEASE KILLS THE PENALTY, and the longitudinal one is not the
+#     important one. Sweeping the rotational stiffness alone with everything
+#     else rigid takes the penalty from -7.60 to -0.00; sweeping the
+#     longitudinal one alone does the same. It is a MOMENT and THRUST transfer,
+#     not a sliding question, so a FIXED pot fixes it as completely as a
+#     sliding one -- which is why the arrangement (which pier is fixed) changes
+#     where the girder's fixed point sits and not what the middle span does.
+#  2. THE SENSITIVE ASSUMPTION MOVES RATHER THAN GOING AWAY. case_24d's own
+#     assumed number was the pier wall thickness, worth 10% of the deflection.
+#     Put a bearing in and that number stops mattering -- and the bearing's
+#     VERTICAL stiffness starts to: it does nothing at all to the penalty
+#     (-0.003 mm across five decades) and moves the dead-load deflection from
+#     -6.85 mm to -22.68 over 1e14 down to 2e9 N/m. 5e10 is what this case
+#     assumes and no source states it.
+#
+#  WHAT THIS CASE IS NOT. It is elastic, so it is not a collapse model and
+#  carries no live load. It has no tendons -- their axial free strain instead
+#  -- so its absolute side-span deflection (-77 mm) is the uncambered one and
+#  means nothing next to case_24c's -23.22. The middle span is the monitored
+#  quantity and it is the one the twin gets right.
+
+metrics:
+  - id: the_three_span_continuous_reactions_are_the_classical_ones
+    description: >-
+      1.1 qL on each interior support: 2 x 1.1 x 3.58e5 x 70 = 55.13 MN over
+      the two pier bases. Equal spans under a uniform load, straight out of
+      the three-moment equation, and nothing about the bearings enters it --
+      which is what makes it the right first check on a model that has just
+      grown two new elements.
+    source: monitor
+    name: N_pier_base
+    reduction: first
+    expect: {target: 5.5125e+7, rtol: 0.005}
+
+  - id: and_so_is_the_abutment_share
+    description: >-
+      0.4 qL = 10.024 MN at each end. With the metric above it accounts for
+      75.17 MN of the 75.18 MN applied, so the load that went in is the load
+      that reaches the ground.
+    source: monitor
+    name: R_left
+    reduction: first
+    expect: {target: 1.0024e+7, rtol: 0.005}
+
+  - id: the_dead_load_middle_span_matches_the_independent_frame
+    description: >-
+      -7.7907 mm from the direct-stiffness frame against -7.7964 here: 0.07%,
+      four figures, from two implementations that share no code -- a
+      co-rotational explicit particle solver and a linear direct stiffness
+      solve. Both moved together when the pier section was corrected from
+      v0.4's back-calculated solid 6.25 x 1.80 to the HOLLOW, tapered
+      6.25 x (2.60 -> 4.00), walls 0.50, that three papers state:
+      -7.485 -> -7.791 on the frame and
+      -7.491 -> -7.796 here. THE AGREEMENT IS THE METRIC, and it survived a
+      4.4x change in the pier's in-plane stiffness untouched.
+    source: monitor
+    name: w_mid_middle
+    reduction: first
+    expect: {target: -7.791e-3, rtol: 0.01}
+
+  - id: and_so_does_the_side_span
+    description: >-
+      -77.518 mm. Large because this twin has no tendon eccentricity to camber
+      it; the point is that both solvers say the same large number.
+    source: monitor
+    name: w_mid_side
+    reduction: first
+    expect: {target: -77.518e-3, rtol: 0.01}
+
+  - id: the_bearing_removes_the_shortening_penalty
+    description: >-
+      THE NUMBER THIS CASE EXISTS FOR. 52.8 mm of prestress shortening moves
+      the middle span by 0.108 mm, against -9.88 mm on the monolithic fibre
+      model and -7.15 on this twin's own monolithic variant. The bound is
+      0.5 mm, i.e. a twentieth of what the monolithic joint costs -- a metric
+      that would fail loudly if the bearing were accidentally rigid.
+    source: monitor
+    name: w_mid_middle
+    reduction: delta
+    expect: {lower: -5.0e-4, upper: 0.0}
+
+  - id: the_sliding_bearing_slides_and_the_fixed_one_holds
+    description: >-
+      the girder moves 15.2 mm over the sliding pier while the fixed pier lets
+      it move 2.2. That ratio is the arrangement's signature: if both bearings
+      were the same the two would be equal and opposite, and if both slid
+      freely the unit would have no longitudinal restraint at all and the
+      solver would say so. The corrected (4.4x stiffer) pier moved the fixed
+      point towards the fixed pier -- 13.1/4.4 became 15.2/2.2 -- while their
+      SUM stayed the girder's own shortening, which is what sets it.
+    source: monitor
+    name: u_pier_2
+    reduction: delta
+    expect: {target: -15.22e-3, rtol: 0.05}
+
+  - id: and_the_fixed_pier_holds_a_third_as_much
+    description: >-
+      +2.18 mm at the fixed pier against -15.22 at the sliding one. Opposite
+      signs, because the girder's fixed point sits between them and not at
+      either; the reference frame reads +2.120 and -15.278 for the same two.
+    source: monitor
+    name: u_pier_1
+    reduction: delta
+    expect: {target: 2.18e-3, rtol: 0.08}

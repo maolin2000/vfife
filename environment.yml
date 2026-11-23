@@ -1,0 +1,9 @@
+name: vfife
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -e .[dev,cpu,gpu]
+      - gmsh>=4.15

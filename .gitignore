@@ -1,0 +1,38 @@
+__pycache__/
+*.pyc
+*.egg-info/
+results/
+*.h5
+*.xdmf
+.pytest_cache/
+.pytest-tmp*/
+.pytest-tmp3/
+.tmp_*/
+.warp_cache*/
+.warp-cache/
+.local-deps/
+.warp-cache_e03/
+
+# 从 GitHub 下载的 Actions 日志，以及一次性的辅助脚本
+logs/
+publish.sh
+push_clean.sh
+normalise_line_endings.sh
+ci-workflow.yml
+
+# RAW DATA LIVES OUTSIDE THIS REPOSITORY, in ../data/ -- one directory per
+# source, each with a SOURCE.md. It used to sit under verification/ and be
+# excluded here: 2.3 GB of it, inside a git working tree, held back by two
+# lines of .gitignore. That is a trap rather than a rule (one `git add -A`,
+# one `git clean -xfd`, one fresh clone), and a 2.6 GB repository cannot be
+# backed up or cloned like a repository.
+#
+# What the contracts read is the EXTRACT -- verification/*.txt, two columns
+# of numbers with the source in the file header -- so this repository is
+# self-contained without the raw data. See verification/README.md.
+
+# scratch cases for pictures and probes; no contracts, not scanned by tests
+cases/scratch/
+
+# sync tarballs from the cloud session
+_stage*.tgz

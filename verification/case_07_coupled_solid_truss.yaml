@@ -1,0 +1,21 @@
+version: 1
+case: case_07_coupled_solid_truss
+classification: independent_reference
+reference: Direct linear stiffness solution of the conforming Hexa8-plus-truss system
+metrics:
+  - id: shared_node_ux
+    source: field
+    name: displacement
+    location: {nearest: [1.0, 0.0, 0.0]}
+    component: x
+    expect: {target: 2.4608313446e-8, rtol: 2.0e-3, atol: 1.0e-12}
+  - id: support_reaction
+    source: monitor
+    name: support_fx
+    reduction: final
+    expect: {target: -1000.0, rtol: 2.0e-3, atol: 1.0e-5}
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-5}

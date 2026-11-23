@@ -1,0 +1,95 @@
+version: 1
+case: case_26b_moving_load_influence
+classification: analytical
+reference: >-
+  The influence line for deflection of a simply supported prismatic beam.
+  For a point load P at distance a from the left support, midspan carries
+  P a (3 L^2 - 4 a^2) / 48 EI for a <= L/2 (and the mirror beyond), and any
+  station x carries P b x (L^2 - b^2 - x^2) / 6 L EI with b = L - a for
+  x <= a. Closed form, in every textbook, and exact for the Bernoulli-Euler
+  beam the element is.
+
+# --------------------------------------------------------------------------- #
+#  THE CLAIM BEING CHECKED: A LOAD BETWEEN NODES IS NOT AN APPROXIMATION
+# --------------------------------------------------------------------------- #
+#  The axle is walked from 0.5 to 19.5 m in 39 quasi-static stations on a
+#  1 m mesh, so half of them stand BETWEEN nodes. The consistent (Hermite)
+#  distribution of a point load onto a member's ends is exact at the nodes
+#  for a prismatic beam -- the shape functions the element's own stiffness is
+#  built from -- so the whole influence line, not only the stations that
+#  land on a node, must sit on the formula above.
+#
+#  It does: the worst relative error over all 39 stations was 1.3e-4 under
+#  relaxation, its tolerance and not the distribution; under static (1.5) the
+#  peak is on the formula to 7e-5. The lever rule with no
+#  end moments -- the obvious cheap alternative -- would be out by a third at
+#  a station in the middle of a member, which is why it is not offered.
+#
+#  This is also the alpha -> 0 limit of case_26: the peak here is 81.82 mm,
+#  and the same axle at 40 m/s reaches 139.5.
+
+metrics:
+  - id: peak_of_the_influence_line
+    description: >-
+      Midspan with the axle at midspan: P L^3 / 48 EI = 81.820 mm exactly
+      (model 81.814). This station lands on a node, so it is the check on the
+      beam, not on the distribution.
+    source: monitor
+    name: w_mid
+    reduction: min
+    expect: {target: -0.081820, rtol: 0.005}
+
+  - id: load_between_two_nodes
+    description: >-
+      Midspan with the axle at 2.5 m -- halfway along a member, where the mesh
+      has no degree of freedom at all. Exact 30.045 mm (model 30.043). This
+      is the metric the consistent distribution exists for.
+    source: monitor
+    name: w_mid
+    reduction: at
+    against: R_left
+    value: 8.75e+4
+    expect: {target: -0.030045, rtol: 0.005}
+
+  - id: load_at_the_quarter_point
+    description: Midspan with the axle at 5.0 m; exact 56.251 mm (model 56.248)
+    source: monitor
+    name: w_mid
+    reduction: at
+    against: R_left
+    value: 7.5e+4
+    expect: {target: -0.056251, rtol: 0.005}
+
+  - id: a_second_station
+    description: >-
+      The quarter point's own influence line peaks at 57.151 mm with the load
+      at 9.0 m -- not under the load, and not at midspan. Holding it keeps the
+      check on the deflected shape.
+    source: monitor
+    name: w_quarter
+    reduction: min
+    expect: {target: -0.057151, rtol: 0.005}
+
+  - id: statics
+    description: >-
+      The left reaction with the axle at its first station, 0.5 m along:
+      P (1 - 0.5/20) = 97.5 kN. Whatever the distribution does inside a
+      member, the reactions it produces must be the lever rule's.
+    source: monitor
+    name: R_left
+    reduction: max
+    expect: {target: 9.75e+4, rtol: 0.002}
+
+  - id: and_at_the_far_end
+    description: "The left reaction at the last station, 19.5 m along: P * 0.025 = 2.5 kN"
+    source: monitor
+    name: R_left
+    reduction: min
+    expect: {target: 2.5e+3, rtol: 0.01}
+
+  - id: the_line_ends_where_it_should
+    description: Midspan with the axle 0.5 m from the far support; exact 6.131 mm
+    source: monitor
+    name: w_mid
+    reduction: final
+    expect: {target: -0.0061314, rtol: 0.01}

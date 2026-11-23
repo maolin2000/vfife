@@ -1,0 +1,137 @@
+version: 1
+name: case_13_pretensioned_beam
+
+# A PRETENSIONED SIMPLY SUPPORTED BEAM, TRANSFER THEN LOAD
+#
+# 6.0 x 0.25 x 0.50 m, four 150 mm2 strands 0.10 m from the soffit, jacked to
+# an effective 1000 MPa. Step 1 applies nothing: the tendons are already
+# strained, so the first equilibrium IS transfer, and what comes out of it is
+# the elastic-shortening loss and the camber. Step 2 puts two 40 kN loads at
+# the third points on top of that.
+#
+# The concrete is LINEAR ELASTIC on purpose. Every quantity this case asserts
+# has a closed form an engineer would write by hand, and the point of the case
+# is to show that the model reproduces those and not that CDP can be
+# calibrated -- case_12 is where cracking concrete is measured against a test.
+#
+#     A = 0.125 m2      I = 2.6042e-3 m4      c = 0.25 m      e = 0.15 m
+#     E_c = 30 GPa      E_p = 195 GPa         n = 6.5
+#     A_p = 600 mm2     sigma_pe = 1000 MPa   P_jack = 600.0 kN
+#
+# ELASTIC SHORTENING, by hand:
+#     f_cgp = P (1/A + e^2/I) = 600e3 * (8.00 + 57.6) ... no: e^2/I = 8.64 m^-2
+#           = 600e3 * 16.64 = 9.98 MPa at the tendon level
+#     dsigma_p = n f_cgp = 64.9 MPa, so 935 MPa and 561 kN remain
+# The solver does not use that formula. It equilibrates, which is the same
+# calculation done implicitly and without the "use the jacked P" approximation
+# the hand version makes, so the two agree to about a percent and the contract
+# holds the model's own number.
+#
+# CAMBER, by hand:   P e L^2 / (8 E I) = 561e3 * 0.15 * 36 / (8 * 30e9 * 2.6042e-3)
+#                                      = 4.85 mm up
+# DEFLECTION under the third-point loads:
+#     P1 a (3 L^2 - 4 a^2) / (24 E I), a = 2.0 m, P1 = 40 kN = 3.93 mm down
+# so the beam is still 0.9 mm UP under 80 kN of load, which is the whole point
+# of prestressing it.
+#
+# SOFFIT STRESS at midspan under load, by hand:
+#     -P/A - P e c/I + M c/I = -4.49 - 8.08 + 7.68 = -4.89 MPa
+# still in compression. The same beam without tendons would carry +7.68 MPa
+# there, twice a normal concrete's tensile strength -- it would have cracked.
+#
+# WHAT THIS CASE DOES NOT SHOW. No loss but elastic shortening is computed:
+# `prestress` is the stress the tendon HAS, after friction, anchor set,
+# relaxation and creep, none of which this solver models. The tendon is
+# straight, because `reinforcement` draws lines and not curves. And the bond
+# is perfect, so there is no transfer length -- the strands hand their force
+# to one element at each end and the end zones are a St Venant disturbance,
+# which is why every assertion below is taken at midspan.
+
+units: {length: m, force: N, stress: Pa}
+
+mesh:
+  dimensions: [6.0, 0.25, 0.50]
+  divisions: [30, 2, 10]
+
+materials:
+  concrete: {type: linear_elastic, E: 30.0e+9, nu: 0.2, rho: 2400.0}
+  strand:
+    type: rebar
+    E: 195.0e+9
+    rho: 7850.0
+    yield_strength: 1580.0e+6      # 0.9 f_pu of a 1770 MPa strand
+    hardening: 2.0e+9
+
+sections:
+  body: {type: solid, material: concrete, formulation: b-bar}
+  strand15: {type: bar, material: strand, shape: circle, diameter: 0.0158, area: 150.0e-6}
+
+reinforcement:
+  tendons:
+    line:
+      start: [0.0, 0.065, 0.10]
+      end: [6.0, 0.065, 0.10]
+      segment_length: 0.10
+      repeat: {count: 4, offset: [0.0, 0.04, 0.0]}
+
+assign:
+  - {section: body, region: all}
+  - {section: strand15, reinforcement: tendons, name: tendons, prestress: 1000.0e+6}
+
+regions:
+  support_left:  {box: [-0.01, 0.01, -0.01, 0.26, -0.01, 0.01]}
+  support_right: {box: [5.99, 6.01, -0.01, 0.26, -0.01, 0.01]}
+  # one line of nodes held out of plane, to remove the last rigid mode
+  spine: {box: [-0.01, 6.01, -0.01, 0.01, -0.01, 0.01]}
+  load_left:  {box: [1.99, 2.01, -0.01, 0.26, 0.49, 0.51]}
+  load_right: {box: [3.99, 4.01, -0.01, 0.26, 0.49, 0.51]}
+  midspan_soffit: {box: [2.99, 3.01, -0.01, 0.26, -0.01, 0.01]}
+  # the bottom layer of elements around midspan, for the precompression the
+  # prestress exists to produce. dx = 0.2 m and dz = 0.05 m on this mesh, so
+  # this owns whole elements.
+  midspan_bottom: {box: [2.79, 3.21, -0.01, 0.26, -0.01, 0.06]}
+
+constraints:
+  - {region: support_left,  dofs: [1, 0, 1]}
+  - {region: support_right, dofs: [0, 0, 1]}
+  - {region: spine,         dofs: [0, 1, 0]}
+
+steps:
+  - name: transfer
+    # nothing applied: the tendons are already strained and the structure is
+    # out of balance by the jacking force until it equilibrates
+    load_steps: 1
+    max_steps_per_load: 120000
+    tolerance: 1.0e-6
+
+  - name: load
+    loads:
+      - {region: load_left,  vector: [0.0, 0.0, -40.0e+3]}
+      - {region: load_right, vector: [0.0, 0.0, -40.0e+3]}
+    load_steps: 4
+    max_steps_per_load: 120000
+    tolerance: 1.0e-6
+
+solver:
+  backend: numba
+  mode: relaxation
+  mass: underwood
+  n_steps: 600000
+  tolerance: 1.0e-6
+  relaxation_safety: 0.3
+  damping: {type: kinetic}
+
+output:
+  path: results/case_13_pretensioned_beam.h5
+  every: 20000
+  fields: [displacement, stress]
+  monitors:
+    mid:  {kind: displacement, region: midspan_soffit, dof: z}
+    R_L:  {kind: reaction, region: support_left, dof: z}
+    # the tendon's own stress, which nothing used to check: the camber and the
+    # deflections are all consequences of it, and a prestrain applied wrongly
+    # would have to be found through them
+    sigma_p: {kind: bar, of: tendons, field: axial_stress, reduce: mean}
+    # and what it does to the concrete: the bottom fibre at midspan
+    sigma_bot: {kind: element, field: stress, component: xx, reduce: mean,
+                region: midspan_bottom}

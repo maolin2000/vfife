@@ -1,0 +1,22 @@
+version: 1
+case: case_09_connector_support
+classification: analytical
+reference: inverse of the declared reversible bilinear connector skeleton
+metrics:
+  - id: support_ux
+    description: Bilinear connector deformation at 1500 N
+    source: monitor
+    name: support_ux
+    reduction: final
+    expect: {target: 2.0e-5, rtol: 2.0e-6, atol: 1.0e-12}
+  - id: ground_fx
+    description: Ground-anchor equilibrium reaction
+    source: monitor
+    name: ground_fx
+    reduction: final
+    expect: {target: -1500.0, rtol: 2.0e-6, atol: 1.0e-6}
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-9}

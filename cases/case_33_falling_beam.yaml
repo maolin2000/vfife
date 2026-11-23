@@ -1,0 +1,73 @@
+# case_33 -- a beam let go, falling onto the ground: the two
+# halves of a collapse's last act, a member removed and a rigid surface
+# that stops what falls.
+#
+# A 4 m steel beam (100 x 100 mm, 3.08 kN) hangs 1 m above the ground from
+# nine strings, one at every node, each prestressed to exactly that node's
+# share of the weight -- so the beam hangs straight and still, with no sag
+# to spring out of and no transient to carry into the fall. At t = 0.1 s
+# all nine are cut (`removals`). The beam is then a free body: every node falls together and
+# meets the ground at t = 0.1 + sqrt(2 h / g) = 0.552 s, the ground being a
+# rigid plane at z = 0 with `stiffness: auto` (a spring sized from each
+# node's mass and the explicit step, so the step never shrinks for it). The
+# structure itself is undamped, so the fall is the free fall of the closed
+# form; the ground carries `damping: 0.5`, a dashpot beside the contact
+# spring that takes most of the energy at each impact (restitution 0.16),
+# and the beam comes to rest lying on it: the contact forces then add up to
+# its weight and no node is above the plane by more than the penetration.
+#
+# What is NOT here: the beam hits nothing but the ground (no member-to-member
+# contact), and the ground is smooth (friction: 0).
+version: 1
+name: case_33_falling_beam
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/falling_beam_8.msh}
+
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+  link: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 1.0}
+
+sections:
+  beam: {type: beam, material: steel, shape: rect, width: 0.1, height: 0.1}
+  string: {type: bar, material: link, shape: circle, diameter: 0.02}
+
+assign:
+  - {region: beam, section: beam, orientation: [0, 0, 1]}
+  # each string already carries its node's lumped weight (w L/8 = 384.9 N at
+  # an interior node, half that at an end, over pi 0.01^2): the beam is in
+  # equilibrium at t = 0 and nothing moves until the cut
+  - {region: hold_in, section: string, prestress: 1.22527e+6}
+  - {region: hold_end, section: string, prestress: 6.1264e+5}
+
+constraints:
+  - {region: anchor, dofs: [1, 1, 1, 1, 1, 1]}
+  # the beam stays in its vertical plane
+  - {region: beam_nodes, dofs: [0, 1, 0, 1, 0, 1]}
+
+loads:
+  - {region: beam_nodes, gravity: [0, 0, -9.80665], amplitude: hold}
+
+removals:
+  # the strings are deactivated, not split off: a string cut loose
+  # would ring axially at its release strain, and the case is about the beam
+  - {region: hold_in, time: 0.1, split: false}
+  - {region: hold_end, time: 0.1, split: false}
+
+contact:
+  rigid:
+    - {name: ground, plane: {point: [0, 0, 0], normal: [0, 0, 1]}, region: beam_nodes, damping: 1.0}
+
+solver:
+  mode: dynamic
+  backend: numpy
+  total_time: 3.0
+  damping: {type: none}
+
+output:
+  path: results/case_33_falling_beam.h5
+  every: 20
+  fields: [displacement, contact_force, contact_penetration, member_failed]
+  monitors:
+    z_tip: {kind: displacement, region: tip, dof: z}
+    z_root: {kind: displacement, region: root, dof: z}
+    N_link: {kind: reaction, region: anchor, dof: z}

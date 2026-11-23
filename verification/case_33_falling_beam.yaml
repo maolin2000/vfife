@@ -1,0 +1,66 @@
+version: 1
+case: case_33_falling_beam
+classification: analytical
+reference: >-
+  Closed form. Nine strings, each prestressed to its node's share of the
+  3.079 kN, hold the beam straight and still until they are cut at
+  t = 0.1 s; from there the beam is a free body and
+  its tip reaches z = -0.99 m (10 mm above the ground) at
+  t = 0.1 + sqrt(2 x 0.99 / g) = 0.549 s, the root at the same instant.
+  The ground stops it (`stiffness: auto`, 1e-8 m of penetration), and with
+  `damping: 1.0` on the contact the bounces die out: by 3 s the beam lies on
+  the ground, its nine nodes within a millimetre of z = 0 and the contact
+  forces adding up to its weight. The impact itself lasts a few explicit
+  steps, so the restitution of a bounce is not a number this case claims;
+  what it claims is where the beam ends up and when it got there.
+
+metrics:
+  - id: hang_still
+    description: the prestressed links hold the beam where it is until the cut (tip at t = 0.1 s)
+    source: monitor
+    name: z_tip
+    reduction: at
+    against: time
+    value: 0.1
+    expect: {target: 0.0, atol: 5.0e-4}
+  - id: t_hit_tip
+    description: the tip passes 10 mm above the ground at 0.1 + sqrt(2 x 0.99 / g)
+    source: monitor
+    name: time
+    reduction: at
+    against: z_tip
+    value: -0.99
+    expect: {target: 0.5493, rtol: 5.0e-3}
+  - id: t_hit_root
+    description: the root, released with it, arrives at the same instant
+    source: monitor
+    name: time
+    reduction: at
+    against: z_root
+    value: -0.99
+    expect: {target: 0.5493, rtol: 5.0e-3}
+  - id: never_through
+    description: the tip never passes the ground
+    source: monitor
+    name: z_tip
+    reduction: min
+    expect: {target: -1.0, atol: 1.0e-3}
+  - id: at_rest_on_the_ground
+    description: the tip lies on the ground at the end
+    source: monitor
+    name: z_tip
+    reduction: final
+    expect: {target: -1.0, atol: 1.0e-3}
+  - id: weight_on_the_ground
+    description: the contact forces carry the beam's weight, 7850 x 0.01 x 9.80665 x 4 = 3079.3 N, read as the mean over the mesh's 18 nodes (the nine anchors carry none)
+    source: field
+    name: contact_force
+    component: z
+    reduction: mean
+    expect: {target: 171.072, rtol: 1.0e-3}
+  - id: links_cut
+    description: the anchors carry nothing after the cut
+    source: monitor
+    name: N_link
+    reduction: final
+    expect: {target: 0.0, atol: 1.0e-6}

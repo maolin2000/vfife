@@ -1,0 +1,70 @@
+# A hanging cable against Irvine's elastic catenary -- the first cable in
+# the library, and the primitive every cable bridge is made of.
+#
+#   Irvine, H.M., "Cable Structures", MIT Press, 1981, section 2.2: the
+#   elastic catenary. A cable of unstressed length L0, stiffness EA and
+#   weight w per unstressed metre between two supports has a closed form
+#   for its horizontal tension H, its support reactions and its whole shape
+#   (benchmarks/generate_cable_catenary.py evaluates it).
+#
+# THE CABLE
+#   span 100 m, supports level, unstressed length 102 m, A = 0.05 m^2,
+#   E = 20 GPa (a tenth of steel's, so the elastic stretch is 0.05% and
+#   shows up in the answer at the third figure), rho = 7850.
+#   w = rho g A x 100/102 = 3773.6 N per unstressed metre -- the mesh is
+#   the straight chord and its mass is rho A per mesh metre.
+#
+# CLOSED FORM (what the contract holds)
+#   H = 538.55 kN, V = 192.46 kN at each support, sag 8.844 m at the
+#   middle node (s = L0/2), tension 571.9 kN at the supports.
+#
+# WHAT IS BEING CHECKED
+#   `unstressed_length` on a bar assignment: the cable's element lengths
+#   are (L_mesh / L0) times their mesh lengths, so the straight chord is
+#   2% too short for its cable and sags until E A (L - L_u)/L_u balances
+#   the weight -- 8.8 m of travel found by dynamic relaxation, the method's
+#   original purpose. `tension_only` is on and never fires here (a hanging
+#   cable is in tension everywhere); it is what a slack stay needs.
+#
+#   The mid node's x must stay at 50.000: the closed form's x(L0/2) is the
+#   midspan by symmetry, and a cable that drifted sideways would mean the
+#   unstressed lengths were not shared out uniformly.
+
+version: 1
+name: case_22_cable_catenary
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/cable_catenary_40.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.0e+10, nu: 0.3, rho: 7850.0}
+sections:
+  main: {type: bar, material: steel, shape: general, area: 0.05}
+assign:
+- {region: cable, section: main, unstressed_length: 102.0, tension_only: true}
+regions:
+  ends: {union: [left, right]}
+constraints:
+- {region: ends, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: all, dofs: [0, 1, 0, 1, 1, 1]}      # a plane cable; truss nodes carry no rotation
+loads:
+- {region: all, gravity: [0.0, 0.0, -9.80665]}
+solver:
+  backend: numpy
+  mode: relaxation
+  load_steps: 1
+  max_steps_per_load: 200000
+  # nothing is prescribed, so there is nothing to ramp in; without this the
+  # frame solver's default ramp (a fifth of the budget) would forbid
+  # convergence for 40 000 iterations the cable does not need
+  stage_ramp_iterations: 100
+  tolerance: 1.0e-6
+  kinetic_tolerance: 1.0e-9
+  n_steps: 100
+output:
+  path: results/case_22_cable_catenary.h5
+  every: 1
+  fields: [displacement, reaction_force, end_actions]
+  monitors:
+    H: {kind: reaction, region: left, dof: x}
+    V: {kind: reaction, region: left, dof: z}
+    sag: {kind: displacement, region: mid, dof: z}
+    drift_x: {kind: displacement, region: mid, dof: x}

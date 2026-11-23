@@ -1,0 +1,60 @@
+version: 1
+case: case_38_sprung_mass_crossing
+classification: independent_reference
+reference: >-
+  Yang & Yau (1997)'s sprung mass crossing a simple beam: L = 25 m, E I =
+  2.87e9 x 2.9 N m^2, 2303 kg/m, a 5750 kg mass on a 1595 kN/m spring at
+  27.78 m/s, entering in static equilibrium. Reference, independent of this
+  library: the beam's first 20 sine modes coupled to the mass, integrated by
+  DOP853 to rtol 1e-11 (5, 10 and 20 modes agree to 3e-4). Peak midspan
+  deflection 2.40658 mm, reached with the mass at 10.31 m; 2.01271 mm with
+  the mass at midspan; 0.16563 mm (upward) as it leaves at 0.9 s; the mass's
+  peak vertical acceleration 0.14794 m/s^2; its force on the deck between
+  55570.8 and 57238.9 N (weight 56388.2).
+
+metrics:
+  - id: midspan_peak
+    description: peak midspan deflection, 2.40658 mm
+    source: monitor
+    name: midspan
+    reduction: peak_abs
+    expect: {target: 2.40658e-3, rtol: 5.0e-3}
+  - id: midspan_with_the_mass_at_midspan
+    description: midspan deflection when the mass passes midspan, -2.01271 mm
+    source: monitor
+    name: midspan
+    reduction: at
+    against: car_s
+    value: 12.5
+    expect: {target: -2.01271e-3, rtol: 1.0e-2}
+  - id: where_the_peak_is
+    description: the mass is at 10.31 m when the midspan deflection peaks
+    source: monitor
+    name: car_s
+    reduction: at_peak_of
+    against: midspan
+    expect: {target: 10.309, atol: 0.1}
+  - id: midspan_as_it_leaves
+    description: the beam is 0.16563 mm above its rest position at 0.9 s
+    source: monitor
+    name: midspan
+    reduction: final
+    expect: {target: 1.6563e-4, atol: 2.4e-5}
+  - id: vehicle_acceleration
+    description: peak vertical acceleration of the mass, 0.14794 m/s^2
+    source: monitor
+    name: car_acc
+    reduction: peak_abs
+    expect: {target: 0.14794, rtol: 2.0e-2}
+  - id: contact_force_max
+    description: largest force on the deck, 57238.9 N
+    source: monitor
+    name: car_force
+    reduction: max
+    expect: {target: 57238.9, rtol: 1.0e-3}
+  - id: contact_force_min
+    description: smallest force on the deck, 55570.8 N
+    source: monitor
+    name: car_force
+    reduction: min
+    expect: {target: 55570.8, rtol: 1.0e-3}

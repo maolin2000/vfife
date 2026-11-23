@@ -1,0 +1,54 @@
+version: 1
+case: case_36_multi_support_wave
+classification: analytical
+reference: >-
+  Closed form. A deck mass m = 1e5 kg between two piers 400 m apart, tied to
+  each by an axial member of stiffness k = EA/L = 7.8957e6 N/m, so omega =
+  sqrt(2k/m) = 2.000 Hz. Each pier moves along the bridge by u_g(t - tau_j),
+  u_g = 0.1 sin(2 pi 1.3 t) m, with tau = 0 at the west pier and 0.4 s at the
+  east (a wave at 1000 m/s). From rest, m u'' + 2 k u = sum_j k u_g(t -
+  tau_j) H(t - tau_j) gives u = sum_j (k D/m)/(omega^2 - Omega^2) [sin Omega
+  s_j - (Omega/omega) sin omega s_j], s_j = t - tau_j, and the pier forces
+  k (u_g,j - u). Sampled at 1e-5 s over 0-6 s: peak deck displacement
+  0.101899 m, peak west force 1.503633e6 N, peak east force 1.507528e6 N,
+  deck at 6 s -0.050824 m. The explicit step (2.8 ms) leaves a phase error
+  of order (omega dt)^2 / 24 per radian, 0.3% of the peak by 6 s; it falls
+  as dt^2 (1.34, 0.335, 0.083, 0.021% for four halvings).
+
+metrics:
+  - id: deck_peak
+    description: peak deck displacement, 0.101899 m
+    source: monitor
+    name: deck
+    reduction: peak_abs
+    expect: {target: 0.101899, rtol: 5.0e-3}
+  - id: west_force_peak
+    description: peak west pier force, 1.503633e6 N
+    source: monitor
+    name: west_force
+    reduction: peak_abs
+    expect: {target: 1.503633e+6, rtol: 5.0e-3}
+  - id: east_force_peak
+    description: peak east pier force, 1.507528e6 N
+    source: monitor
+    name: east_force
+    reduction: peak_abs
+    expect: {target: 1.507528e+6, rtol: 5.0e-3}
+  - id: deck_final
+    description: deck at 6 s, -0.050824 m (the phase error is largest at the end)
+    source: monitor
+    name: deck
+    reduction: final
+    expect: {target: -0.050824, atol: 1.0e-3}
+  - id: west_ground_final
+    description: the west pier follows the record, 0.1 sin(2 pi 1.3 x 6) = -0.0951057 m
+    source: monitor
+    name: west_ground
+    reduction: final
+    expect: {target: -0.0951057, atol: 1.0e-6}
+  - id: east_ground_final
+    description: the east pier gets it 0.4 s late, 0.1 sin(2 pi 1.3 x 5.6) = 0.0982287 m
+    source: monitor
+    name: east_ground
+    reduction: final
+    expect: {target: 0.0982287, atol: 1.0e-6}

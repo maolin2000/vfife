@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use vfife in published work, please cite it as below."
+title: "vfife: an explicit co-rotational finite element solver (VFIFE) in Python"
+type: software
+version: 1.20.0
+date-released: "2026-11-23"
+license: MIT
+repository-code: "https://github.com/maolin2000/vfife"
+authors:
+  - name: maolin2000
+    email: mltianzju@gmail.com
+keywords:
+  - finite element
+  - vector form intrinsic finite element
+  - explicit dynamics
+  - dynamic relaxation
+  - co-rotational
+  - fibre beam
+  - reinforced concrete
+abstract: >-
+  A config-driven explicit co-rotational finite element core: continuum
+  (hexa8/tet4/tet10/wedge/pyramid/hexa20) on NumPy, Numba and Warp/CUDA
+  backends, plus truss, 3-D frame, fibre beam, shell, cable and connector
+  line elements, embedded and bonded reinforcement, prestressing tendons,
+  moving loads, temperature, creep, shrinkage and relaxation, bearings on the
+  fibre beam, seismic base excitation, form-finding, modal analysis and
+  fracture with separation on frames, and a verification-contract test suite against published
+  experiments and NAFEMS benchmarks.

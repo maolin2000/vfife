@@ -1,0 +1,91 @@
+# Li, S. et al. (2024), "Experimental Study on Flexural Performance of
+# Corrosion-Affected Simply Supported Prestressed Concrete T-Beams",
+# Buildings 14, 3322.  https://doi.org/10.3390/buildings14103322  (CC BY)
+#
+# Eight 1:16.155 scaled T-beams, A0 to A7, post-tensioned with ONE
+# 1x7-15.2-1860 strand in a grouted phi 25 bellows, the strand corroded by
+# impressed current in 5% NaCl, then broken in four-point bending. Digitised
+# from Tables 1 and 2, section 3.2 and Figures 1-3 of the PDF with
+# `pdftotext -layout` and, for the figures, `pdftoppm -r 600` measured against
+# the dimensioned section depth. Used by cases/case_31_li_control_beam.yaml.
+#
+# WHY THIS CAMPAIGN AND NOT KUANG'S CARRIES THE CAPACITY CHECK. Its table
+# closes: 145.0 kN of applied load is exactly twice the 72.5 kN of MEASURED
+# support reaction, and 72.5 x 0.850 = 61.63 kN m needs an internal lever arm
+# of 0.200 m on a 240 mm beam -- attainable, and 83% of what the steel and the
+# depth allow. Kuang's uncorroded beam needs 249.4 mm on a 250 mm beam, which
+# is not; see Kuang2023_corroded_pc_beam.txt.
+#
+# The two campaigns are INDEPENDENT -- different authors, scale, spans and
+# corrosion levels -- and they are not two measurements of the same thing. At
+# a matched ~8% mass loss Kuang's beams lose 15.4% of capacity and these lose
+# 27.7%, and the physical difference is the failure mode: Kuang's crush the
+# concrete up to 6.28% and rupture the strand above, these are strand-
+# controlled throughout.
+#
+# GEOMETRY (Figures 1 and 2, mm)
+#   total length            2020        depth                  240
+#   support spacing         1952        flange                 265 x 75
+#   overhang each end         34        web, midspan            89
+#   shear span               850        web, support           155
+#   load-point spacing       252        elevation chain    34|59|186|1462|...
+#   tendon above soffit   33 (mid)      so the web is full width for 93 mm and
+#                         74 (support)  tapers over 186; the step idealisation
+#                                       is placed at 279 from each end.
+#   The paper publishes no section table. Integrating the figure:
+#     midspan 3.456e4 mm2 / 1.642e8 mm4, centroid 151.5 mm above the soffit
+#     support 4.545e4 mm2 / 2.284e8 mm4, centroid 135.0 mm
+#
+#   The tendon heights are the Figure 3 labels (33 and 74). Independent
+#   checks: measuring the duct circle at 600 dpi against the dimensioned
+#   240 mm depth gives 33.3 and 71.8; and at midspan the construction gives
+#   it directly -- 20 mm bottom cover plus half of the 25 mm duct is 32.5.
+#
+# REINFORCEMENT (Figure 3)
+#   prestress   1 x 1x7-15.2-1860, A = 140 mm2, phi 25 grouted metal bellows
+#   flange      8 phi 8 deformed, in TWO layers of four inside a 225 mm stirrup
+#   soffit      2 phi 8 deformed, flanking the duct at 20 mm cover
+#   stirrups    phi 6 @ 100
+#
+# MATERIALS -- and what the paper does NOT give
+#   concrete    "C50 high-performance", mix ratio 343:686:1072:147:88.2:58.2:4.9
+#               -- IDENTICAL to Kuang's Table 2. No measured strength is
+#               published. case_31 uses Kuang's measured f_cu = 45.24 MPa and
+#               says so.
+#   strand      "standard tensile strength 1860 MPa"; no measured values. The
+#               product is the same 1x7-15.2-1860, so case_31 uses Kuang's
+#               measured f_py 1834 / f_pu 1872 / E 1.95e5.
+#   bars        phi 8 deformed, grade not stated for the longitudinal bars
+#               (HRB-335 is named for the stirrups). case_31 uses HRB335.
+#
+# PRESTRESS
+#   "The strand elongation of 12 mm was the final tension control index", over
+#   a strand 2020 mm long -- so P = 12/2020 x 1.95e5 x 140 = 162 kN of jacking
+#   force. (Kuang states 157 kN for a 2080 mm beam, the same procedure.) The
+#   EFFECTIVE prestress is not published and there is no loss breakdown.
+#
+# COLUMNS
+#   mass_loss[%]  ultimate_load[kN]  support_reaction[kN]  capacity[kN.m]
+0.01    145.0   72.5    61.63
+0.33    145.2   72.6    61.71
+1.24    141.0   70.5    59.93
+2.37    133.4   66.7    56.70
+4.52    126.4   63.2    53.72
+6.15    116.2   58.1    49.39
+7.47    112.6   56.3    47.86
+8.31    104.8   52.4    44.54
+#
+# CRACKING MOMENTS are given only in the running text of section 3.2, binned
+# and to two figures: "approximately 22 kN m" for A0-A3, "21" for A4-A5 and
+# "21" for A6-A7. That is the weakest number in this file -- it is what
+# case_31's effective prestress is calibrated on, which is why case_31 also
+# demonstrates that its flexural capacity does not depend on the calibration.
+#
+# ONE NON-MONOTONICITY TO RESPECT: A1 (0.33%) carries slightly MORE than the
+# uncorroded A0. The authors attribute it to bond enhancement below about
+# 1.5% of mass loss, citing their reference [38]; the same claim is what
+# case_30b is eventually meant to settle.
+#
+# NOT DIGITISED YET: the load-deflection curves (Figure 9) and the crack
+# patterns (Figure 8). This file carries endpoints only, so nothing here
+# constrains the shape of the curve or the deflection at failure.

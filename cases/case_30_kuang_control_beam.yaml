@@ -1,0 +1,213 @@
+# The UNCORRODED control beam L1 of Kuang et al. (2023), four-point bending
+# (case_30).
+#
+# WHAT THIS CASE CHECKS, AND WHAT IT DELIBERATELY DOES NOT. It began as the
+# control beam for the whole corroded-beam line -- six 1:15.68 scaled T-beams
+# of a 32.6 m high-speed-railway PC box girder, the strand corroded by
+# impressed current to 0, 2.12, 4.06, 6.28, 7.84 and 12.30% mass loss -- with
+# two targets, 72.0 kN of cracking load and 232.5 kN of ultimate load.
+#
+# THE SECOND TARGET IS NOT ATTAINABLE, and the arithmetic is short enough to
+# put here. The beam's steel is ONE 1x7-15.2 strand and two phi 8 bars at the
+# soffit, so the tension it can develop is
+#
+#     140 mm2 x 1872 MPa  +  101 mm2 x 430 MPa  =  305.4 kN
+#
+# and the beam is 250 mm deep. No internal lever arm can exceed the depth, so
+# M_u <= 305.4 x 0.250 = 76.34 kN m is an absolute ceiling -- compression
+# resultant on the top surface, tension resultant on the soffit, every bar at
+# its ULTIMATE strength at once. Table 4 reports 76.14 kN m for this beam:
+# 99.7% of that ceiling, a lever arm of 249.4 mm on a 250 mm beam. Three
+# things corroborate rather than rescue it: the authors' own section analysis
+# in the same table says 49.43 kN m and goes unremarked; this library's fibre
+# model says 54.59; and L1's reported failure mode is concrete crushing, which
+# means the strand did not reach f_pu and the true capacity is BELOW the
+# ceiling, not at it. The deflections are consistent (11.36 mm at yield,
+# 36.50 at failure, both of which the model reproduces) -- it is the load
+# scale alone that does not close, which is why this is read as a measurement
+# problem and not as a geometry one.
+#
+# So the capacity check moved to case_31 (Li et al. 2024, whose table closes:
+# 145.0 kN = 2 x 72.5 kN of measured reaction, 61.63 kN m, 0.200 m of lever
+# arm on a 240 mm beam) and what this case checks is:
+#
+#   cracking load             72.0 kN     Table 4, and 23.58 kN m
+#   yield deflection          11.36 mm    Table 4
+#   ultimate deflection       36.50 mm    Table 4
+#   flexural capacity         49.43 kN m  the authors' OWN section analysis,
+#                                         NOT their reported 76.14
+#
+# THE SECTION IS NOT RECONSTRUCTED, IT IS PUBLISHED, AND IT CHECKS. Figure 2
+# integrated gives 3.690e4 mm2 / 1.883e8 mm4 at midspan and 4.880e4 / 2.651e8
+# at the supports, against Table 1's 3.69e4 / 1.88e8 and 4.88e4 / 2.65e8. Four
+# numbers, nothing fitted. The measured cracking moment 23.58 divided by the
+# measured cracking load 72.0 recovers the 0.6550 m shear span, so the lever
+# arm is confirmed by the data that uses it.
+#
+# THE ONE CALIBRATED NUMBER is the effective prestress. The paper states the
+# jacking force (157 kN, confirmed independently by the stated 12 mm
+# elongation: P L / EA = 11.96 mm) and publishes no loss breakdown. For a
+# 2.08 m tendon that is not a detail -- 2 mm of anchorage set alone is 9.6e-4
+# of strain and 17% of the force. The effective force below is back-calculated
+# from the measured cracking load and is the only fitted quantity here; it
+# implies 18.2% of total loss. Declaring the jacking force instead puts
+# cracking at 85.2 kN, 18% high, which is what first exposed the question.
+#
+#   python benchmarks/generate_corroded_pc_beam.py --check    # every line above
+#
+# DISPLACEMENT CONTROL, as case_25 does: the two load points are pushed down
+# together and the load is read back as their reaction. A force-controlled
+# push cannot pass the peak.
+
+version: 1
+name: case_30_kuang_control_beam
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/corroded_pc_beam_A.msh}
+
+materials:
+  # Measured 28-day cube strength 45.24 MPa. concrete02 wants the CYLINDER
+  # peak, taken as 0.79 f_cu = 35.7 MPa; f_t = 0.395 f_cu^0.55 = 3.22 MPa is
+  # the Chinese code's axial tensile strength for that cube value.
+  concrete: {type: concrete02, fpc: 3.57e+7, epsc0: 0.002, fcu: 7.1e+6, epscu: 0.0045,
+             ft: 3.22e+6, Ets: 1.6e+9, rat: 0.1, rho: 2500}
+  # Table 3, measured: f_py 1834, f_pu 1872 MPa, E 1.95e5. The hardening slope
+  # is what those two give over a 2.6% strain range: 38 MPa / 0.0256 / E.
+  strand: {type: steel02, E: 1.95e+11, Fy: 1.834e+9, b: 0.008, R0: 20.0, rho: 7850}
+  rebar: {type: steel02, E: 2.0e+11, Fy: 3.224e+8, b: 0.0055, R0: 20.0, rho: 7850}
+
+sections:
+  phi8: {type: bar, material: rebar, shape: circle, diameter: 0.008}
+  strand15: {type: bar, material: strand, shape: general, area: 1.40e-4}   # 1x7-15.2
+  # y is measured from the MIDSPAN centroid (158.2 mm above the soffit), so the
+  # element axis is centroidal where the beam is bent. The support section keeps
+  # the same origin and is therefore eccentric on purpose -- its own centroid is
+  # 140.3 mm up, and the 18 mm step is real, not a modelling choice.
+  girder_mid: &mid
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 1.0e-4
+    patches:
+      - {corners: [[0.0118, -0.135], [0.0118, 0.135], [0.0918, 0.135], [0.0918, -0.135]], ny: 4, nz: 10}
+      - {corners: [[-0.1582, -0.045], [-0.1582, 0.045], [0.0118, 0.045], [0.0118, -0.045]], ny: 12, nz: 4}
+    bars:
+      # 8 HRB335 phi8 in the flange, 20 mm cover; 2 phi8 at the soffit
+      - {y: 0.0678, z: -0.1175, section: phi8, count: 1}
+      - {y: 0.0678, z: -0.0839, section: phi8, count: 1}
+      - {y: 0.0678, z: -0.0503, section: phi8, count: 1}
+      - {y: 0.0678, z: -0.0168, section: phi8, count: 1}
+      - {y: 0.0678, z: 0.0168, section: phi8, count: 1}
+      - {y: 0.0678, z: 0.0503, section: phi8, count: 1}
+      - {y: 0.0678, z: 0.0839, section: phi8, count: 1}
+      - {y: 0.0678, z: 0.1175, section: phi8, count: 1}
+      - {y: -0.1342, z: -0.025, section: phi8, count: 1}
+      - {y: -0.1342, z: 0.025, section: phi8, count: 1}
+    tendons:
+      # Draped and GROUTED over the whole length (Figure 2e): flat at 53 mm
+      # above the soffit between the tapers, rising to 90 mm at the ends.
+      - section: strand15
+        profile: [[0.0, -0.0682, 0.0], [0.285, -0.1052, 0.0],
+                  [1.795, -0.1052, 0.0], [2.080, -0.0682, 0.0]]
+        extent: [0.0, 2.080]
+        prestress: 8.914e+08          # 124.8 kN / 140 mm2 -- CALIBRATED
+        elastic_shortening: compensate
+  girder_sup:
+    <<: *mid
+    patches:
+      - {corners: [[0.0118, -0.135], [0.0118, 0.135], [0.0918, 0.135], [0.0918, -0.135]], ny: 4, nz: 10}
+      - {corners: [[-0.1582, -0.080], [-0.1582, 0.080], [0.0118, 0.080], [0.0118, -0.080]], ny: 12, nz: 6}
+
+assign:
+- {region: web_wide_l, section: girder_sup, orientation: [0, 0, 1]}
+- {region: web_narrow, section: girder_mid, orientation: [0, 0, 1]}
+- {region: web_wide_r, section: girder_sup, orientation: [0, 0, 1]}
+
+regions:
+  beam: {union: [web_wide_l, web_narrow, web_wide_r]}
+  loads: {union: [load_l, load_r]}
+
+constraints:
+- {region: all, dofs: [0, 1, 0, 1, 0, 1]}      # a plane beam
+- {region: left, dofs: [1, 1, 1, 1, 0, 1]}     # pin
+- {region: right, dofs: [0, 1, 1, 1, 0, 1]}    # roller
+
+loads:
+- {region: beam, gravity: [0.0, 0.0, -9.80665]}    # 0.09 kN/m; 0.07% of failure
+
+amplitudes:
+  # ONE LOADING STAGE, AND THE CURVE IS WHY. A prescribed displacement is
+  # ABSOLUTE -- measured from the undeformed mesh, not from wherever the
+  # transfer left the beam -- so a stage that ramps 0 -> -0.045 spends its
+  # whole first step undoing the camber. This case's first version did exactly
+  # that: the first frame went from +0.9 mm of camber to -1.9 mm and read
+  # 81 kN, with the measured cracking load of 72 kN inside that one step and
+  # no frame anywhere near it. Splitting the stage in two does not help
+  # either: the second stage's ramp restarts at zero, so the beam unloads to
+  # 1.5 mm and reloads along a cracked secant and the curve doubles back.
+  #
+  # So: one stage, with an amplitude that STARTS AT THE CAMBER (-0.0169 of
+  # -0.045 m is +0.76 mm, the transfer's own load-point rise) and is dense
+  # through cracking. The first frame then reads about zero load, which is
+  # also a check on the camber -- if it drifts, the first frame says so.
+  #
+  # IT ENDS AT 0.80 x 45 mm, just past the measured failure
+  # deflection of 36.5 mm. With OpenSees' Steel02 the top fibre of the
+  # midspan element passes epsc0 at about 18 mm of deflection and the
+  # crushing localises in that one element (-59e-3 of strain), a softening
+  # the relaxation still follows but the 54th of 55 levels to 45 mm did not
+  # settle in its budget. The test has nothing to say past 36.5 mm, and a
+  # localised crushing strain is a property of the element length, not of
+  # the beam; so the push stops where the measurement does.
+  press: [[0.00, -0.0161], [0.30, 0.030], [0.70, 0.420], [1.00, 0.800]]
+
+steps:
+- {name: transfer, load_steps: 4}
+- name: press
+  load_steps: 55
+  constraints:
+  - {region: loads, dofs: [0, 0, 1, 0, 0, 0], value: -0.045, amplitude: press}
+
+solver:
+  backend: numpy
+  mode: relaxation
+  n_steps: 100
+  max_steps_per_load: 150000
+  tolerance: 1.0e-5
+  kinetic_tolerance: 1.0e-9
+  # The DEFAULT 0.6, and that is worth a note because this case spent a while
+  # at 0.9. The transfer stage really did crawl at 0.6 -- 2.7e-3 after 40 000
+  # iterations -- and 0.9 really did fix it, so the case_28 trade-off looked
+  # like it applied here too. It did not. The mesh had a 5 mm element wedged
+  # between 40 mm ones at each taper (benchmarks/generate_corroded_pc_beam.py
+  # says how), and THAT was setting the critical time step; 0.9 was buying
+  # back what a meshing mistake had taken away. With the mesh repaired the
+  # transfer converges in seconds at 0.6 -- and 0.9 then FAILS, because once a
+  # concrete fibre cracks the tangent flips between the softening branch and
+  # the unloading one from iteration to iteration, the kinetic damping resets
+  # on every single step, and the residual parks at 2e-2 and stops moving.
+  # Prestress transfer and crack propagation want the step bound respected.
+  relaxation_safety: 0.6
+  damping: {type: kinetic}
+
+output:
+  path: results/case_30_kuang_control_beam.h5
+  every: 1
+  fields: [displacement, axial_force, bending_z, fiber_stress, fiber_damage]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    # THE TOTAL is what the test measures: one hydraulic jack on a distribution
+    # steel beam. P_left and P_right are carried too, and their SPLIT is the
+    # honest limit of this idealisation -- a spreader beam equalises FORCES
+    # while two prescribed displacements equalise DISPLACEMENTS. Up to the
+    # peak the response is symmetric and the two agree to the last digit; past
+    # it the softening localises to one side and they diverge (84.9/84.9 at the peak, 85.8/74.1 at 52 mm). So the
+    # peak is sound and the DESCENDING BRANCH is not held by the contract.
+    P_tot: {kind: reaction, region: loads, dof: z}
+    P_left: {kind: reaction, region: load_l, dof: z}
+    P_right: {kind: reaction, region: load_r, dof: z}
+    R_left: {kind: reaction, region: left, dof: z}
+    eps_bot: {kind: fiber, region: mid, field: strain, at: [-0.1582, 0.0]}
+    eps_top: {kind: fiber, region: mid, field: strain, at: [0.0918, 0.0]}
+    sig_bot: {kind: fiber, region: mid, field: stress, at: [-0.1582, 0.0]}
+    sig_top: {kind: fiber, region: mid, field: stress, at: [0.0918, 0.0]}

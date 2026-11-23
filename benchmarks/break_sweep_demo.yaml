@@ -1,0 +1,43 @@
+# A demonstration for `vfife sweep`, not a verification case:
+# a 2 m simply supported beam of a brittle elastic law (rebar with a rupture
+# strain of 1.5e-4 stands in for plain concrete) carrying 400 kg at midspan,
+# run in dynamic mode under gravity. The middle breaks at 0.019 s, the broken
+# piece falls with its mass (g t^2 / 2), the halves swing about their
+# supports. Then
+#
+#   python -m vfife run   benchmarks/break_sweep_demo.yaml
+#   python -m vfife sweep benchmarks/break_sweep_demo.yaml --result results/break_sweep_demo.h5
+#
+# and open results/break_sweep_demo_sweep.pvd in ParaView: colour by
+# fiber_damage (0 intact .. 4 failed) or fiber_stress, press play. About
+# 135 000 explicit steps, 2-4 minutes. For cracking, crushing and yielding
+# on a real section, sweep case_11 or case_21 instead (their fields carry
+# fiber_stress and fiber_damage; the bars come as a second series).
+version: 1
+name: break_sweep_demo
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: assets/break_sweep_10.msh}
+amplitudes: {hold: [[0, 1], [10, 1]]}
+materials:
+  brittle: {type: rebar, E: 30.0e9, yield_strength: 3.0e6, hardening: 1.0e6, rho: 2500.0, rupture_strain: 1.5e-4}
+sections:
+  rc: {type: fiber, material: brittle, shape: rect, width: 0.1, height: 0.2, ny: 6, nz: 4,
+        fracture: {threshold: 0.5, split: true}}
+assign: [{region: all, section: rc}]
+regions:
+  left: {box: [-0.01, 0.01, -1, 1, -1, 1]}
+  right: {box: [1.99, 2.01, -1, 1, -1, 1]}
+  mid: {box: [0.99, 1.01, -1, 1, -1, 1]}
+  ends: {union: [left, right]}
+nodal_masses: [{region: mid, mass: 400.0, per_node: true}]
+constraints:
+  - {region: all, dofs: [0, 1, 0, 1, 0, 1]}
+  - {region: left, dofs: [1, 1, 1, 1, 0, 1]}
+  - {region: right, dofs: [0, 1, 1, 1, 0, 1]}
+loads: [{region: all, gravity: [0, 0, -9.81], amplitude: hold}]
+solver: {backend: numpy, mode: dynamic, n_steps: 40000, total_time: 0.8, damping: {type: viscous, coeff: 0.0}}
+output:
+  path: results/break_sweep_demo.h5
+  every: 400
+  fields: [displacement, rotation, bending_z, fac, fractured, fiber_stress, fiber_damage]
+  monitors: {w_mid: {kind: displacement, region: mid, dof: z}}

@@ -1,0 +1,22 @@
+version: 1
+case: case_10_clamped_square_shell
+classification: analytical
+reference: classical clamped square thin plate, wc = 0.00126 q a^4 / D
+metrics:
+  - id: centre_deflection
+    description: Centre deflection against the classical clamped-square coefficient
+    source: monitor
+    name: centre_w
+    reduction: final
+    expect: {target: -6.8796e-5, rtol: 0.04, atol: 1.0e-8}
+  - id: pressure_equilibrium
+    description: Total support reaction equals pressure times plate area
+    source: monitor
+    name: support_fz
+    reduction: final
+    expect: {target: 1000.0, rtol: 2.0e-6, atol: 1.0e-5}
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.1e-6}

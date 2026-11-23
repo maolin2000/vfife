@@ -1,0 +1,97 @@
+# Shrinkage: a strain that depends on nothing but the clock, and the two
+# things a structure can do about it.
+#
+# Two identical 10 m bars in one model. The first is held at one end and free
+# at the other; the second is held at both. Nothing is loaded -- there is no
+# force anywhere in this case -- and the concrete simply dries.
+#
+#   the free bar     shortens by eps_sh(t) L and carries NOTHING
+#   the held bar     does not move and carries E A eps_sh(t)
+#
+# That pair is the whole content of a free strain, and it is why shrinkage and
+# temperature and creep are one mechanism in this library:
+# what a member does with an imposed strain is decided by what is in its way,
+# not by the strain. A model that reports a force in the free bar has the sign
+# of the thing backwards; a model that reports movement in the held one has
+# lost the restraint.
+#
+# The numbers are MC90's own shrinkage function with eps_s = 420e-6 for a
+# normal cement and fcm = 38 MPa, beta_rh = -1.55 (1 - 0.7^3) = -1.0184 at 70%
+# RH, and beta_s = sqrt(d / (350 (h0/100)^2 + d)) with h0 = 200 mm:
+#
+#      age (days)     28        100       365      1000
+#      eps_sh      -52.0e-6  -106.8e-6 -193.0e-6 -275.5e-6
+#      free end     -0.520 mm  -1.068    -1.930    -2.755
+#      held bar     15.60 kN   32.02     57.90     82.66   (tension)
+#
+# NO CREEP HERE, deliberately. Real concrete creeps out of most of that
+# 82.7 kN -- which is exactly why a restrained member does not tear itself
+# apart, and case_29b is the check on that half. This case isolates the
+# shrinkage function and the imposed-strain path so that a failure has one
+# possible cause.
+#
+# The step boundaries are at 28, 100, 365 and 1000 days so that the contract
+# can read those ages exactly rather than interpolate between log-spaced
+# stations; inside each step the stations are log-spaced, which is the axis
+# drying happens on.
+#
+#   python benchmarks/generate_creep_bar.py            # writes the mesh
+#   python benchmarks/generate_creep_bar.py --check
+
+version: 1
+name: case_29c_shrinkage_bars
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/creep_bar_pair_8.msh}
+
+materials:
+  # `shrinkage` sits beside `creep` and `thermal_expansion` on the material,
+  # for the same reason: it is a property of the substance and not of this
+  # analysis. `notional_size` is h0 = 2 Ac / u in mm -- how thick the member
+  # is for drying, which is what decides how long it takes.
+  concrete:
+    type: linear_elastic
+    E: 3.0e+10
+    nu: 0.2
+    rho: 2400.0
+    shrinkage:
+      model: mc90
+      notional_size: 200.0
+      rh: 70.0
+      fcm: 38.0e+6
+      cement: 5.0
+      drying_start: 7.0
+
+sections:
+  bar: {type: beam, material: concrete, shape: general, area: 0.01, iy: 8.33e-6, iz: 8.33e-6, j: 1.41e-5}
+assign:
+- {region: bars, section: bar, orientation: [0, 0, 1]}
+
+constraints:
+- {region: all, dofs: [0, 1, 1, 1, 1, 1]}     # an axial problem: only ux is free
+- {region: free_left, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: held_left, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: held_right, dofs: [1, 1, 1, 1, 1, 1]}
+
+steps:
+- {name: to_28, to_age: 28.0, load_steps: 4}
+- {name: to_100, to_age: 100.0, load_steps: 4}
+- {name: to_365, to_age: 365.0, load_steps: 4}
+- {name: to_1000, to_age: 1000.0, load_steps: 4}
+
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 300000
+  age: 7.0                                    # drying starts with the analysis
+  max_steps_per_load: 20000
+  damping: {type: kinetic}
+  tolerance: 1.0e-6
+
+output:
+  path: results/case_29c_shrinkage_bars.h5
+  every: 1
+  fields: [displacement, axial_force]
+  monitors:
+    u_free: {kind: displacement, region: free_right, dof: x}
+    N_free: {kind: reaction, region: free_left, dof: x}
+    N_held: {kind: reaction, region: held_right, dof: x}

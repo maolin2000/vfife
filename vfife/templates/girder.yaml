@@ -1,0 +1,58 @@
+# A three-span continuous girder under its superimposed dead load
+# (`vfife new girder`). Spans 30 + 40 + 30 m, a steel box written as a
+# general beam section, the dead load as a line load that carries its mass.
+#
+#   vfife info  @FILE@                 # what the model is
+#   vfife run   @FILE@                 # the static dead-load state
+#   vfife summary results/@NAME@.h5    # weight against reactions, largest values
+#   vfife modal @FILE@                 # its modes (the line load's mass is in them)
+#
+# Change the points to change the spans, `size` to change the mesh, the
+# section to your girder's. Every name under `points`, `lines` and `groups`
+# is a region (user manual, Section 5.4).
+version: 1
+name: @NAME@
+units: {length: m, force: N, stress: Pa}
+mesh:
+  type: lines
+  points:
+    A: [0.0, 0.0, 0.0]
+    B: [30.0, 0.0, 0.0]
+    C: [70.0, 0.0, 0.0]
+    D: [100.0, 0.0, 0.0]
+    mid_main: [50.0, 0.0, 0.0]
+  lines:
+    side_1: {through: [A, B], size: 2.0}
+    main: {through: [B, mid_main, C], size: 2.0}
+    side_2: {through: [C, D], size: 2.0}
+  groups:
+    girder: [side_1, main, side_2]
+materials:
+  steel: {type: linear_elastic, E: 2.06e+11, nu: 0.3, rho: 7850.0}
+sections:
+  box:                               # a steel box girder, as its section constants
+    type: beam
+    material: steel
+    shape: general
+    area: 0.35                       # m^2
+    iy: 1.2                          # m^4, vertical bending (about local y; local z is up)
+    iz: 6.0                          # m^4, lateral bending (about local z)
+    j: 2.0                           # m^4, torsion
+assign:
+  - {region: girder, section: box, orientation: [0, 1, 0]}   # local y across, local z up
+constraints:
+  - {region: A, dofs: [1, 1, 1, 1, 0, 0]}      # pinned, torsion held
+  - {region: B, dofs: [0, 1, 1, 1, 0, 0]}      # rollers; two bearings hold the box against twist
+  - {region: C, dofs: [0, 1, 1, 1, 0, 0]}
+  - {region: D, dofs: [0, 1, 1, 1, 0, 0]}
+loads:
+  - {region: all, gravity: [0.0, 0.0, -9.80665]}                       # the girder's own weight
+  - {region: girder, line_load: [0.0, 0.0, -6.0e+4], with_mass: true}  # 60 kN/m superimposed dead load
+solver:
+  mode: static                       # Newton on the model's own tangent
+  backend: numpy
+output:
+  path: results/@NAME@.h5
+  monitors:
+    w_main: {kind: displacement, region: mid_main, dof: z}
+    R_B: {kind: reaction, region: B, dof: z}

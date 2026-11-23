@@ -1,0 +1,106 @@
+version: 1
+case: case_27_thermal_two_span
+classification: analytical
+reference: >-
+  Closed form, two ways. The free thermal strain of a determinate member is
+  alpha dT and produces no force at all, so the far end of the beam moves
+  alpha dT (2L) and the axial reaction is zero. The gradient's curvature
+  kappa = alpha dT/dy is resisted only by the middle support: the force
+  method closes the kink kappa L with a pair of moments,
+  M = 3 E I kappa / 2, and benchmarks/generate_thermal_beam.two_span_solution
+  reaches the same answer by an independent direct-stiffness solve that also
+  gives the reactions and the deflections (the two agree to 3 decimals in
+  kN m, printed side by side by `--check`).
+
+# --------------------------------------------------------------------------- #
+#  THE TWO HALVES OF WHAT A TEMPERATURE FIELD DOES
+# --------------------------------------------------------------------------- #
+#  Temperature is not a force. It is a free strain, and what it produces
+#  depends entirely on what is in the way. This case has both in one run:
+#
+#    NOTHING IN THE WAY (uniform +40 K, the far end free to slide): the beam
+#    grows 19.2 mm and carries NOTHING. The axial reaction is held at zero
+#    against a scale of E A alpha dT = 10 080 kN -- the number it would have
+#    been had the end been held, and the number an equivalent-nodal-load
+#    implementation reports by accident if it forgets to take the thermal part
+#    back out at stress recovery.
+#
+#    SOMETHING IN THE WAY (gradient 15 K/m, three supports): the spans want to
+#    hog at kappa = 1.8e-4 /m and the middle support will not let them, so
+#    55.0 kN m appears there, the ends lift at 2.75 kN, and midspan settles at
+#    2.25 mm instead of the 9.0 mm a single span would have bowed.
+#
+#  MODEL AGAINST CLOSED FORM: every number within 0.05%.
+#        far end          19.198 mm    (19.200)
+#        axial reaction   -0.005 N     (0, against a 10 080 kN scale)
+#        M at the support 55.00 kN m   (54.999)
+#        end reaction      2.750 kN    (2.750)
+#        midspan           2.2511 mm   (2.2500)
+
+metrics:
+  - id: nothing_in_the_way_carries_nothing
+    description: >-
+      The axial reaction under a uniform +40 K with the far end free: zero.
+      Held to 1 N against the 10 080 kN this would have been with the end
+      restrained -- 1e-7 of it. This is the metric that fails if temperature
+      is implemented as a load rather than as a strain.
+    source: monitor
+    name: N_left
+    reduction: peak_abs
+    expect: {max: 1.0}
+
+  - id: free_growth
+    description: The far end moves alpha dT (2L) = 19.200 mm (model 19.198)
+    source: monitor
+    name: ux_right
+    reduction: final
+    expect: {target: 0.019200, rtol: 0.002}
+
+  - id: secondary_moment
+    description: >-
+      The moment the middle support creates out of a gradient that a single
+      span would have carried for free: 3 E I kappa / 2 = 55.0 kN m
+    source: field
+    name: bending_z
+    reduction: peak_abs
+    expect: {target: 5.4999e+4, rtol: 0.005}
+
+  - id: the_ends_lift
+    description: >-
+      Its consequence at the supports: -M/L = 2.75 kN up at each end. A
+      temperature gradient on a continuous beam unloads the end bearings,
+      which is a real design case and not a small number.
+    source: monitor
+    name: R_left
+    reduction: final
+    expect: {target: 2.750e+3, rtol: 0.005}
+
+  - id: and_the_middle_support_pushes_down
+    description: 2 M / L = 5.50 kN, and the three reactions sum to zero
+    source: monitor
+    name: R_support
+    reduction: final
+    expect: {target: -5.500e+3, rtol: 0.005}
+
+  - id: midspan_is_a_quarter_of_the_free_bow
+    description: >-
+      2.250 mm against the 9.00 mm a simply supported span would have bowed
+      under the same gradient. Same beam, same temperature, one extra support.
+    source: monitor
+    name: w_mid1
+    reduction: final
+    expect: {target: 2.2500e-3, rtol: 0.01}
+
+  - id: both_spans_alike
+    description: The structure is symmetric and so is the answer
+    source: monitor
+    name: w_mid2
+    reduction: final
+    expect: {target: 2.2500e-3, rtol: 0.01}
+
+  - id: equilibrium
+    description: Every stage is a real equilibrium point, not a stopped iteration
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-5}

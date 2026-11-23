@@ -1,0 +1,97 @@
+version: 1
+case: case_28b_confederation_thermal
+classification: public_benchmark
+reference: >-
+  Ghali, A., Elbadry, M. and Megally, S. (2000). Two-year deflections of the
+  Confederation Bridge. CJCE 27: 1139-1149, Fig. 21: the temperature rise
+  recorded through the depth on a hot summer day (27.3 C at the deck top,
+  18.3 under the deck slab, 17.33 at the soffit) and the deflections it
+  produces. Digitised from the figure at 600 dpi: 60.6 mm UP at midspan,
+  47.0 up at x = -60 m, 43.7 DOWN at x = -180 m, 73.5 down at the cantilever
+  tips. The coefficient of thermal expansion is the 8.5e-6/C measured on this
+  bridge's concrete by Butcher (2009); the design assumed 8.3e-6.
+
+# --------------------------------------------------------------------------- #
+#  A FREE STRAIN ON A FRAME, AND WHY IT IS A GOOD CHECK
+# --------------------------------------------------------------------------- #
+#  The profile is resolved on each section rather than applied as one gradient:
+#  a `general` section has no fibres, so benchmarks/generate_confederation
+#  integrates the published profile over the reconstructed outline and hands
+#  the solver the equivalent linear part band by band. The mean rise hardly
+#  varies (19.1 K at the pier, 21.0 at midspan) and the gradient varies by
+#  four (0.39 K/m at 14 m of depth, 1.74 at 4.5), because the same 9 K drop
+#  across the deck slab is a much sharper curvature on a shallow section.
+#
+#  None of this is a gradient effect in the usual sense. case_28c carries the
+#  mean rise alone and reaches 68.1 mm at midspan on its own: the 250 m girder
+#  grows about 40 mm, the pier tops cannot move apart freely, and the span
+#  bows up. The gradient then takes 9 mm off midspan and 31 off every tip.
+#
+#  WHERE IT DOES NOT AGREE: the tips, 90 and 97 mm against the published 73.5.
+#  The tip is the one station a cantilever's own curvature governs, and that
+#  curvature reads the single thing Fig. 21 does not dimension -- how deep the
+#  27.3 -> 18.3 drop goes. Taking it as the deck's 250 mm at the centreline
+#  instead of its 650 mm over the web brings the tips to -74 and -80 and moves
+#  midspan by less than half a millimetre. The 650 stays, and the sensitivity
+#  is asserted in tests/test_confederation.py rather than tuned away.
+
+metrics:
+  - id: midspan_rises
+    description: >-
+      60.6 mm up published, 58.2 modelled. Note what this number does NOT
+      depend on: E cancels out of a free-strain problem with no external load,
+      and a fourfold change in the assumed pier wall moves it 4%. It is very
+      nearly geometry times alpha.
+    source: monitor
+    name: w_mid
+    reduction: final
+    expect: {target: 0.0606, rtol: 0.08}
+
+  - id: and_the_cantilever_side_goes_down
+    description: >-
+      43.7 mm down published at x = -180 m, 43.9 modelled -- the sign reversal
+      across the pier, to half a percent.
+    source: monitor
+    name: w_o_west
+    reduction: final
+    expect: {target: -0.0437, rtol: 0.06}
+
+  - id: the_other_side_too
+    description: >-
+      48.0 mm at x = +180 m against the same published 43.7. The two sides
+      differ by 9% in the model because the piers do; Fig. 21's curve is drawn
+      symmetric, so this one is a modelling statement, not a measurement.
+    source: monitor
+    name: w_o_east
+    reduction: final
+    expect: {target: -0.0480, rtol: 0.05}
+
+  - id: the_quarter_point
+    description: 47.0 mm up published at x = -60 m, 40.2 modelled
+    source: monitor
+    name: w_q_west
+    reduction: final
+    expect: {target: 0.0470, rtol: 0.18}
+
+  - id: the_tips_go_down_further_than_published
+    description: >-
+      90.0 mm against 73.5. Written on the model, against the independent
+      plane-frame solution in benchmarks/generate_confederation.py (91.6 mm),
+      because the discrepancy with Fig. 21 is the hot-band thickness described
+      above and not a solver disagreement. Recording it as a metric is the
+      point: the case does not get to quietly not check its worst station.
+    source: monitor
+    name: w_tip_west
+    reduction: final
+    expect: {target: -0.0900, rtol: 0.04}
+
+  - id: the_pier_top_moves_out
+    description: >-
+      19.5 mm at P31, which is the mechanism itself: the girder grows, the
+      pier tops are pushed apart, and what they refuse becomes the upward bow
+      of the span. A model that let the tops slide freely would show midspan
+      barely moving.
+    source: monitor
+    name: ux_p31
+    reduction: final
+    expect: {target: 0.0195, rtol: 0.06}

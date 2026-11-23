@@ -1,0 +1,58 @@
+version: 1
+case: case_22_cable_catenary
+classification: analytical
+reference: >-
+  Irvine, H.M., "Cable Structures", MIT Press, 1981, section 2.2 (the elastic
+  catenary): a cable of unstressed length 102 m, EA = 1.0e9 N and weight
+  3773.6 N per unstressed metre between level supports 100 m apart carries
+  a horizontal tension H = 538553 N, a vertical reaction V = 192456 N at each
+  support, and sags 8.8438 m at its middle (s = L0/2). Evaluated by
+  benchmarks/generate_cable_catenary.py with the weight the mesh actually
+  carries (rho g A per mesh metre over the unstressed length).
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CONTRACT ASSERTS
+# --------------------------------------------------------------------------- #
+#  The run starts on the straight chord, 2% shorter than the cable it
+#  holds, and has to find 8.8 m of sag by relaxation. Forty straight
+#  elements with the weight lumped at the nodes are a funicular polygon
+#  whose vertices lie a hair off the smooth catenary: H comes out 0.03%
+#  low and the sag 0.03% high, and both are held at 0.1%. V is exact by
+#  symmetry (half the weight) and is held at 0.01%. The middle node must
+#  not drift along the span: a drift would mean the unstressed length was
+#  not shared out uniformly over the elements.
+
+metrics:
+  - id: horizontal_tension
+    description: H at the left support against Irvine's 538553 N (model 538402, 0.03% low)
+    source: monitor
+    name: H
+    reduction: final
+    expect: {target: -538553.0, rtol: 1.0e-3}
+
+  - id: vertical_reaction
+    description: V at the left support, half the cable's weight, 192456 N
+    source: monitor
+    name: V
+    reduction: final
+    expect: {target: 192456.0, rtol: 1.0e-4}
+
+  - id: sag_at_midspan
+    description: The middle node's sag against the closed form's 8.8438 m (model 8.8465)
+    source: monitor
+    name: sag
+    reduction: final
+    expect: {target: -8.8438, rtol: 1.0e-3}
+
+  - id: no_drift_along_the_span
+    description: The middle node stays at x = 50 m to a tenth of a millimetre
+    source: monitor
+    name: drift_x
+    reduction: final
+    expect: {lower: -1.0e-4, upper: 1.0e-4}
+
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-6}

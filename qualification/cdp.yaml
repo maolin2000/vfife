@@ -1,0 +1,17 @@
+version: 1
+kind: material
+name: cdp
+target_level: verified
+evidence:
+  - category: monotonic
+    reference: tests/test_cdp.py::test_uniaxial_compression_reproduces_input_curve
+  - category: step_convergence
+    reference: tests/test_cdp.py::test_return_map_error_shrinks_with_step_size
+  - category: energy
+    reference: tests/test_cdp.py::test_fracture_energy_is_dissipated
+  - category: unload_reverse
+    reference: tests/test_cdp.py::test_compressive_stiffness_recovery
+  - category: multiaxial
+    reference: tests/test_cdp.py::test_equibiaxial_compressive_strength
+  - category: mesh_objectivity
+    reference: tests/test_cdp.py::test_crack_band_makes_softening_mesh_independent

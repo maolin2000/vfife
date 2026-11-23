@@ -1,0 +1,146 @@
+version: 1
+classification: regression
+case: case_24g_hzb_static_pushover
+reference: >-
+  case_24d's Hangzhou Bay unit with its piers, pushed by the implicit static
+  solver instead of a 60 s explicit ramp. No measurement of
+  this frame exists (case_24d's reference says why); what the contract holds
+  is the static equilibrium of the dead state, checked against the library's
+  dynamic relaxation of the same two steps, and the pushover path, checked
+  against case_24d's dynamic curve where the two should agree.
+
+# --------------------------------------------------------------------------- #
+#  THE DEAD STATE, TWO WAYS. Newton in one level and dynamic relaxation
+#  (mode: relaxation, the same dead load held from the start, tolerance
+#  1e-6) give
+#
+#                          Newton          relaxation
+#     midspan, middle      -23.1809 mm     -23.1808 mm
+#     pier-top sway          8.6286 mm       8.6286 mm
+#     pier bases (both)     52.475 MN       52.475 MN
+#
+#  case_24d's explicit run gives -27.77 mm there: its dead load arrives at
+#  t = 0, the girder overshoots to -42.7 mm at 0.13 s, and the cracking
+#  that overshoot leaves (about 4000 concrete fibre points against 240 in
+#  the static state) is the 4.6 mm. The static state is the one a girder
+#  lowered onto its piers would be in.
+#
+#  THE PUSH. Before the peak this is case_24d's curve less that imprint:
+#  -53.2 mm at k = 5 (case_24d -59), -160.7 mm at k = 14 (case_24d -158).
+#  The peak is k = 14.79 at -0.183 m; the path then softens to k = 13.10 at
+#  -0.27 m and hardens again. case_24d's ramp jumps that dip dynamically,
+#  which is why it puts the limit at 15.2-15.4: this contract is the first
+#  thing that holds the path past the peak.
+# --------------------------------------------------------------------------- #
+
+metrics:
+  - id: dead_state_midspan_is_the_relaxations
+    description: >-
+      -23.47 mm at the middle span after the one Newton level of the dead
+      step (dynamic relaxation of the same model gave -23.181 against the
+      -23.182 of this one before v1.0 and v0.1 apart). Not case_24d's
+      -27.77: that is its t = 0 overshoot's cracking, as the header
+      measures. MOVED in v1.0 from -23.18: the 6 mm anchor set of the
+      friction tendons now draws in exactly 6 mm -- the reflection stopped
+      at the first element midpoint past it and drew in more -- so the 66
+      friction tendons keep up to 64 MPa more near their live ends and the
+      girder's total prestress rises 0.8% (298.1 -> 300.4 MN). The other
+      metrics moved by 0.1-1.8%, inside their bands.
+    source: monitor
+    name: w_mid_middle
+    reduction: at
+    against: time
+    value: 1.0
+    expect: {target: -2.3470e-02, rtol: 0.005}
+
+  - id: the_pier_bases_carry_the_relaxations_load
+    description: >-
+      52.475 MN through both shafts, as in the relaxation. With 2 x 11.35 MN
+      at the abutments that is the 75.18 MN applied.
+    source: monitor
+    name: N_pier_base
+    reduction: at
+    against: time
+    value: 1.0
+    expect: {target: 5.2475e+07, rtol: 0.005}
+
+  - id: the_abutments_carry_the_rest
+    description: >-
+      11.35 MN at one abutment (case_24d 11.43).
+    source: monitor
+    name: R_left
+    reduction: at
+    against: time
+    value: 1.0
+    expect: {target: 1.1352e+07, rtol: 0.005}
+
+  - id: no_horizontal_reaction_anywhere_on_the_path
+    description: >-
+      Nothing horizontal is applied and both abutments are longitudinal
+      rollers, so the two shaft bases' longitudinal reactions cancel. The
+      largest sum over the whole path is 0.012 N against 52 MN of axial
+      force -- case_24d's invariant, held at every increment here.
+    source: monitor
+    name: H_pier_base
+    reduction: peak_abs
+    expect: {max: 1.0}
+
+  - id: k5_is_case_24ds_curve_less_the_imprint
+    description: >-
+      -53.2 mm at k = 5 (time 1.25). case_24d has -59 there, 4.6 mm of it
+      the dead-state imprint.
+    source: monitor
+    name: w_mid_middle
+    reduction: at
+    against: time
+    value: 1.25
+    expect: {target: -5.316e-02, rtol: 0.02}
+
+  - id: k14_is_case_24ds_curve
+    description: >-
+      -162.3 mm at k = 14 (time 1.70) against case_24d's -158: here the
+      two runs are within 3%. (-160.7 with the steel02 before v1.0.)
+    source: monitor
+    name: w_mid_middle
+    reduction: at
+    against: time
+    value: 1.7
+    expect: {target: -1.6235e-01, rtol: 0.03}
+
+  - id: the_peak
+    description: >-
+      The largest load factor on the path: k = 20 (lambda_max) = 14.66,
+      time 1.7329. Since v1.0 steel02 is OpenSees' Steel02, whose
+      envelope stays under its hardening asymptote; the strands on their
+      plateau carry less and the peak is 0.4% lower (it was 14.79, time
+      1.7393).
+    source: monitor
+    name: time
+    reduction: max
+    expect: {target: 1.7329, rtol: 0.005}
+
+  - id: where_the_peak_is
+    description: >-
+      -0.183 m at the peak: the deflection where the load-controlled ramp of
+      case_24d stops being a static path.
+    source: monitor
+    name: w_mid_middle
+    reduction: at_peak_of
+    against: time
+    expect: {target: -0.1829, rtol: 0.03}
+
+  - id: the_path_softens_after_the_peak
+    description: >-
+      The load factor where the middle span passes -0.27 m, on the way down
+      from the peak: k = 12.78 (time 1.6392), 13% below it. A ramp cannot
+      stand on this branch; arc length walks along it. (k = 13.10 with the
+      steel02 before v1.0. The new law turns at the peak sharply enough
+      that the arc-length corrector once settled on the unloading path
+      there; an increment that turns back is now refused and the arc
+      halved.)
+    source: monitor
+    name: time
+    reduction: at
+    against: w_mid_middle
+    value: -0.27
+    expect: {target: 1.6392, rtol: 0.005}

@@ -1,0 +1,21 @@
+# Chen Hengzhi (2005), Fig. 6.20(b): test beam 2#, the same slab with the
+# two point loads 600 cm apart (3.00 m each side of midspan). P [kN] is
+# the load AT EACH POINT; delta [mm] is the midspan deflection. Same
+# digitising as beam 1#, thesis p. 139.
+# Check: the thesis states failure at 315.0 kN with 158 mm (L/80); the
+# last digitised marker is 155.5 mm, 313.3 kN.
+# 12 markers; those touching the curve are missing.
+#
+# delta [mm]   P [kN]
+     9.0     58.2
+    18.3    118.4
+    25.5    157.5
+    30.0    178.0
+    42.1    208.2
+    51.8    218.2
+    60.0    228.3
+    73.0    243.3
+    81.1    253.5
+   109.4    282.4
+   129.7    296.4
+   155.5    313.3

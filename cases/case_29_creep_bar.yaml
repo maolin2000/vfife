@@ -1,0 +1,84 @@
+# Creep with nothing in the way: the bar gets longer and carries what it always
+# carried.
+#
+# A 10 m bar, fixed at one end, 300 kN at the other from a concrete age of 28
+# days and held for a thousand more. Nothing is redundant, so the creep strain
+# meets no resistance at all:
+#
+#   at 28 days   P L / E A                        = 10.000 mm
+#   at 1028      P L / E A * (1 + phi(1028, 28))  = 30.000 mm
+#
+# and the axial force is 300 kN at both ends of that. THAT IS THE POINT. Creep
+# is not a softening of the material -- E never changes here -- it is strain
+# arriving late, and on a determinate member late strain is free. A model that
+# reports a changed force has mistaken the one for the other, exactly as a
+# model that reports a force on a freely expanding bar has (case_27).
+#
+# The creep function is a standard linear solid, phi = 2 (1 - exp(-d/40 days)),
+# stated as a measured `curve`. It is chosen because its RELAXATION modulus is
+# exact algebra, which is what case_29b is checked against -- the same function
+# run the other way round.
+#
+#   python benchmarks/generate_creep_bar.py --check
+
+version: 1
+name: case_29_creep_bar
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/creep_bar_8.msh}
+
+materials:
+  # `creep` sits on the MATERIAL, like `thermal_expansion`: it is a property of
+  # the substance. `model: curve` is a measured creep function, [[t - t0, phi],
+  # ...], linear in log(t - t0) -- creep data is read on a log axis and
+  # interpolating it linearly in t puts the whole first decade in one segment.
+  concrete:
+    type: linear_elastic
+    E: 3.0e+10
+    nu: 0.2
+    rho: 2400.0
+    creep:
+      model: curve
+      curve: [[0, 0.00000], [0.5, 0.02484], [0.7081, 0.03509], [1.003, 0.04952], [1.42, 0.06976],
+       [2.011, 0.09808], [2.848, 0.13747], [4.034, 0.19186], [5.713, 0.26618], [8.091, 0.36624],
+       [11.46, 0.49815], [16.23, 0.66694], [22.98, 0.87404], [32.54, 1.11350], [46.09, 1.36815],
+       [65.27, 1.60886], [92.44, 1.80168], [130.9, 1.92420], [185.4, 1.98059], [262.6, 1.99718],
+       [371.8, 1.99982], [526.6, 2.00000], [745.8, 2.00000], [1056, 2.00000], [1496, 2.00000],
+       [2118, 2.00000], [3000, 2.00000]]
+
+sections:
+  bar: {type: beam, material: concrete, shape: general, area: 0.01, iy: 8.33e-6, iz: 8.33e-6, j: 1.41e-5}
+assign:
+- {region: bar, section: bar, orientation: [0, 0, 1]}
+
+constraints:
+- {region: all, dofs: [0, 1, 1, 1, 1, 1]}     # an axial problem: only ux is free
+- {region: left, dofs: [1, 1, 1, 1, 1, 1]}
+
+loads:
+- {region: right, vector: [3.0e+5, 0.0, 0.0]}
+
+steps:
+# Step 1 is the elastic state at 28 days: no `to_age`, so it is a single
+# instant, and it is what the creep history creeps FROM.
+- {name: load, age: 28.0, load_steps: 1, max_steps_per_load: 20000}
+# Step 2 is a thousand days at that load. `load_steps` are TIME STATIONS,
+# log-spaced from 28 to 1028 days, and the load is inherited with the `hold`
+# amplitude every inherited load gets after the first step.
+- {name: creep, to_age: 1028.0, load_steps: 12, max_steps_per_load: 20000}
+
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 300000
+  age: 28.0
+  damping: {type: kinetic}
+  tolerance: 1.0e-6
+
+output:
+  path: results/case_29_creep_bar.h5
+  every: 1
+  fields: [displacement, axial_force, axial_force_i, axial_force_j]
+  monitors:
+    u_right: {kind: displacement, region: right, dof: x}
+    u_mid: {kind: displacement, region: mid, dof: x}
+    N_left: {kind: reaction, region: left, dof: x}

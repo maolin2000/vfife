@@ -1,0 +1,13 @@
+version: 1
+kind: element
+name: connector2
+target_level: verified
+evidence:
+  - category: rigid_body
+    reference: tests/test_connector2.py::test_rigid_translation_and_rotation_produce_no_connector_force
+  - category: fundamental_response
+    reference: tests/test_connector2.py::test_fixed_anchor_models_node_to_ground_and_matches_f_over_k
+  - category: equilibrium
+    reference: verification/case_09_connector_support.yaml
+  - category: mixed_assembly
+    reference: tests/test_connector2.py::test_connector_uses_common_mixed_and_coupled_assembly_paths

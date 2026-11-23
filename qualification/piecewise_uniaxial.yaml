@@ -1,0 +1,13 @@
+version: 1
+kind: material
+name: piecewise_uniaxial
+target_level: verified
+evidence:
+  - category: monotonic
+    reference: tests/test_piecewise_uniaxial.py::test_monotonic_tension_and_compression_follow_separate_tables
+  - category: step_convergence
+    reference: tests/test_piecewise_uniaxial.py::test_step_partition_does_not_change_rate_independent_monotonic_result
+  - category: energy
+    reference: tests/test_piecewise_uniaxial.py::test_closed_plastic_cycle_has_positive_loop_energy_and_elastic_cycle_has_zero
+  - category: unload_reverse
+    reference: tests/test_piecewise_uniaxial.py::test_unload_reverse_distinguishes_isotropic_and_kinematic_hardening

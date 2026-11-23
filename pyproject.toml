@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vfife"
+version = "1.20.0"
+description = "Explicit structural solver (VFIFE) for bridges, from construction stages to earthquake and collapse"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+keywords = ["finite element", "VFIFE", "bridge", "explicit dynamics", "dynamic relaxation", "fibre beam",
+            "progressive collapse", "seismic"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "h5py>=3.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.4"]   # check_all runs the pytest layers on --jobs processes
+plot = ["matplotlib>=3.6"]   # `vfife plot`; `vfife export` needs nothing extra
+cpu = ["numba>=0.59"]        # fused CPU kernel
+gpu = ["warp-lang>=1.16"]    # GPU backend (Windows + CUDA supported)
+paraview = ["meshio>=5"]     # `vfife sweep` and `vfife modal --paraview` (.pvd/.vtu export)
+
+[project.urls]
+Repository = "https://github.com/maolin2000/vfife"
+Changelog = "https://github.com/maolin2000/vfife/blob/master/CHANGELOG.md"
+
+[project.scripts]
+vfife = "vfife.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["vfife*"]
+
+[tool.setuptools.package-data]
+# the scenario templates of `vfife new` (1.2)
+vfife = ["templates/*.yaml"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py310"
+
+[tool.ruff.lint]
+# What is held (tests/test_lint.py): names that do not exist, imports nobody
+# uses, syntax that changed meaning. Style is not: the code writes several
+# short statements on a line where they are one thought, and the kernels keep
+# the names of the formulas they come from.
+select = ["F", "E9"]
+ignore = ["F841"]      # a tuple unpacked for one of its parts names the others
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]          # re-exports
+"vfife/kernels/warp_*.py" = ["F401"]   # an import that initialises Warp, or fails early without it
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::RuntimeWarning"]
+# Solving eleven shipped cases takes minutes, so those runs are opt-in and the
+# default suite stays fast. Everything ABOUT the cases that can be checked
+# without solving -- they parse, they preflight, their contracts line up with
+# their monitors -- runs every time, because that is what actually rots.
+#     pytest -m slow          just the full-solve verification
+#     pytest -m ""            everything
+# 分层的判据不是"慢"，而是"夜间已经覆盖了同一件事，且快速层仍有更便宜的
+# 测试守着同一个子系统"。一个安静停跑的检查等于没有检查，所以哨兵型测试
+# （松弛收敛、跨后端一致、侵蚀端到端）即使不便宜也留在默认层。
+markers = ["slow: solves to convergence; deselected by default, run by `pytest -m slow` and nightly CI",
+           "heavy: over 3 s (tests/heavy_tests.txt); in the default layer, left out of the GitHub fast tier"]
+addopts = "-m 'not slow'"

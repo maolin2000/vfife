@@ -1,0 +1,110 @@
+# Chen Hengzhi (2005), Fig. 6.30(a): the 3 x 70 m Hangzhou Bay continuous
+# unit under load case 1 -- k F_L (818 kN) at the middle span's midspan and
+# k q_L (25 kN/m) over the middle span, on top of the dead load q_d1 + q_d2
+# -- pushed proportionally to failure. Deflection [mm, downward] of the
+# middle span's midspan against the load factor k [-].
+# Digitised (stroke-tracked at 200 dpi) from Fig. 6.30(a) of
+# Chen Hengzhi, "Computational analysis of large-span prestressed concrete
+# box girder structures", PhD thesis, Zhejiang University, 2005, p. 154.
+# Check on the digitisation: the thesis states k_u = 16.8 at delta_u = 727
+# mm; the digitised curve ends at k = 16.8, delta = 734 mm (1% off).
+# NOTE THE ORIGIN. The curve starts at k = 0, delta = 21.3 mm: his delta is
+# the TOTAL deflection, dead load and prestress included, not the live-load
+# increment. His girder is precast simply supported and made continuous
+# (先简后连), so q_d1 = 306 kN/m acts on a simply supported 70 m span
+# (126 mm down) against the span tendons' camber on the same span (114 mm
+# up at 1150 MPa) -- a 12 mm difference of two large numbers. A girder
+# continuous from the start, which is what cases/case_24_hzb_girder.yaml
+# models, takes 5.9 mm under the same dead load (the interior span of a
+# three-span continuous beam deflects 0.0005 q L^4 / EI, a twentieth of the
+# simply supported 0.0130) and cambers ~1 mm: 5.9 mm net. The 15 mm
+# between the two dead states is the construction sequence, not a
+# discrepancy, and it is why comparing the two curves means comparing
+# INCREMENTS from each one's own k = 0.
+#
+# delta [mm]    k [-]
+     21.32    0.000
+     22.58    0.200
+     25.87    0.400
+     27.99    0.600
+     30.06    0.800
+     32.43    1.000
+     34.46    1.200
+     36.72    1.400
+     39.25    1.600
+     41.95    1.800
+     44.38    2.000
+     46.83    2.200
+     49.86    2.400
+     52.60    2.600
+     55.52    2.800
+     59.00    3.000
+     62.03    3.200
+     65.40    3.400
+     68.63    3.600
+     72.12    3.800
+     75.69    4.000
+     79.22    4.200
+     82.75    4.400
+     86.29    4.600
+     89.81    4.800
+     93.70    5.000
+     97.07    5.200
+    100.91    5.400
+    103.94    5.600
+    108.19    5.800
+    111.56    6.000
+    115.54    6.200
+    119.08    6.400
+    122.68    6.600
+    127.07    6.800
+    131.19    7.000
+    135.50    7.200
+    139.27    7.400
+    143.25    7.600
+    147.30    7.800
+    150.87    8.000
+    154.91    8.200
+    159.10    8.400
+    162.48    8.600
+    166.54    8.800
+    171.07    9.000
+    175.96    9.200
+    180.62    9.400
+    185.72    9.600
+    191.79    9.800
+    197.74   10.000
+    204.81   10.200
+    211.87   10.400
+    218.60   10.600
+    225.18   10.800
+    233.78   11.000
+    241.38   11.200
+    249.20   11.400
+    257.57   11.600
+    266.37   11.800
+    275.47   12.000
+    284.41   12.200
+    292.63   12.400
+    301.12   12.600
+    310.23   12.800
+    320.87   13.000
+    331.03   13.200
+    342.65   13.400
+    355.31   13.600
+    369.48   13.800
+    382.63   14.000
+    398.83   14.200
+    414.01   14.400
+    431.22   14.600
+    450.47   14.800
+    471.74   15.000
+    492.00   15.200
+    515.31   15.400
+    543.69   15.600
+    571.05   15.800
+    598.46   16.000
+    628.83   16.200
+    668.38   16.400
+    710.98   16.600
+    734.01   16.800

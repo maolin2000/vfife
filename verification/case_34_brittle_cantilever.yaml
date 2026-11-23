@@ -1,0 +1,47 @@
+version: 1
+case: case_34_brittle_cantilever
+classification: analytical
+reference: >-
+  Closed form. A 2 m cantilever, I = 1e-5 m^4, f_y = 300 MPa, c = 0.1 m:
+  M_cap = f_y I / c = 30 kN m, reached at the root when the tip load is
+  P = M_cap / L = 15 kN, i.e. at t = 2 s of a load growing to 30 kN over 4 s.
+  Until then the beam is the static cantilever (w = P L^3 / 3EI, 16.0 mm at
+  P = 12 kN, t = 1.6 s) and the root reaction is P; at the break the root
+  member is removed, the reaction drops to zero and stays there, and the
+  rest of the beam is a free body. The maximum of the reaction is therefore
+  P at the break, and one of the four members is marked failed.
+
+metrics:
+  - id: static_before
+    description: the quasi-static tip deflection at t = 1.6 s (P = 12 kN) is P L^3 / 3EI = 16.0 mm
+    source: monitor
+    name: w_tip
+    reduction: at
+    against: time
+    value: 1.6
+    expect: {target: -0.016, rtol: 1.0e-2}
+  - id: breaks_at_capacity
+    description: the root reaction never exceeds the tip load at the break, P = M_cap / L = 15 kN
+    source: monitor
+    name: R_root
+    reduction: max
+    expect: {target: 15000.0, rtol: 1.0e-2}
+  - id: t_break
+    description: the reaction reaches its maximum at t = 2 s (the growing load meets the capacity)
+    source: monitor
+    name: time
+    reduction: at_peak_of
+    against: R_root
+    expect: {target: 2.0, rtol: 1.0e-2}
+  - id: root_carries_nothing_after
+    description: the root member is gone -- the reaction is zero at the end
+    source: monitor
+    name: R_root
+    reduction: final
+    expect: {target: 0.0, atol: 1.0}
+  - id: one_of_four
+    description: one member of four is marked failed in the last frame
+    source: field
+    name: member_failed
+    reduction: mean
+    expect: {target: 0.25, atol: 1.0e-9}

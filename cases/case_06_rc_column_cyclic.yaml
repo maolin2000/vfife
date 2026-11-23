@@ -1,0 +1,182 @@
+# Reinforced concrete column: constant axial load, then reversed cyclic drift.
+#
+# This is the standard test for an RC member, and until analysis steps existed
+# it could not be expressed at all. There was one global load curve multiplying
+# every boundary condition together, so an axial load could not be held while a
+# lateral displacement was cycled -- which meant the Chaboche and rebar
+# kinematic hardening and the CDP `wt`/`wc` stiffness recovery, all of which
+# exist for exactly this loading, had nothing to drive them.
+#
+# WHAT THE TWO STEPS DO
+#   1. `axial`  - 800 kN of compression is ramped onto the head and left there.
+#   2. `cyclic` - the head is cycled to +-0.5% and +-1.0% drift while the axial
+#                 load stays on. The `hold` in step 2 is
+#                 not written anywhere: a model-level load ramps on during the
+#                 first step and holds for the rest of the analysis, which is
+#                 what "the column carries this throughout" means.
+#
+# HAND CHECK
+#   section    0.4 x 0.4, cover 40 mm, d = 0.36 m, height 2.0 m
+#   steel      8 no. 20 mm, As = 8 * 314 = 2513 mm^2, fy = 400 MPa
+#   axial      N = 800 kN, i.e. 0.167 * fc * Ag -- a normal service level
+#   flexure    with axial load the section is stronger than in pure bending;
+#              an approximate M_n from the interaction diagram at this N is
+#              ~360 kN.m, so the lateral capacity is V = M_n / H ~ 180 kN
+#   drift      1.0% of 2.0 m = 20 mm
+#
+# IT USED TO STOP AT 0.5% DRIFT, and this file used to explain why: +-1%
+# "diverges in the crushed concrete at the base". That was true when it was
+# written and is not true now. Both halves of the reason have since been
+# removed -- `host_deduction: E_c` on bars in cracking concrete
+# (the solver refuses it now) and a compression band with no length scale
+# (`Gc` below). The +-1% protocol converges, with and without
+# Gc, in about four minutes. The note outlived its cause by two stages, which
+# is the ordinary fate of a note that records a symptom.
+#
+# WHAT Gc DOES HERE. The base of a cyclic column is where crushing localises,
+# so it is the member most exposed to an unregularised compression curve. On
+# the same +-1% protocol, stating the crushing energy (250 Gf, the rule used
+# for case_12) moves the peak shear 136.7 -> 140.9 kN and the dissipated
+# energy 7598 -> 7394 J. Both are within the envelope this case asserts; the
+# point of stating Gc is that those numbers now belong to the section rather
+# than to the element size.
+#
+# NO EROSION BLOCK, AND THE REASON IS NOT THE ONE IT LOOKED LIKE. This case
+# carried `erosion: {damage: 0.98, ...}`, which read as inert: the last frame's
+# worst damage is 0.88, well under the threshold. It was not inert. Damage
+# FALLS again when a crack closes (`wc: 1.0`), so an element can pass 0.98 at
+# peak drift and be back at 0.88 at zero drift -- and four elements did, and
+# were deleted, and moved the peak shear by 2%, and nothing said so. What it
+# deleted is the tell: z = 1.81 m of a 2.0 m column, i.e. the LOADED HEAD
+# where the 800 kN and the imposed drift are applied together, not the plastic
+# hinge at the base this case is about. That is a boundary artefact being
+# eroded away, which is the least useful thing erosion can do.
+#
+# So the block is gone. Erosion now announces itself -- in the log with a
+# location, in the run summary, and in the diagnostics record
+# (tests/test_erosion.py) -- so the next case to configure it will not be able
+# to be wrong about it quietly. `measure: dc` is the rule for a crushed base
+# if this protocol is ever pushed far enough to need one.
+#
+# WHAT TO LOOK FOR in the `shear` vs `drift` monitors: a pinched hysteresis
+# loop. Concrete cracks in one direction and the crack must close before it
+# carries compression again (`wc: 1.0` restores that stiffness, `wt: 0.0` does
+# not restore it in tension), so the loops narrow near zero drift and fatten at
+# the peaks. The steel's kinematic hardening is what makes the reversal yield
+# early rather than at a mirrored +fy.
+
+version: 1
+name: case_06_rc_column_cyclic
+units: {length: m, force: N, stress: Pa}
+mesh: {dimensions: [0.4, 0.4, 2.0], divisions: [4, 4, 16]}
+materials:
+  concrete:
+    type: cdp
+    E: 3.0e+10
+    nu: 0.2
+    rho: 2400.0
+    fb0_fc0: 1.16
+    Kc: 0.6667
+    dilation_angle: 36.0
+    eccentricity: 0.1
+    wt: 0.0
+    wc: 1.0
+    viscosity: 1.0
+    n_return: 5
+    crack_band: both
+    l_ref: auto
+    compression: {source: gb50010, fc: 3.0e+7, beta_c: 0.7, sigma_c0_ratio: 0.4, Gc: 30.0e3}
+    tension: {source: fracture_energy, ft: 3.0e+6, Gf: 120.0, beta_t: 0.9}
+  steel:
+    type: rebar
+    E: 2.0e+11
+    rho: 7850.0
+    yield_strength: 4.0e+8
+    hardening: 2.0e+9
+    kinematic_fraction: 0.5
+  steel2:
+    type: rebar
+    E: 2.0e+11
+    rho: 7850.0
+    yield_strength: 3.0e+8
+    hardening: 2.0e+9
+    kinematic_fraction: 0.5
+sections:
+  body: {type: solid, material: concrete}
+  longitudinal: {type: bar, material: steel, shape: general, area: 0.0003142}
+  ties: {type: bar, material: steel2, shape: general, area: 7.854e-5}
+reinforcement:
+  longitudinal:
+    lines:
+    - {start: [0.04, 0.04, 0.0], end: [0.04, 0.04, 2.0], divisions: 20}
+    - {start: [0.2, 0.04, 0.0], end: [0.2, 0.04, 2.0], divisions: 20}
+    - {start: [0.36, 0.04, 0.0], end: [0.36, 0.04, 2.0], divisions: 20}
+    - {start: [0.04, 0.36, 0.0], end: [0.04, 0.36, 2.0], divisions: 20}
+    - {start: [0.2, 0.36, 0.0], end: [0.2, 0.36, 2.0], divisions: 20}
+    - {start: [0.36, 0.36, 0.0], end: [0.36, 0.36, 2.0], divisions: 20}
+    - {start: [0.04, 0.2, 0.0], end: [0.04, 0.2, 2.0], divisions: 20}
+    - {start: [0.36, 0.2, 0.0], end: [0.36, 0.2, 2.0], divisions: 20}
+  ties:
+    lines:
+    - start: [0.04, 0.04, 0.1]
+      end: [0.36, 0.04, 0.1]
+      divisions: 4
+      repeat: {count: 19, offset: [0.0, 0.0, 0.1]}
+    - start: [0.36, 0.04, 0.1]
+      end: [0.36, 0.36, 0.1]
+      divisions: 4
+      repeat: {count: 19, offset: [0.0, 0.0, 0.1]}
+    - start: [0.36, 0.36, 0.1]
+      end: [0.04, 0.36, 0.1]
+      divisions: 4
+      repeat: {count: 19, offset: [0.0, 0.0, 0.1]}
+    - start: [0.04, 0.36, 0.1]
+      end: [0.04, 0.04, 0.1]
+      divisions: 4
+      repeat: {count: 19, offset: [0.0, 0.0, 0.1]}
+assign:
+- {reinforcement: longitudinal, section: longitudinal, name: longitudinal}
+- {reinforcement: ties, section: ties, name: ties}
+regions:
+  base:
+    plane: {point: [0, 0, 0], normal: [0, 0, 1]}
+  head:
+    plane: {point: [0, 0, 2.0], normal: [0, 0, 1]}
+amplitudes:
+  drift:
+    cyclic: {peaks: [0.5, 1.0], repeats: 1}
+constraints:
+- {region: base, dofs: [1, 1, 1]}
+loads:
+- {region: head, vector: [0.0, 0.0, -800000.0]}
+steps:
+- {name: axial, n_steps: 40000, tolerance: 0.0001}
+- name: cyclic
+  constraints:
+  - {region: head, dofs: [1, 0, 0], value: 0.02, amplitude: drift}
+  load_steps: 16
+  max_steps_per_load: 4000
+  tolerance: 0.001
+# backend: numba, not warp. This is a 256-element model -- it runs in four
+# minutes on a laptop core and a GPU would spend longer compiling than
+# solving. Switching to `backend: warp, device: cuda, precision: mixed` is a
+# three-line change and the backends' agreement is what tests/test_backends.py
+# checks; a shipped case that nobody without an NVIDIA card can run is a worse
+# case than a slower one.
+solver:
+  backend: numba
+  mode: relaxation
+  mass: underwood
+  n_steps: 400000
+  tolerance: 0.0001
+  relaxation_safety: 0.3
+  damping: {type: kinetic}
+output:
+  path: results/case_06_rc_column_cyclic.h5
+  every: 200
+  fields: [displacement, von_mises, d, ept, epc]
+  checkpoint_every: 5000
+  monitors:
+    shear: {kind: reaction, region: base, dof: x}
+    drift: {kind: displacement, region: head, dof: x}
+    axial: {kind: reaction, region: base, dof: z}

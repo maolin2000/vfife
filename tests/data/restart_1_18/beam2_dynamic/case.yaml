@@ -1,0 +1,60 @@
+version: 1
+units:
+  length: m
+  force: N
+  stress: Pa
+mesh:
+  type: gmsh
+  path: c.msh
+materials:
+  steel:
+    type: linear_elastic
+    E: 200000000000.0
+    nu: 0.3
+    rho: 7850.0
+sections:
+  beam:
+    type: beam
+    material: steel
+    shape: rect
+    width: 0.1
+    height: 0.1
+assign:
+- region: all
+  section: beam
+  orientation:
+  - 0
+  - 1
+  - 0
+constraints:
+- region: root
+  dofs:
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+loads:
+- region: tip
+  vector:
+  - 0
+  - 0
+  - -1000.0
+output:
+  every: 1000000
+  fields:
+  - displacement
+  monitors:
+    w:
+      kind: displacement
+      region: tip
+      dof: z
+  path: run.h5
+solver:
+  backend: numpy
+  mode: dynamic
+  total_time: 0.02
+  damping:
+    type: none
+name: beam2_dynamic

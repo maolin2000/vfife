@@ -1,0 +1,11 @@
+version: 1
+kind: element
+name: hexa20
+target_level: verified
+evidence:
+  - category: rigid_body
+    reference: tests/test_hexa20.py::test_hexa20_shape_partition_and_corner
+  - category: fundamental_response
+    reference: tests/test_hexa20.py::test_hexa20_quadrature_volume
+  - category: equilibrium
+    reference: tests/test_hexa20.py::test_hexa20_uniaxial_tension_via_nodal_forces

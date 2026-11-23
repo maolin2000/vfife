@@ -1,0 +1,44 @@
+# A parabolic arch rib under a deck load (`vfife new arch`): 80 m span,
+# 16 m rise, fixed springings. The arch axis is drawn by the mesh
+# (`arc: {rise}`, user manual, Section 5.4). The 50 kN/m is per metre ALONG
+# THE RIB (a line_load is per member length): 4.39 MN in all, not the 4.0 MN
+# of 50 kN/m over the 80 m span; and not funicular, so the springings carry a
+# moment.
+#
+#   vfife info      @FILE@
+#   vfife run       @FILE@                 # the dead-load state, static
+#   vfife buckling  @FILE@                 # buckling factors; the first here is out of plane
+#                                          # (look at the shapes with --paraview)
+#   vfife modal     @FILE@
+version: 1
+name: @NAME@
+units: {length: m, force: N, stress: Pa}
+mesh:
+  type: lines
+  points:
+    left: [0.0, 0.0, 0.0]
+    right: [80.0, 0.0, 0.0]
+  lines:
+    rib: {through: [left, right], divisions: 32, arc: {rise: 16.0, shape: parabola}}
+regions:
+  crown: {nearest: [40.0, 0.0, 16.0]}
+materials:
+  steel: {type: linear_elastic, E: 2.06e+11, nu: 0.3, rho: 7850.0}
+sections:
+  rib_box: {type: beam, material: steel, shape: general, area: 0.12, iy: 0.05, iz: 0.12, j: 0.08}
+assign:
+  - {region: rib, section: rib_box, orientation: [0, 1, 0]}
+constraints:
+  - {region: left, dofs: [1, 1, 1, 1, 1, 1]}
+  - {region: right, dofs: [1, 1, 1, 1, 1, 1]}
+loads:
+  - {region: all, gravity: [0.0, 0.0, -9.80665]}
+  - {region: rib, line_load: [0.0, 0.0, -5.0e+4], with_mass: true}   # the deck hung from the rib, 50 kN/m along it
+solver:
+  mode: static
+  backend: numpy
+output:
+  path: results/@NAME@.h5
+  monitors:
+    w_crown: {kind: displacement, region: crown, dof: z}
+    H_left: {kind: reaction, region: left, dof: x}

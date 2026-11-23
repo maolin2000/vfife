@@ -1,0 +1,90 @@
+version: 1
+name: case_18_bend45_cantilever
+
+# THE 45-DEGREE BEND: A CANTILEVER THAT BENDS ABOUT TWO AXES AND TWISTS
+#
+# Bathe & Bolourchi (1979), "Large displacement analysis of three-dimensional
+# beam structures", IJNME 14:961-986; NAFEMS 3DNLG-5; Simo & Vu-Quoc (1986);
+# Cardona & Geradin (1988); Crisfield (1990). THE finite-rotation benchmark
+# for spatial beams: one eighth of a circle of radius 100 in the x-y plane,
+# clamped at the origin with its tangent along +y, square section 1 x 1,
+# E = 1e7, nu = 0, and a tip load of 600 OUT of the plane (+z). Under it the
+# tip rises 53 -- more than half the radius -- and the beam twists as it
+# bends, so every member's nodes rotate about axes that are neither the
+# member's own nor each other's.
+#
+# WHAT IT FOUND. The frame solver removed a member's rigid
+# rotation by subtracting rotation vectors, with the element frame following
+# the chord alone. Exact in a plane -- Lee's frame (case_16) never saw it --
+# and wrong in space: this case came out (-12.8, -24.2, 52.4) against the
+# 1979 answer (-13.4, -23.5, 53.4), 2% stiff in the load direction and 5% off
+# across the chord, and a member rotated rigidly with a twist carried a
+# spurious moment. The frame now follows the mean nodal triad, the local
+# rotation is the relative rotation of the node's triad (core/rotations.py),
+# and the assembled moments are made conjugate to the rotation-vector dofs
+# -- without which the relaxation is not a gradient descent and stalled at a
+# residual of 1e-4 on the second load level.
+#
+# THE TORSION CONSTANT MATTERS AT THE PERCENT LEVEL. The exact constant of a
+# square section is 0.1406 a^4; the polar moment 1/6 a^4 is what several
+# 1980s papers used (Bathe's, Simo's and a modern reproduction with It = 1/6
+# agree to 0.3%). Abaqus's benchmark (B33, an Euler-Bernoulli element like
+# this one) uses its own rectangular-section constant and reports three
+# load levels; with J = 0.1406 this model reproduces those to 1.0% on the
+# smallest component and 0.3% on the others. The case uses 0.1406 and the
+# Abaqus table; the 1979 numbers are held as a second, wider check. With
+# J = 1/6 the tip is (-13.53, -23.55, 53.52), 0.3% from the 1/6 references.
+#
+# Eight elements, the classical discretisation; sixteen move the tip by
+# 0.4% at most.
+
+units: {length: in, force: lbf, stress: psi}
+mesh: {type: gmsh, path: ../benchmarks/assets/bend45_8_v22.msh}   # benchmarks/generate_bend45.py --n 8
+
+materials:
+  # rho is not in the benchmark (static); 2.5e-4 lbf s^2/in^4 is steel-like
+  # and keeps the units check content
+  mat: {type: linear_elastic, E: 1.0e7, nu: 0.0, rho: 2.5e-4}
+
+sections:
+  square:
+    type: beam
+    material: mat
+    shape: general
+    area: 1.0
+    iy: 0.0833333333333
+    iz: 0.0833333333333
+    j: 0.1406            # Saint-Venant constant of the 1 x 1 square (0.1406 a^4)
+
+assign:
+  - {region: members, section: square, orientation: [0, 0, 1]}
+
+constraints:
+  - {region: root, dofs: [1, 1, 1, 1, 1, 1]}
+
+steps:
+  - name: load
+    # 600 in 12 levels of 50: the reference levels 300, 450, 600 are levels
+    # 6, 9 and 12
+    loads:
+      - {region: tip, vector: [0, 0, 600.0]}
+    load_steps: 12
+    max_steps_per_load: 100000
+    tolerance: 1.0e-6
+
+solver:
+  # static (Newton on the finite-difference tangent) since
+  # 1.5: 72 s of kinetic-damping relaxation became 1 s, to the same contract
+  mode: static
+  backend: numpy
+  tolerance: 1.0e-6
+
+output:
+  path: results/case_18_bend45_cantilever.h5
+  every: 1000000
+  fields: [displacement, rotation, bending_y, bending_z, torsion]
+  monitors:
+    u:  {kind: displacement, region: tip, dof: x}
+    v:  {kind: displacement, region: tip, dof: y}
+    w:  {kind: displacement, region: tip, dof: z}
+    Rz: {kind: reaction, region: root, dof: z}       # minus the applied load

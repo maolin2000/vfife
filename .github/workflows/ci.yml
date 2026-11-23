@@ -1,0 +1,221 @@
+# 每次改动都自动检查 —— 因为这套东西唯一的失效模式是"有人忘了按一下"。
+#
+# 分两层，理由和 tests/test_cases.py 里一样：会烂掉的东西和跑得慢的东西不是同一批。
+#
+#   fast     每次 push / PR。不求解，只验证结构还成立：算例能解析、契约和监视器
+#            对得上、单元能从真实 Gmsh 文件读进来、输出场名字有效。分钟级。
+#   verify   只在手动触发时跑（Actions 页面 Run workflow）。真解 cases/ 里的每个
+#            算例并对验证契约核对。这是"答案还对不对"。一个算例一个 job（矩阵），因为把二十个真解串在一个 job 里
+#            早就顶穿了 120 分钟的预算 —— 一个超时的检查和一个被跳过的检查一样，
+#            都是绿的。
+#
+# 两层都不装 warp：GitHub runner 没有 GPU，而一个只在 GPU 上跑的检查等于没有
+# 检查 —— 它会安静地跳过，然后所有人以为它绿着。同一条理由反过来要求快速层
+# 装 numba：CPU 熔合内核在 runner 上跑得起来，不装它等于把"编译路径与标量律
+# 逐位相同"这一整类断言关掉（见下面两个"安装"步骤的注释）。
+# 夜间定时已关：夜间层是六十个作业、每个最长两小时，私有仓库一
+# 个月的 Actions 额度几天就用完了。同一套检查在本机跑：python tools/check_all.py
+# （默认层、慢测试、每个算例的契约、打包安装），报告写进 results/check_all/。
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    name: 快速层（不求解）
+    runs-on: ubuntu-latest
+    # heavy 测试排除后约 5–10 分钟；30 分钟的上限留给 pip 和 numba 编译
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装
+        # 装 plot、cpu 和 meshio 是有意的：这三个缺席时相关测试会 importorskip
+        # 跳过，而一个被跳过的测试保护不了任何东西。
+        #
+        # cpu（numba）是后补的，补的正是这条理由自己漏掉的一块：没有它时快速层
+        # 少跑 44 条断言 —— 熔合内核与标量律逐位相同、纤维截面走的是哪条路径、
+        # 编译孪生编不编得出来，全都安静地跳过。
+        # gpu（warp）不装：runner 没有 GPU，装了也只是换一种跳过。
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,plot,cpu,paraview]"
+
+      - name: 冒烟 —— 命令行本身还能用吗
+        run: |
+          python -m vfife --help > /dev/null
+          python -m vfife list
+          python -m vfife mesh tests/data/box_hexa8_v41.msh
+
+      - name: 测试（默认层，slow 与 heavy 已排除）
+        # 默认层约 75 CPU 分钟，私有仓库的 runner 只有两核，60 分钟也跑不完。
+        # 超过 3 秒的测试（tests/heavy_tests.txt）
+        # 标为 heavy，这里不跑；它们由本机 tools/check_all.py 跑。-n auto 按核数并行，每个
+        # 工作进程单线程，免得 numba 线程互相抢核；-rfE 把失败原因列在末尾
+        env:
+          NUMBA_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+        run: pytest -q -n auto -m "not slow and not heavy" -rfE --tb=short --durations=15
+
+      - name: 资格清单的引用都还指向真实测试吗
+        run: |
+          for f in qualification/*.yaml; do
+            python -m vfife qualify check "$f"
+          done
+
+  verify:
+    name: 验证契约（真解）${{ matrix.case }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # 只在手动触发时跑：每次 push 都真解六十个算例是浪费，而它们的物理不会因为
+    # 一次改动就变；夜间定时也已关（见文件头）。
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      # 一个算例红了，其余照跑：夜间层的产出是"哪些还对"，不是"有没有错"
+      fail-fast: false
+      matrix:
+        # 这张表必须等于 cases/*.yaml 减去下面点名跳过的；tests/test_ci_layers.py
+        # 每次 push 都核对，所以新加一个算例而忘了写进来会在快速层就红。
+        #
+        # 暂时跳过：case_15_chalmers_prc —— 一个算例就要一个多小时（本地 2 线程
+        # NumPy 105 分钟），而且装了 numba 也不快（254 步/秒，
+        # 0.2 版）：主导的是粘结钢筋/预应力路径每步的 Python 开销，不是内核。
+        # 等那条路径提速、或它有更便宜的验证形式（更粗的网格、只验到开裂）再放回来。
+        case:
+          - case_01_beam_cantilever
+          - case_02_truss_bar
+          - case_03_mixed_frame
+          - case_04_nafems_le10
+          - case_05_space_truss_seismic
+          - case_06_rc_column_cyclic
+          - case_07_coupled_solid_truss
+          - case_08_timoshenko_short_beam
+          - case_09_connector_support
+          - case_10_clamped_square_shell
+          - case_11_fiber_rc_column_cyclic
+          - case_12_ualberta_sf0b
+          - case_12b_ualberta_sf0b_bond
+          - case_12c_ualberta_sf0b_confined
+          - case_13_pretensioned_beam
+          - case_14_draped_tendon_balance
+          - case_16_lee_frame
+          - case_16b_lee_frame_arc_length
+          - case_17_hinged_cylindrical_roof
+          - case_18_bend45_cantilever
+          - case_19_floating_beam
+          - case_20_rolled_cantilever
+          - case_21_vecchio_emara_frame
+          - case_21b_vecchio_emara_cracked_shear
+          - case_21c_vecchio_emara_static
+          - case_22_cable_catenary
+          - case_23_suspension_bridge
+          - case_24_hzb_girder
+          - case_24b_hzb_girder_modal
+          - case_24c_hzb_girder_collapse
+          - case_24d_hzb_girder_piers
+          - case_24e_hzb_girder_bearings
+          - case_24f_hzb_girder_bearings
+          - case_24g_hzb_static_pushover
+          - case_25_chen_hollow_slab
+          - case_25b_chen_hollow_slab
+          - case_26_moving_load_beam
+          - case_26b_moving_load_influence
+          - case_27_thermal_two_span
+          - case_27b_thermal_eigenstress
+          - case_28_confederation_trucks
+          - case_28b_confederation_thermal
+          - case_28c_confederation_uniform
+          - case_28d_confederation_sdl
+          - case_29_creep_bar
+          - case_29b_relaxation
+          - case_29c_shrinkage_bars
+          - case_29d_fiber_creep_bar
+          - case_29e_fiber_relaxation
+          - case_29f_tendon_relaxation
+          - case_29g_prestress_loss
+          - case_30_kuang_control_beam
+          - case_31_li_control_beam
+          - case_32_bearing_laws
+          - case_33_falling_beam
+          - case_34_brittle_cantilever
+          - case_35_spectrum_cantilever
+          - case_36_multi_support_wave
+          - case_37_pier_in_water
+          - case_38_sprung_mass_crossing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装
+        # cpu（numba）也装：这一层曾故意不装，让契约在 NumPy 参
+        # 考路径上核对——但"编译路径与参考逐位相同"由快速层每次 push 断言，夜间层
+        # 再跑一遍参考路径只是把 case_15 变成 105 分钟。算例按自己写的后端跑
+        # （warp 映射到 numba，runner 没有 GPU）。
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,plot,cpu,paraview]"
+
+      - name: 真解一个算例并对契约核对
+        run: pytest -q -m slow --durations=0 "tests/test_cases.py::test_a_case_solved_satisfies_its_contract[${{ matrix.case }}]"
+
+      - name: 失败时保留诊断
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-failure-${{ matrix.case }}
+          path: |
+            results/
+            /tmp/pytest-*/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  verify_rest:
+    name: 验证契约（其余慢测试）
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装
+        # 同上
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,plot,cpu,paraview]"
+
+      - name: 慢测试里不是算例契约的那些（粘结、预应力、混合网格、侵蚀……）
+        run: pytest -q -m slow --durations=0 --ignore=tests/test_cases.py
+
+      - name: 失败时保留诊断
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-failure-rest
+          path: |
+            results/
+            /tmp/pytest-*/
+          if-no-files-found: ignore
+          retention-days: 14

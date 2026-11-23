@@ -1,0 +1,100 @@
+version: 1
+name: case_19_floating_beam
+
+# A FREE BODY: THE FLOATING SOLID BEAM OF WU & TING (2020)
+#
+# Wu & Ting, "Analysis of the changing geometry of flexible structure: 2.
+# Analysis of flexible solid", Proc. R. Soc. A 476:20200045, example 1, their
+# figure 6. An unconstrained beam, two pressure pulses on its end faces that
+# are neither equal nor collinear, and then nothing: it translates along its
+# axis and spins about a transverse axis for the rest of the run, exchanging
+# kinetic and strain energy with no external work to draw on. The particle
+# equations of motion need no support, and this is the case that says so:
+# until v0.1 the preflight refused any model with a free rigid-body
+# mode, which is right under relaxation (a free body has no equilibrium to
+# relax to) and wrong under dynamics with a physical mass.
+#
+# THE MODEL. Paper: length 20, section 1 x 1, rho = 1e-6 kg/mm^3, E = 3.6 GPa
+# ("flexible") or 25 E ("stiff", the near-rigid patch test), nu = 0.46; a
+# triangular pressure pulse 0 -> 60 MPa -> 0 over 0-0.5-1.0 ms, "P" on the
+# lower half of one end face, "2P" on the upper half of the other, both
+# pushing inward. Their figure's length unit is a centimetre: the ends'
+# lateral excursion in their figure 8 is +-70 mm, which is (L/2)/sqrt(2) for
+# L = 200 mm and impossible for L = 20. So: 200 x 10 x 10 mm, 5 mm hexa8,
+# P = 60 MPa on the near lower half-face, 2P = 120 MPa on the far upper
+# half-face, 40 ms of flight.
+#
+# WHAT IS CHECKED, AND WHY NOT THE PAPER'S NUMBERS. The paper reports 1500 mm
+# of travel in 40 ms and a rotation period of about 36 ms; with its stated
+# parameters this model travels 2960 mm and turns in 50 ms, and no single
+# reading of P (60 or 30 MPa) reproduces both. The paper's data statement
+# points to a deposit this session could not reach. What the physics fixes
+# without any of that: the energy audit (external work = kinetic + strain,
+# once the pulse is over nothing changes it), the linear momentum along the
+# beam (the impulse of the pulses, to the small cosine of the rotation
+# during the pulse), the rigid-body kinematics of the stiff beam (the ends'
+# relative motion is a rotation of radius L/2 about the width axis: its
+# amplitude is L, its axis is x, nothing moves in x), and the constancy of
+# the spin once the load is gone. Those are the contract; the model's own
+# rotation rate is held as a regression.
+#
+# TWO THINGS THIS CASE MADE THE PROGRAM DO. (1) `follower: true` on a
+# pressure: a pressure is normal to the surface it acts on, and on a body
+# that turns 0.08 rad during a 1 ms pulse the difference matters -- a
+# fixed-direction end force gains a lever arm of L/2 sin(theta) and spun
+# this beam at 365 rad/s; the follower pressure keeps the patch offset and
+# gives 126. (Neither is the naive impulse estimate of 168: the end faces
+# also tilt with the beam's bending during the pulse.) (2) The energy audit
+# paired the forces of step n with the displacement increment of step n+1;
+# on the flexible beam that lag drifted the internal work to -18 J of a
+# 91 J budget. Fixed, the flexible flight conserves energy to 1e-4 with the
+# strain energy oscillating between 1 and 6 J -- the shape of their
+# figure 10.
+#
+# The flexible companion (E = 3.6 GPa) runs with this file and E changed:
+# 54 396 steps, 9 s, energy error 3e-5, the same travel to 1%.
+
+units: {length: m, force: N, stress: Pa}
+mesh: {type: box, dimensions: [0.01, 0.2, 0.01], divisions: [2, 40, 2]}
+
+materials:
+  # the paper's "stiff" case: 25 x 3.6 GPa, so the flight is a rigid-body
+  # patch test; rho = 1e-6 kg/mm^3 = 1000 kg/m^3
+  stiff: {type: linear_elastic, E: 90.0e9, nu: 0.46, rho: 1000.0}
+
+sections:
+  body: {type: solid, material: stiff, formulation: reduced}
+
+regions:
+  near_low: {box: [-0.001, 0.011, -0.001, 0.001, -0.001, 0.0051]}   # y = 0 face, lower half: "P"
+  far_high: {box: [-0.001, 0.011,  0.199, 0.201,  0.0049, 0.011]}   # y = L face, upper half: "2P"
+  A: {nearest: [0.005, 0.2, 0.005]}       # far end, mid-face
+  B: {nearest: [0.005, 0.1, 0.005]}       # the centre
+  C: {nearest: [0.005, 0.0, 0.005]}       # near end, mid-face
+
+amplitudes:
+  # 0 -> 1 -> 0 over 0, 0.5, 1.0 ms of the 40 ms run, then nothing
+  pulse: {table: [[0.0, 0.0], [0.0125, 1.0], [0.025, 0.0], [1.0, 0.0]]}
+
+loads:
+  - {region: near_low, pressure: 60.0e6,  amplitude: pulse, follower: true}
+  - {region: far_high, pressure: 120.0e6, amplitude: pulse, follower: true}
+
+solver:
+  backend: numba
+  mode: dynamic
+  total_time: 0.040
+  dt_safety: 0.6
+  damping: {type: viscous, coeff: 0.0}
+
+output:
+  path: results/case_19_floating_beam.h5
+  every: 200
+  fields: [displacement]
+  monitors:
+    y_cm:  {kind: displacement, region: all, dof: y}     # the mass centre's travel (uniform mesh)
+    x_cm:  {kind: displacement, region: all, dof: x}     # nothing acts in x
+    z_rel: {kind: displacement, region: A, dof: z, relative_to: C}   # the spin: (L) sin(theta)
+    y_rel: {kind: displacement, region: A, dof: y, relative_to: C}   # L (cos(theta) - 1)
+    z_A:   {kind: displacement, region: A, dof: z}
+    z_C:   {kind: displacement, region: C, dof: z}

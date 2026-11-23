@@ -1,0 +1,159 @@
+version: 1
+case: case_11_fiber_rc_column_cyclic
+classification: public_benchmark
+# Was `independent_reference` against a solution this project assembled itself,
+# with a note saying: "Upgrade it only against a number someone else published."
+# Tanaka & Park is that number. The targets below are the measured record, not
+# a previous run of this solver, so this case can now fail in a way that means
+# something about the physics rather than about a refactor.
+reference: >-
+  Tanaka, H.; and Park, R., "Effect of Lateral Confining Reinforcement on the
+  Ductile Behavior of Reinforced Concrete Columns", Report 90-2, Department of
+  Civil Engineering, University of Canterbury, June 1990 -- specimen No. 1, as
+  catalogued in the PEER Structural Performance Database. 400x400 mm column,
+  1600 mm to the point of inflection, f'c = 25.6 MPa, 8 no. 20 mm longitudinal
+  (fy 474 MPa), 12 mm hoops at 80 mm, axial load 819 kN = 0.2 f'c Ag. Measured
+  force-displacement record: verification/Tanaka_90_specimen_1.txt (593 points).
+metrics:
+  - id: peak_tip_disp
+    description: The analysis reaches the 129.5 mm final push of the test protocol
+    source: monitor
+    name: tip_disp
+    reduction: peak_abs
+    expect: {target: 0.1295, rtol: 0.02, atol: 1.0e-4}
+
+  - id: base_shear_envelope
+    # Measured peak 166.8 / -167.1 kN; this model gives 148.4 / -161.1, i.e.
+    # 0.89 / 0.96. The model now UNDER-predicts, where two steps ago it was
+    # 15% over. Nothing was fitted to get here; two mechanisms were added, each
+    # from a published formula, and the error changed sign.
+    #
+    #   single concrete, perfect bond        peak 1.15   stiffness 1.37  energy 1.30
+    #   + cover spalls, Mander core          peak 1.00   stiffness 1.28  energy 1.24
+    #   + strain penetration at the base     peak 0.89   stiffness 1.15  energy 1.10
+    #
+    # Stiffness and energy moved monotonically toward the measurement and are
+    # now the closest they have been. The peak overshot through it. Per
+    # reversal: 8 mm 1.19, 21 mm 0.95, 42 mm 1.03, 64 mm 1.11, 86 mm 1.04 --
+    # the envelope is within 11% everywhere and within 5% over most of it,
+    # which is a better description of this model than the single peak ratio.
+    #
+    # DO NOT TUNE Lsp TO BRING THE PEAK BACK. It is 0.022 fy db from fy and db
+    # on the PEER sheet. Fitting it would be fitting one derived quantity to
+    # hide the uncertainty in another.
+    #
+    # An earlier version of this note blamed the residual error on concrete02
+    # being unable to hold Mander's initial modulus and peak strain at once,
+    # "worth 10% on the peak". THAT NUMBER WAS A GUESS AND IT IS WRONG.
+    # Measured, by fibre section analysis of this exact section (128 fibres,
+    # 8 bars, N = 819 kN held, curvature swept), replacing the core's parabola
+    # with the Popovics curve that Mander's own fcc and eps_cc belong to:
+    #
+    #   core initial tangent   2 fcc/eps_cc = 10.0 GPa vs Mander 25.3 GPa, 2.53x
+    #   peak moment            +2.5% with Lsp in place, +5.9% without
+    #   at phi = 0.001         +25%   <- where the 2.53x actually shows
+    #   at phi = 0.003         +5.7%
+    #
+    # So the tangent really is 2.5x soft, and it is nearly worthless here: the
+    # cover is 44% of the area at the right modulus, the section is steel and
+    # axial dominated, and by any curvature that carries load the two curves
+    # have converged. Worse, the change goes the WRONG WAY on the other two
+    # metrics -- it stiffens the section 1.057x at phi = 0.003, and this model
+    # is already 1.15x stiffer than the measurement. A Popovics material is not
+    # the way to close the remaining 11%.
+    description: Lateral capacity against the measured peak of 167 kN
+    source: monitor
+    name: base_shear
+    reduction: peak_abs
+    expect: {target: 167000, rtol: 0.15, atol: 2000}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 5.0e-4}
+
+# SETTLED: the "eight times" that was not there
+#   This file briefly recorded that strain penetration costs 11.7% of the peak
+#   in the full model against 1.5% in a section analysis of the same change,
+#   and told the reader to treat the 0.89 as unexplained. THERE WAS NO
+#   DISCREPANCY. The two numbers were reductions of different states.
+#
+#   Measured monotonically (the cyclic step dropped, so both measurements are
+#   finally of the same loading), with the metrics perturbation-checked on this
+#   case first -- load_steps 40 -> 80 and tolerance 5e-4 -> 2.5e-4:
+#
+#     quantity        with Lsp   without   spread over perturbations
+#     peak shear      148.2 kN   164.2 kN     0.43% / 1.22%   usable
+#     drift at peak     16.2 mm    13.0 mm    0.00% / 12.50%  NOT usable
+#     shear @ 40 mm   144.2      146.9        0.01% / 0.06%   usable
+#     shear @ 60 mm   135.7      137.3        0.17% / 0.04%   usable
+#     shear @ 100 mm  100.7      101.6        0.17% / 0.36%   usable
+#
+#   So the effect is 9.7% at the peak and about 1% by 40 mm, and it is NOT a
+#   cyclic effect -- the monotonic gap is the same size as the cyclic one.
+#
+#   The section analysis says exactly the same thing, and always did:
+#
+#     curvature   perfect bond   with Lsp   ratio
+#       0.010      201.0 kN.m    174.3      0.867     <- 13.3% down
+#       0.020      243.3         221.6      0.911
+#       peak       243.5         239.9      0.985     <-  1.5% down
+#
+#   The beam's peak base shear occurs at 13-16 mm, near first yield, where the
+#   section analysis also shows 13%. The "1.5%" was the section's peak MOMENT,
+#   which happens at large curvature where the two have long since converged.
+#   Quoting the peak row against the beam's early peak compared two different
+#   points on the same curve.
+#
+#   What the numbers actually show is the documented mechanism working: slip
+#   makes the hinge softer and delays yield, so the difference is largest
+#   before yield and gone by 40 mm. That is what tests/test_strain_penetration.py
+#   ::test_penetration_softens_before_yield_and_not_after asserts, and it is
+#   what these curves do.
+#
+#   The lesson is the one this file keeps recording, now for the sixth time:
+#   a cross-check that disagrees is evidence about the comparison as much as
+#   about the thing compared. Here both sides were right and the comparison was
+#   wrong -- "peak" meant a different state on each side.
+
+# NOT ASSERTED, AND WHY
+#   Absorbed energy: 127.6 kJ computed against 116.3 kJ measured, a ratio of
+#   1.10. Not asserted because there is no monitor reduction for a loop area.
+#   Worth watching, and worth remembering how it moved:
+#
+#     0.32  fibre material state committed on every relaxation iteration
+#     1.77  after committing once per converged load stage
+#     1.69  after the fibre grid was put on the axis that actually bends
+#     1.30  after the axial internal force stopped being L0 times too large
+#     1.27  after the hardening ratio was set from the steel stress it implies
+#     1.24  after the cover was allowed to spall separately from the core
+#     1.10  after the bars were allowed to penetrate into the footing
+#
+#   The first of those was written up, in this file, as concrete02 unloading
+#   more steeply than a cracked section with bond slip. It was a solver bug,
+#   and the plausible constitutive story delayed finding it by a full round.
+#
+# SETTLED, AND WORTH KNOWING WHY IT LOOKED OPEN
+#   An earlier version of this file recorded that the element field
+#   `bending_z` did not satisfy M_base = V*L + P*delta frame by frame, with
+#   only 10% of frames within 10%. It does. With the frames read in the right
+#   order the base reaction moment regresses on V*L + P*delta with a slope of
+#   0.9998 and R^2 = 1.00000, and the element field tracks it to a median
+#   0.965 (it is a maximum over the element's integration points).
+#
+#   The frames were being read in the wrong order. Step groups are named by
+#   the solver's cumulative iteration count, zero padded to five digits, and
+#   this analysis passes 99999 -- so the names come in two widths and
+#   `sorted()` puts every six-character name first. Six places in the repo
+#   sorted them that way, including vfife/verification.py, which evaluates
+#   these contracts. The writer now pads to eight digits, every reader passes
+#   key=int, and tests/test_step_ordering.py pins both.
+#
+#   The lesson is the one this case keeps teaching: a cross-check that fails
+#   is evidence about the check as much as about the thing being checked.
+#   Three rounds were spent explaining a discrepancy that the reduction had
+#   manufactured -- first by binning across load levels, then by taking
+#   absolute values through a sign cancellation, and finally by sorting
+#   strings that were not fixed width.

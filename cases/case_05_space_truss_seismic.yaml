@@ -1,0 +1,32 @@
+# Four-leg spatial pyramid truss under the public El Centro 1940 N-S record.
+
+version: 1
+name: case_05_space_truss_seismic
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/space_truss_pyramid_v22.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+sections:
+  bar: {type: bar, material: steel, shape: general, area: 0.002}
+assign:
+- {region: all, section: bar}
+nodal_masses:
+- {region: apex, mass: 5000.0, per_node: true}
+constraints:
+- {region: base, dofs: [1, 1, 1]}
+loads:
+- region: all
+  ground_motion: {path: ../benchmarks/assets/elcentro_1940_ns_g.dat, direction: [1, 0, 0], scale: 9.80665}
+solver:
+  mode: dynamic
+  backend: numpy
+  total_time: 31.18
+  dt_safety: 0.55
+  damping: {type: rayleigh, alpha: 2.0, beta: 0.0001}
+output:
+  path: results/case_05_space_truss_seismic.h5
+  every: 10
+  fields: [displacement, axial_stress, axial_force, von_mises]
+  monitors:
+    apex_ux: {kind: displacement, region: apex, dof: x}
+    base_fx: {kind: reaction, region: base, dof: x}

@@ -1,0 +1,136 @@
+# The same bridge and the same published profile with the GRADIENT TAKEN OUT:
+# what a portal frame does when its girder simply gets longer.
+#
+# The companion to case_28b, which carries the whole field. Here only the mean
+# rise goes on -- 19.1 K at the pier to 21.0 at midspan -- and the difference
+# between the two cases is what the gradient of Ghali's Fig. 21 profile is
+# worth:
+#
+#                     mean rise only   whole field    Fig. 21
+#   midspan              +68.1 mm       +58.2 mm      +60.6
+#   x = -180 m           -34.8          -44.8         -43.7
+#   cantilever tips      -60.2 / -67.0  -90.0 / -97.2 -73.5
+#
+# So the gradient is worth -9 mm at midspan and -31 at every tip: nearly
+# invisible in the frame span, where both ends are held, and dominant on a
+# 95 m cantilever, which is free to curl.
+#
+# WHY THE MEAN RISE IS WORTH A CASE OF ITS OWN. Its response is INDEPENDENT OF
+# E -- every stiffness in the frame scales together, so E cancels -- and it
+# barely moves with the pier: a sixfold change in the assumed pier wall takes
+# midspan from 58.5 to 60.6 mm, where the same change moves case_28's truck
+# deflection by 25%. It is very nearly a check on geometry and alpha alone,
+# and alpha is the 8.5e-6/C Butcher measured on this bridge's own concrete
+# (the design assumed 8.3).
+#
+# The mechanism: the 250 m girder between the piers grows about 40 mm, the
+# pier tops cannot move apart freely, and the span bows UP; the joint rotation
+# that goes with it drops the 95 m cantilevers beyond. None of it is a
+# gradient, and none of it would happen on a simply supported span.
+#
+#   python benchmarks/generate_confederation.py --check
+
+version: 1
+name: case_28c_confederation_uniform
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/confederation_frame.msh}
+
+materials:
+  # Ec(28) = 38.7 GPa is the modulus Ghali measured on the bridge's own
+  # concrete (design strength 55 MPa, achieved 63 at 28 days). The age-adjusted
+  # value at the time of the test would be near 46 GPa, which makes the model
+  # 17% stiffer and moves it AWAY from the measurement -- said out loud in
+  # v0.4 rather than quietly chosen.
+  # rho 2879 = 2450 x 1.175: the box outline holds only 85% of the 8000 t Ghali
+  # gives for a 192.5 m double cantilever, the rest being the pier diaphragm,
+  # the deviator and anchor blocks and the tendons. A beam model carries those
+  # as mass, not as area -- putting them into the area would get I wrong too.
+  # The line solvers carry ONE material, so the piers are 17.5% heavy as well;
+  # that shows only in the frequencies (tests/test_confederation.py), and only
+  # in the mode where the piers sway.
+  concrete: {type: linear_elastic, E: 3.87e+10, nu: 0.2, rho: 2879.0, thermal_expansion: 8.5e-6}
+
+sections:
+  # Girder bands, by distance u from the pier centre. Written by
+  # `python benchmarks/generate_confederation.py`; iy (bending in plan) and j
+  # are carried for completeness and are not exercised by a plane model.
+  b00: {type: beam, material: concrete, shape: general, area: 21.8219, iz: 601.4, iy: 155.9, j: 281.3}
+  b01: {type: beam, material: concrete, shape: general, area: 20.7004, iz: 549.7, iy: 150.3, j: 265.9}
+  b02: {type: beam, material: concrete, shape: general, area: 18.8354, iz: 461.2, iy: 141.0, j: 239.2}
+  b03: {type: beam, material: concrete, shape: general, area: 18.0227, iz: 398.9, iy: 137.3, j: 224.6}
+  b04: {type: beam, material: concrete, shape: general, area: 16.9962, iz: 321.0, iy: 132.4, j: 204.4}
+  b05: {type: beam, material: concrete, shape: general, area: 15.6566, iz: 235.0, iy: 125.8, j: 177.0}
+  b06: {type: beam, material: concrete, shape: general, area: 14.0536, iz: 155.0, iy: 117.2, j: 143.0}
+  b07: {type: beam, material: concrete, shape: general, area: 12.2723, iz: 89.32, iy: 107.0, j: 104.5}
+  b08: {type: beam, material: concrete, shape: general, area: 10.7346, iz: 49.77, iy: 97.54, j: 71.69}
+  b09: {type: beam, material: concrete, shape: general, area: 9.7490, iz: 31.38, iy: 91.18, j: 51.69}
+  bmid: {type: beam, material: concrete, shape: general, area: 9.4534, iz: 26.85, iy: 89.22, j: 45.94}
+  # Pier: hollow shaft 8 m across above the ice shield, base flaring to 22 m.
+  pshaft: {type: beam, material: concrete, shape: general, area: 13.9487, iz: 96.11, iy: 96.11, j: 192.2}
+  pbase1: {type: beam, material: concrete, shape: general, area: 20.5460, iz: 306.1, iy: 306.1, j: 612.1}
+  pbase0: {type: beam, material: concrete, shape: general, area: 33.7407, iz: 1353.0, iy: 1353.0, j: 2706.0}
+
+assign:
+- {region: b00, section: b00, orientation: [0, 0, 1]}
+- {region: b01, section: b01, orientation: [0, 0, 1]}
+- {region: b02, section: b02, orientation: [0, 0, 1]}
+- {region: b03, section: b03, orientation: [0, 0, 1]}
+- {region: b04, section: b04, orientation: [0, 0, 1]}
+- {region: b05, section: b05, orientation: [0, 0, 1]}
+- {region: b06, section: b06, orientation: [0, 0, 1]}
+- {region: b07, section: b07, orientation: [0, 0, 1]}
+- {region: b08, section: b08, orientation: [0, 0, 1]}
+- {region: b09, section: b09, orientation: [0, 0, 1]}
+- {region: bmid, section: bmid, orientation: [0, 0, 1]}
+- {region: pshaft, section: pshaft, orientation: [1, 0, 0]}
+- {region: pbase1, section: pbase1, orientation: [1, 0, 0]}
+- {region: pbase0, section: pbase0, orientation: [1, 0, 0]}
+
+regions:
+  girder: {union: [b00, b01, b02, b03, b04, b05, b06, b07, b08, b09, bmid]}
+
+constraints:
+# A plane frame in x-z, as Ghali's is: no out-of-plane displacement, no
+# torsion, no bending in plan.
+- {region: all, dofs: [0, 1, 0, 1, 0, 1]}
+- {region: base32, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: base31, dofs: [1, 1, 1, 1, 1, 1]}
+
+loads:
+- {region: b00 , temperature: {uniform: 19.13}}   # depth 14.00 m, gradient +0.392 K/m dropped
+- {region: b01 , temperature: {uniform: 19.20}}   # depth 13.63 m, gradient +0.411 K/m dropped
+- {region: b02 , temperature: {uniform: 19.36}}   # depth 12.93 m, gradient +0.452 K/m dropped
+- {region: b03 , temperature: {uniform: 19.42}}   # depth 12.24 m, gradient +0.485 K/m dropped
+- {region: b04 , temperature: {uniform: 19.52}}   # depth 11.25 m, gradient +0.542 K/m dropped
+- {region: b05 , temperature: {uniform: 19.68}}   # depth  9.98 m, gradient +0.633 K/m dropped
+- {region: b06 , temperature: {uniform: 19.91}}   # depth  8.50 m, gradient +0.778 K/m dropped
+- {region: b07 , temperature: {uniform: 20.23}}   # depth  6.92 m, gradient +1.013 K/m dropped
+- {region: b08 , temperature: {uniform: 20.59}}   # depth  5.58 m, gradient +1.328 K/m dropped
+- {region: b09 , temperature: {uniform: 20.89}}   # depth  4.75 m, gradient +1.628 K/m dropped
+- {region: bmid, temperature: {uniform: 20.99}}   # depth  4.50 m, gradient +1.742 K/m dropped
+
+solver:
+  # mode: static since 1.7: six Newton increments in under
+  # a second where the relaxation took six stages of up to 30000 iterations
+  mode: static
+  backend: numpy
+  load_steps: 6
+  tolerance: 1.0e-4
+
+output:
+  path: results/case_28c_confederation_uniform.h5
+  every: 1
+  # bending_z is max(|M_i|, |M_j|) -- a magnitude, so a cantilever support
+  # moment is not halved by averaging. For a moment DIAGRAM the signed end
+  # actions are what to plot, so both ends are written too.
+  fields: [displacement, bending_z, bending_z_i, bending_z_j, axial_force, axial_force_i, axial_force_j, shear_y]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    w_q_west: {kind: displacement, region: q_west, dof: z}
+    w_q_east: {kind: displacement, region: q_east, dof: z}
+    w_o_west: {kind: displacement, region: o_west, dof: z}
+    w_o_east: {kind: displacement, region: o_east, dof: z}
+    w_tip_west: {kind: displacement, region: tip_west, dof: z}
+    w_tip_east: {kind: displacement, region: tip_east, dof: z}
+    ux_p31: {kind: displacement, region: p31, dof: x}
+    R_base32: {kind: reaction, region: base32, dof: z}

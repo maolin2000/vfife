@@ -1,0 +1,107 @@
+version: 1
+case: case_27b_thermal_eigenstress
+classification: analytical
+reference: >-
+  The self-equilibrated ("eigen") stress of a nonlinear temperature profile on
+  a determinate section. Plane sections stay plane, so the section takes only
+  the linear part of alpha T(y) -- the eps0 and kappa that make the two
+  resultants vanish -- and carries the rest:
+      sigma(y) = E [eps0 - y kappa - alpha T(y)],
+      int sigma dA = 0,  int sigma y dA = 0.
+  benchmarks/generate_thermal_beam.eigenstress evaluates it; the targets below
+  are taken at the 20 fibre centroids the case actually meshes, so the
+  comparison is of the same discretisation and not of a finer one.
+
+# --------------------------------------------------------------------------- #
+#  STRESS WITH NOTHING HOLDING IT
+# --------------------------------------------------------------------------- #
+#  case_27 is a redundant structure, where what the supports refuse becomes
+#  force. This one has no redundancy at all -- two bearings, 20 m, nothing to
+#  push back -- and it is stressed anyway, by the section's own kinematics.
+#  That is the case bridge codes write their curved design gradients for, and
+#  it is the one a `general` section CANNOT represent: a section with no
+#  fibres has nowhere to keep a stress whose resultants are zero.
+#
+#  THE PROFILE is the code shape: +20 K at the top, falling to zero 0.4 m
+#  down, nothing below. THE MODEL, against the closed form:
+#        midspan (hog)      8.800 mm    (8.797)
+#        strain on the axis 4.0000e-5   (4.0000e-5)
+#        soffit            -1.504 MPa   (-1.503)
+#        peak, y = +0.075  +1.835 MPa   (+1.835)
+#        top               -2.204 MPa   (-2.206)
+#  -- 0.05% on every one, and the net axial force and moment stay at 9 N and
+#  116 N m against the 828 kN and 303 kN m it would take to suppress the field
+#  entirely: 1e-5 and 4e-4 of it.
+#
+#  THE SIGNS ARE THE PHYSICS: the heated top is in COMPRESSION (it wants to be
+#  longer than the section lets it) and the tension sits just under the heated
+#  band, which is where the crack a deck gradient is designed against starts.
+
+metrics:
+  - id: the_curvature_it_takes
+    description: >-
+      Midspan hogs 8.797 mm -- the curvature of the profile's linear part,
+      -1.7594e-4 /m, over the span. Nothing resists it, so this one is free.
+    source: monitor
+    name: w_mid
+    reduction: final
+    expect: {target: 8.797e-3, rtol: 0.01}
+
+  - id: and_the_elongation
+    description: >-
+      The strain on the section's axis is int alpha T dA / A = 4.000e-5
+      exactly -- the other half of what a plane section can take.
+    source: monitor
+    name: eps_axis
+    reduction: final
+    expect: {target: 4.000e-5, rtol: 0.01}
+
+  - id: compression_where_the_heat_is
+    description: >-
+      The top fibre, -2.206 MPa. Warmed and compressed: it wants to be longer
+      than plane sections allow.
+    source: monitor
+    name: sig_top
+    reduction: final
+    expect: {target: -2.2055e+6, rtol: 0.02}
+
+  - id: tension_under_the_heated_band
+    description: >-
+      +1.835 MPa at y = +0.075, just below where the profile reaches zero.
+      This is the number a code gradient exists to keep below f_ct.
+    source: monitor
+    name: sig_peak
+    reduction: final
+    expect: {target: 1.8352e+6, rtol: 0.02}
+
+  - id: and_the_soffit
+    description: -1.503 MPa, compression, though the soffit was never warmed
+    source: monitor
+    name: sig_soffit
+    reduction: final
+    expect: {target: -1.5032e+6, rtol: 0.02}
+
+  - id: the_section_carries_no_net_force
+    description: >-
+      The whole point: these stresses are self-equilibrated. The axial force
+      stays under 100 N against the 828 kN (E alpha int T dA) it would take to
+      suppress the field -- 1e-4 of it.
+    source: field
+    name: axial_force
+    reduction: peak_abs
+    expect: {max: 1.0e+2}
+
+  - id: and_no_net_moment
+    description: >-
+      Nor any moment, against the 303 kN m (E alpha int T y dA) the same
+      field would need: under 1 kN m, 3e-3 of it.
+    source: field
+    name: bending_z
+    reduction: peak_abs
+    expect: {max: 1.0e+3}
+
+  - id: equilibrium
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-5}

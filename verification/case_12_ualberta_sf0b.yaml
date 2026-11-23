@@ -1,0 +1,306 @@
+version: 1
+case: case_12_ualberta_sf0b
+classification: public_benchmark
+reference: >-
+  Muhammad Hafiz Asher, "Structural Performance of Biochar-Amended Concrete
+  Beams Reinforced with Steel and GFRP Bars", MSc thesis, Department of Civil
+  and Environmental Engineering, University of Alberta, September 2025 --
+  specimen SF-0B. 2000 x 200 x 300 mm beam, 1800 mm span, four-point bending
+  with a 700 mm constant-moment region and 550 mm shear spans (a/d = 2.30).
+  f'c = 44 MPa, fr = 5.7 MPa. Five 15M bars in two layers (fy 449 MPa,
+  E 192 GPa, cold-worked, no yield plateau), rho = 2.09%; two 10M hangers;
+  10M stirrups at 75 mm c/c. Monotonic at 1 mm/min. Measured record:
+  verification/UAlberta_SF-0B_four_point.txt (200 points), and Table 3.4:
+
+    P_cr    36 kN @  0.5 mm    first flexural cracking
+    P_s    174 kN @  4.0 mm    service
+    P_y    264 kN @  6.5 mm    yield of the tension steel
+    P_n    399 kN @ 19.3 mm    peak, flexural (tension) failure
+
+  WHY SF-0B AND NOT ANOTHER BEAM IN THE PROGRAMME
+    The GF series is reinforced with GFRP, for which the MC2010 bond law in
+    this project does not apply. SS has no stirrups and is deliberately
+    shear-critical (peak 241.8 kN). SF-4B and SF-6B had strain gauges that
+    malfunctioned. SF-0B is the only steel-reinforced, flexure-governed
+    specimen in the programme with a valid instrument record.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CASE ASSERTS, AND WHERE IT STOPS
+# --------------------------------------------------------------------------- #
+#  The analysis is driven to 16.0 mm of imposed load-point displacement,
+#  19.16 mm at midspan -- the deflection at which SF-0B was measured to peak.
+#  Twenty load steps, about four minutes on the numba backend.
+#
+#      model, at 19.16 mm               360.1 kN, still rising slowly
+#      measured SF-0B                   399   kN at 19.3 mm          0.902
+#
+#  THE MODEL NO LONGER FAILS IN COMPRESSION, WHICH IS THE REPORTED FAILURE
+#  MODE. Until v0.1 this case peaked at 330 kN and 10.1 mm and came
+#  down: the compression zone crushed at half the measured deflection. It did
+#  that because the compression curve had no length scale. A code curve (GB
+#  50010) is a STRAIN curve; crushing localises into one element row whatever
+#  its size, so the energy that row dissipates per unit crushed AREA is the
+#  curve's energy per volume times the element size -- 4.8 N/mm on this mesh,
+#  against 35-58 N/mm in the literature. Refining only the depth, everything
+#  else identical, measured it:
+#
+#      rows   l_e (mm)    peak, no Gc      peak, Gc = 35 N/mm
+#         4      75.0    334.0 @ 12.3      350.4 @ 13.0
+#         8      37.5    330.0 @ 10.1      351.5 @ 13.2       <- this mesh
+#        12      25.0    321.3 @  9.0      352.4 @ 13.0
+#        16      18.75   299.8 @  7.2      344.0 @ 11.8
+#
+#  A 10% spread with the mesh, monotone, while the pre-peak branch did not
+#  move at all -- an unregularised softening band, of the kind the tension
+#  side has been protected from since the crack band was written. With the
+#  crushing energy stated (`Gc: 35.0e3`, Feenstra's ~250 Gf; Nakamura & Higai
+#  give 58 N/mm for this f_c) the spread is 2.4% and the beam reaches a
+#  flexural plateau instead of crushing -- which is what the thesis reports:
+#  "flexural (tension) failure".
+#
+#  ALONG THE SPAN THE MESH DOES NOTHING, with or without Gc: doubling the
+#  elements along the span at fixed depth (24 -> 48) moves the peak by 0.2%
+#  without Gc and 0.4% with it. An earlier note in this file recorded +11.4%
+#  for a span refinement; that was measured with `host_deduction` still in
+#  place and does not survive its removal. So the depth direction is the
+#  whole of the mesh sensitivity, and it is the compression band's.
+#
+#  Gc IS A MODELLING CHOICE AND IT IS STATED, not fitted: it was set from the
+#  literature before this case was rerun, and it is the only value tried at
+#  beam level. Every other input is unchanged.
+#
+#  THE DEFLECTION AXIS OF THE MEASUREMENT IS NOT TRUSTWORTHY, AND THE LOAD AXIS
+#  IS. At first cracking the thesis reports 36 kN at 0.50 mm. Gross-section
+#  elastic theory for this beam (Ig = 4.5e8 mm^4, Ec = 4700 sqrt(44) = 31.2
+#  GPa, four-point, a = 550) gives 0.25 mm, and 0.28 mm with the shear term
+#  this span/depth of 6 makes non-negligible. The measurement is 1.8x softer
+#  than any elastic theory of an uncracked beam AT THE CRACKING LOAD, which no
+#  constitutive model explains; the usual cause is support seating and
+#  load-plate bedding inside a stroke-derived deflection. This model gives
+#  0.32 mm there and therefore agrees with theory rather than with the report.
+#  Ec WAS NOT TUNED TO ABSORB THAT: it is 4500 sqrt(f'c), chosen before any
+#  curve was compared. So the model is 12% STIFF at 6.5 mm (294 kN against
+#  263) and 10% LOW at 19 mm (361 against 398), and the two are not the same
+#  error with opposite signs -- the first is mostly the measurement's soft
+#  axis, the second is the model's.
+#
+#  WHAT THE REMAINING 10% IS NOT, MEASURED RATHER THAN ARGUED:
+#    * not confinement of the core. case_12c gives the concrete inside the
+#      stirrups a Mander-confined curve and lands at 359.6, one part in a
+#      thousand from this case: with the band regularised the compression
+#      zone never crushes, so the core's curve is never exercised.
+#    * not spalling of the cover. An erosion rule on the compressive damage
+#      (dc >= 0.75) never fires: at the end of this path the cover reaches
+#      dc = 0.68 at its worst point.
+#    * not the knife-edge load line, at least not much. A steel bearing pad
+#      built into the top of the beam under each load (two solid sections,
+#      v0.1) moved the old peak by +1.8%.
+#    * not the mesh, now: 2.4% over a 4:1 range of depth refinement and 0.4%
+#      over a 2:1 span refinement.
+#    * NOT the coarse mesh, which is the natural reading of an earlier
+#      12 800-element run (results/case_12_damage_xfine_warp.h5) that peaked
+#      at 377.4 kN, 0.95 of the measured 399. That run peaks at 9.88 mm and
+#      then falls to 231.6 kN at 20.8 mm, crossing the measurement rather
+#      than following it: 1.12x the measured load at its own peak, 0.62x at
+#      the deflection where the specimen actually peaked, and 2.2x at 1 mm.
+#      Its peak VALUE lands near 399 kN by coincidence of a rising curve
+#      meeting a falling one. Three of its differences from this case were
+#      measured separately: the load and support regions are 52 mm boxes
+#      rather than node lines (+5% on the peak, and the stiff early branch --
+#      a rigid 167 mm load patch here gives 119 kN at 0.9 mm against that
+#      run's 115, and a node line gives 90), the stirrups are two vertical
+#      legs rather than closed hoops (-2.2%), and it has no Gc. What it is
+#      NOT explained by is resolution.
+#  What is left points at the tension side -- the steel's hardening modulus
+#  (8.0 GPa from the thesis's Figure 3.1(a)) and tension stiffening -- and
+#  that is where the next measurement should be made.
+
+# THE TARGETS BELOW WERE REFRESHED, AND WHY. `reaction_left_peak` carries the
+# claim that "this number moves only if the model does". It had moved: -0.64%
+# here, -0.66% on `load_at_measured_peak_deflection`, +0.10% on the deflection,
+# all inside the 3% band and therefore silent. This case is DISPLACEMENT
+# controlled, and v0.1 changed how a prescribed displacement ramps
+# into each load level (the `approach` blend that stopped a load level from
+# starting with a step discontinuity at the driven nodes); case_12 was never
+# re-verified against it. The values here are that model's, re-measured, and
+# a run without the new monitors reproduces them bit for bit -- so the shift
+# is the BC fix and not the monitors added in v0.1.
+
+metrics:
+  - id: reaction_left_peak
+    # Half of the measured 399 kN. This model: 180.7 kN, ratio 0.906.
+    # 3%: the run is deterministic and this number moves only if the model
+    # does. It is no longer a wide band -- the 0.22 of earlier versions was
+    # there to hold a ratio of 0.81, and holding a ratio is not a contract.
+    description: Peak left reaction against the measured peak load
+    source: monitor
+    name: P_L
+    reduction: peak_abs
+    expect: {target: 179568.0, rtol: 0.03}
+
+  - id: reaction_right_peak
+    # 179.3 kN; the left-right spread at the peak is 0.8%.
+    description: Peak right reaction against the measured peak load
+    source: monitor
+    name: P_R
+    reduction: peak_abs
+    expect: {target: 179085.0, rtol: 0.03}
+
+  - id: midspan_deflection
+    # Kinematically imposed and tight on purpose: it pins that all twenty
+    # load steps converged, i.e. that the model carried the whole path to
+    # the deflection at which the specimen was measured to peak.
+    description: Midspan deflection at the end of the imposed displacement
+    source: monitor
+    name: mid
+    reduction: peak_abs
+    expect: {target: 0.019176, rtol: 0.02, atol: 1.0e-5}
+
+  # ---- the SHAPE of the curve, not only its end ------------------------- #
+  # A contract that held one peak passed the l_ref mistake of v0.1:
+  # a curve 3% over the measured peak with no descending branch. These read
+  # the load-deflection record against itself.
+
+  - id: load_at_yield_deflection
+    # The thesis reports yield at 264 kN and 6.5 mm; the model carries
+    # 295.8 kN there (P_L 147.9), 1.12x, on a deflection axis the contract
+    # above explains. Held to 3% as the model's own number: a stiffer or
+    # softer pre-yield branch fails here while the end may still pass.
+    description: Left reaction where the midspan deflection first reaches 6.5 mm
+    source: monitor
+    name: P_L
+    reduction: at
+    against: mid
+    value: -0.0065
+    expect: {target: 147778.0, rtol: 0.03}
+
+  - id: load_at_measured_peak_deflection
+    # 180.7 kN at 19.0 mm, i.e. 361.3 kN total against the measured 398:
+    # THE comparison this case exists to make, at a deflection both curves
+    # actually reach.
+    description: Left reaction where the midspan deflection reaches 19.0 mm
+    source: monitor
+    name: P_L
+    reduction: at
+    against: mid
+    value: -0.0190
+    expect: {target: 179463.0, rtol: 0.03}
+
+  # ---- the MECHANISM, not only the curve -------------------------------- #
+  # Everything above reads load against deflection. A model that reached the
+  # same curve by a different route -- concrete crushing early, steel never
+  # yielding, or the reverse -- passed all of it. These three say what the
+  # beam is doing.
+
+  - id: the_tension_steel_yields
+    description: >-
+      Accumulated plastic strain in the bottom bars over the constant-moment
+      region. This is a ductile flexural specimen: the steel yields and the
+      beam keeps taking load on strain hardening, which is what the flat
+      175-180 kN branch above 10 mm is. 0.0072 is 1.4 times the yield strain,
+      and the bars end at 507 MPa, 1.13 f_y.
+    source: monitor
+    name: eps_p_s
+    reduction: max
+    expect: {target: 0.007204, rtol: 0.05}
+
+  - id: steel_stress_at_the_thesis_yield_deflection
+    description: >-
+      And a number that only became visible once the bar stress was
+      contracted: at the 6.5 mm the thesis reports as yield, this model's
+      steel carries 424 MPa, 0.945 f_y. IT HAS NOT YIELDED YET -- it reaches
+      449 MPa at 7.3 mm. That is the same fact as the 1.12x load ratio at
+      6.5 mm recorded on `load_at_yield_deflection` above, seen from the
+      material rather than from the curve: the model's pre-yield branch is
+      stiffer, so a fixed deflection lands further from yield. The metric
+      named for yield was measuring a still-elastic bar.
+    source: monitor
+    name: sigma_s
+    reduction: at
+    against: mid
+    value: -0.0065
+    expect: {target: 424.24e+6, rtol: 0.02}
+
+  - id: the_compression_zone_has_not_crushed
+    description: >-
+      Compressive damage in the top layer of elements over the constant-moment
+      region reaches 0.146 at 19 mm. The specimen failed in flexure after
+      yielding, not by crushing, and this run stops before crushing -- so a
+      variant that got its peak load from a crushed compression zone would
+      match the curve and fail here.
+    source: monitor
+    name: dc_top
+    reduction: max
+    expect: {upper: 0.20}
+
+  - id: work_to_end
+    # Area under P_L against the midspan deflection from the origin to
+    # 19.16 mm: 2784 J on this side. It moves with the whole curve, so it is
+    # the one number that changes when only the shape does.
+    description: Work done by the left reaction over the imposed path, from the origin
+    source: monitor
+    name: P_L
+    reduction: energy
+    against: mid
+    from_origin: true
+    expect: {target: 2787.1, rtol: 0.03}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-3}
+
+# --------------------------------------------------------------------------- #
+#  THE WALL, AND WHAT IT WAS
+# --------------------------------------------------------------------------- #
+#  Six stages of this project (v0.1) chased a ceiling at
+#  263-276 kN and 7.4 mm past which no variant of this model survived:
+#  immune to erosion, damping, load-step size, steel hardening, damage cap,
+#  shear retention, a ductile compression curve, the bond law, the yield
+#  surface (fb0/fc0, Kc), viscosity, and moved only slightly by mesh and the
+#  dilation angle. Each stage found and corrected something real -- three
+#  defects in the bonded path, a mesh-dependent compression band, a
+#  falsified shear-retention story -- and each left the wall where it was.
+#
+#  It was `host_deduction: E_c` on every bar, copied from the README's
+#  perfect-bond example into the case generator. The truss module's own
+#  docstring says to leave it off when the concrete will crack: the
+#  deduction subtracts E_c * eps * A_s from the bar to cancel the concrete
+#  volume the bar displaces, which is right while that concrete carries
+#  E_c * eps and wrong once it has cracked and carries nothing. In a
+#  cracked tension zone the bar was short by 15% of its force at yield, and
+#  past yield its net tangent was 7.68 - 29.8 = -22 GPa: a bar that LOSES
+#  force as it hardens. Found in one minute by a composite tension test --
+#  an embedded bar in a CDP prism, whose total force fell from 80 kN to
+#  2 kN after yield -- once the question was asked of the smallest thing
+#  that could show it.
+#
+#  With it removed: the pure-bending solid of this section peaks at 100.3
+#  kN.m against a plane-section 101.7; this beam went over a peak of 330 kN
+#  (323 with two-leg stirrups) and descended in equilibrium past 12.9 mm.
+#  The earlier "yield point" agreement (265 against 261 kN at 6.43 mm) was
+#  partly the artefact matching the strain-gauge yield, which the section
+#  analysis puts at 295 kN; the corrected model gives 289 there.
+#
+#  THAT 330 kN PEAK WAS ITSELF AN ARTEFACT, of the same shape one stage
+#  further down. The decomposition written here for three stages -- 5.4%
+#  between the solid and its own plane section, 12.5% between the
+#  unconfined section and the stirrup-confined beam -- attributed to
+#  confinement what was actually the compression band having no length
+#  scale. Version 0.1 tested the confinement half directly with two solid
+#  sections and got under 1%; v0.1 measured the mesh dependence
+#  (the table above), stated the crushing energy, and the beam stopped
+#  crushing at all. Neither the section analysis's 349 kN nor its ductile
+#  401 kN is the right comparison any more: a plane-section calculation
+#  with a code curve has no length scale either, so it carries the same
+#  hidden assumption. Both numbers are kept here as history, not as targets.
+#
+#  Kept in this file from the earlier versions, because they were measured
+#  and are still true: mesh 83 -> 42 mm along the span +11.4% and damage_max
+#  0.99 -> 0.70 +6.7% (both with the deduction in place, both saturating);
+#  the un-stirruped model at 236.9 kN against the companion SS-0B's 237 kN
+#  is a coincidence and is recorded as one; the steel hardening is 8.0 GPa
+#  from the thesis's Figure 3.1(a), not the 2.0 GPa the generator first
+#  guessed.

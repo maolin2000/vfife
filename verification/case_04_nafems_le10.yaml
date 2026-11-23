@@ -1,0 +1,53 @@
+version: 1
+case: case_04_nafems_le10
+classification: public_benchmark
+reference: NAFEMS LE10 direct stress at D=(2,0,0.6), sigma_yy=-5.38 MPa
+
+# WHAT THIS CONTRACT DOES NOT COVER, MEASURED
+#   A mutation test -- rerun the case with the material 10% stiffer and see
+#   whether the gate notices -- passes. It is not a loose tolerance that lets it
+#   through: sigma_yy at D moves by 0.001%. It cannot move. In a load-controlled
+#   linear elastic body the stress field does not depend on E at all, so this
+#   contract is blind to a stiffness error OF ANY SIZE. Its two metrics are a
+#   stress and a residual, and neither can see Young's modulus.
+#
+#   That is faithful to LE10, which IS a stress benchmark -- the published
+#   number is the stress at D and nothing else. It is also the only contract in
+#   this repo covering solid stress recovery, so the gap is worth stating: a
+#   regression that changed E, or anything that scales like E, would pass here.
+#
+#   The fix is a displacement metric, and it is NOT applied because it needs a
+#   number someone else published. Inventing a deflection target from this
+#   solver's own run is exactly the self-referential reference that
+#   case_11's contract was upgraded away from. If a published LE10 deflection
+#   is found, add it; do not manufacture one.
+#
+#   By contrast the same mutation IS caught by case_01 (tip_uz), case_02
+#   (loaded_ux) and case_08 (tip_uz) -- all displacement metrics. case_09 was
+#   also reported as passing, but there the mutation never reached the model:
+#   the connector's stiffness is not `material.E`, and the outputs were
+#   bit-identical. A pass under a mutation that changed nothing says nothing.
+
+metrics:
+  - id: sigma_yy_D
+    description: Recovered nodal direct stress at benchmark point D
+    source: field
+    name: stress_nodal
+    location: {nearest: [2.0, 0.0, 0.6]}
+    component: yy
+    # 15% is wide, and most of it is in use: this model gives -4.723 MPa
+    # against the published -5.38, an error of 12.2%. Four fifths of the
+    # budget is spent, so this metric is close to failing and a reader should
+    # know that rather than seeing a comfortable pass.
+    #
+    # LE10 is a stress-recovery benchmark on a thick elliptic plate and it is
+    # famously mesh sensitive at the point D. Whether 12.2% is the mesh or
+    # something else has NOT been established here -- no refinement study has
+    # been run against this contract. Until one has, treat the tolerance as
+    # accommodating an unexplained error rather than as a considered bound.
+    expect: {target: -5.38e+6, rtol: 0.15, atol: 0.0}
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-3}

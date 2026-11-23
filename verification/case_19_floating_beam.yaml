@@ -1,0 +1,97 @@
+version: 1
+classification: independent_reference
+case: case_19_floating_beam
+reference: >-
+  Wu & Ting (2020), "Analysis of the changing geometry of flexible structure:
+  2. Analysis of flexible solid", Proc. R. Soc. A 476:20200045, example 1: an
+  unconstrained beam under two end pressure pulses, translating and spinning
+  freely afterwards. The paper's figures are not reproduced by its stated
+  parameters (see the case header); the checks below are the invariants the
+  motion must satisfy whatever the pulse geometry -- energy, momentum, the
+  rigid-body kinematics of the near-rigid beam, and the constancy of the
+  free flight once the load is gone -- plus the model's own rotation rate as
+  a regression.
+
+metrics:
+  - id: energy_is_conserved
+    description: >-
+      External work = kinetic + strain energy at the end of the flight; once
+      the pulse is over nothing changes the total. The audit's relative
+      error is 1e-8 here (the flexible companion, with 6 J of strain energy
+      oscillating against 85 J kinetic, holds 3e-5). Until v0.1 the
+      ledger paired step n's forces with step n+1's displacement increment
+      and drifted to 20% on the flexible flight.
+    source: diagnostic
+    name: relative_energy_error
+    reduction: final
+    expect: {upper: 1.0e-5}
+
+  - id: linear_momentum_is_the_impulse
+    description: >-
+      The mass centre's travel along the beam: impulse (60 MPa x 50 mm^2 -
+      120 MPa x 50 mm^2, each over 0.5 ms) = -1.5 N s on 0.02 kg, i.e.
+      -75 m/s from the pulse's centroid at 0.5 ms, -2.9625 m at 40 ms. The
+      follower pressures tilt with the beam during the pulse, which moves
+      this by 0.06%.
+    source: monitor
+    name: y_cm
+    reduction: final
+    expect: {target: -2.9625, rtol: 0.01}
+
+  - id: the_free_flight_has_constant_velocity
+    description: >-
+      No force after 1 ms, so the mass centre's travel from 0.5 ms grows
+      linearly: y_cm(40 ms) / y_cm(20 ms) = 39.5 / 19.5 = 2.0256. Read as
+      y_cm at 20 ms (time = 0.020 s; until v1.0 a solid's dynamic `time`
+      was the step's progress, and this read 0.5); the ratio is checked
+      through the previous metric.
+    source: monitor
+    name: y_cm
+    reduction: at
+    against: time
+    value: 0.020
+    expect: {target: -1.4628, rtol: 0.01}
+
+  - id: nothing_moves_across_the_width
+    description: both pulses act in the y-z plane; the width direction stays still
+    source: monitor
+    name: x_cm
+    reduction: peak_abs
+    expect: {upper: 1.0e-9}
+
+  - id: the_ends_rotate_about_the_width_axis_at_radius_L_over_2
+    description: >-
+      z_A - z_C = L sin(theta) for a rigid rotation about x through the
+      centre: its maximum is L = 0.2 m exactly. A wobble of the axis or any
+      flexing would lower it.
+    source: monitor
+    name: z_rel
+    reduction: max
+    expect: {target: 0.2, rtol: 0.005}
+
+  - id: and_turns_all_the_way_round
+    description: the minimum of L sin(theta) is -L, reached at theta = 3 pi / 2
+    source: monitor
+    name: z_rel
+    reduction: min
+    expect: {target: -0.2, rtol: 0.005}
+
+  - id: the_chord_shortens_to_zero_at_half_a_turn
+    description: y_A - y_C = L (cos(theta) - 1) reaches -2L = -0.4 m at theta = pi
+    source: monitor
+    name: y_rel
+    reduction: min
+    expect: {target: -0.4, rtol: 0.005}
+
+  - id: rotation_rate
+    description: >-
+      The model's own spin, as the mass centre's travel when |z_rel| is
+      largest (theta = 3 pi / 2, at 37.9 ms): -2.8056 m, i.e. 126 rad/s.
+      The naive impulse estimate is 168 rad/s; the end faces tilt with the
+      beam's bending during the pulse and the follower pressures lose lever
+      arm. Regression, 3%.
+    source: monitor
+    name: y_cm
+    reduction: at_peak_of
+    against: z_rel
+    expect: {target: -2.8056, rtol: 0.03}

@@ -1,0 +1,20 @@
+version: 1
+case: case_02_truss_bar
+classification: analytical
+reference: Axial bar, u=PL/(EA), sigma=P/A
+metrics:
+  - id: loaded_ux
+    source: monitor
+    name: loaded_ux
+    reduction: final
+    expect: {target: 5.0e-5, rtol: 2.0e-6, atol: 1.0e-12}
+  - id: support_fx
+    source: monitor
+    name: support_fx
+    reduction: final
+    expect: {target: -1000.0, rtol: 2.0e-6, atol: 1.0e-6}
+  - id: axial_stress
+    source: field
+    name: axial_stress
+    location: {index: 0}
+    expect: {target: 1.0e+7, rtol: 2.0e-6, atol: 1.0}

@@ -1,0 +1,24 @@
+version: 1
+kind: material
+name: steel02
+target_level: verified
+evidence:
+  - category: monotonic
+    reference: tests/test_steel02.py::test_monotonic_tension_reaches_Fy_and_hardening
+  - category: step_convergence
+    reference: tests/test_steel02.py::test_step_partition_does_not_change_rate_independent_result
+  - category: energy
+    reference: tests/test_steel02.py::test_closed_plastic_cycle_has_positive_energy_and_elastic_has_zero
+  - category: unload_reverse
+    reference: tests/test_steel02.py::test_unload_reverse_shows_Bauschinger
+  # `strain_scale` (bar anchorage) was added after this file was first written.
+  # It does not change the law, only what strain the law is asked about, so the
+  # gates above still hold; these pin the parameter itself.
+  - category: constitutive_path
+    reference: tests/test_strain_penetration.py::test_scaled_bar_answers_at_eps_what_a_plain_bar_answers_at_k_eps
+  - category: constitutive_path
+    reference: tests/test_strain_penetration.py::test_the_default_is_a_perfectly_bonded_bar
+  - category: failure_path
+    reference: tests/test_strain_penetration.py::test_a_scale_outside_its_range_is_refused
+  - category: backend_parity
+    reference: tests/test_uniaxial_numba.py::test_steel02_compiled_loop_matches_its_reference

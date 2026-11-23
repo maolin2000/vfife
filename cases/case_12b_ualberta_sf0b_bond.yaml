@@ -1,0 +1,73 @@
+# The same specimen as case_12 with fib MC2010 bond-slip on the tension bars --
+# the A/B partner of case_12. Contract: verification/case_12b_ualberta_sf0b_bond.yaml
+version: 1
+name: case_12b_ualberta_sf0b_bond
+units: {length: m, force: N, stress: Pa}
+mesh: {dimensions: [2.0, 0.2, 0.3], divisions: [24, 4, 8]}
+
+materials:
+  concrete:
+    type: cdp
+    E: 2.985e10
+    nu: 0.2
+    rho: 2400
+    viscosity: 1.0
+    crack_band: both
+    l_ref: auto
+    damage_max: 0.80
+    compression: {source: gb50010, fc: 44.0e6, Gc: 35.0e3}   # crushing energy: the compression band's length scale
+    tension: {source: fracture_energy, ft: 3.42e6, Gf: 140}
+  steel15: {type: rebar, E: 192.0e9, rho: 7850, yield_strength: 449.0e6, hardening: 8.0e9}
+  steel10: {type: rebar, E: 195.0e9, rho: 7850, yield_strength: 404.0e6, hardening: 7.0e9}
+
+sections:
+  body:  {type: solid, material: concrete, formulation: b-bar}
+  bar15: {type: bar, material: steel15, shape: circle, diameter: 0.016, area: 200.0e-6}   # nominal 15M area
+  bar10: {type: bar, material: steel10, shape: circle, diameter: 0.0113, area: 100.0e-6}
+
+reinforcement:
+  main:     {layer: {from: [0, 0.0443, 0.0443], to: [2.0, 0.0443, 0.0443], count: 3, spacing: [0, 0.0557, 0]}}
+  main_top: {layer: {from: [0, 0.0443, 0.0853], to: [2.0, 0.0443, 0.0853], count: 2, spacing: [0, 0.1114, 0]}}
+  hangers:  {layer: {from: [0, 0.0443, 0.258],  to: [2.0, 0.0443, 0.258],  count: 2, spacing: [0, 0.1114, 0]}}
+  stirrups: {hoop: {corners: [[0.0443, 0.0443], [0.1557, 0.258]], axis: x, from: 0.05, to: 1.95, spacing: 0.075, divisions: 8}}
+
+assign:
+  - {reinforcement: [main, main_top], section: bar15, segment_length: 0.025, name: tension,
+     bond: {type: bond_ceb, fc: 44.0e6, condition: good}}   # the one line that differs from case_12
+  - {reinforcement: hangers, section: bar10, segment_length: 0.025}
+  - {reinforcement: stirrups, section: bar10}
+
+regions:
+  sup_L:   {where: {x: 0.10, z: 0}}
+  sup_R:   {where: {x: 1.90, z: 0}}
+  pin:     {where: {x: 0.10, y: 0.1, z: 0}}
+  pin_R:   {where: {x: 1.90, y: 0.1, z: 0}}
+  load_L:  {where: {x: 0.65, z: 0.3}}
+  load_R:  {where: {x: 1.35, z: 0.3}}
+  mid_bot: {where: {x: 1.0, z: 0}}
+
+constraints:
+  - {region: sup_L, dofs: [0, 0, 1]}
+  - {region: sup_R, dofs: [0, 0, 1]}
+  - {region: pin,   dofs: [1, 1, 0]}
+  - {region: pin_R, dofs: [0, 1, 0]}
+
+steps:
+  - name: push
+    constraints:
+      - {region: load_L, dofs: [0, 0, 1], value: -0.0160}
+      - {region: load_R, dofs: [0, 0, 1], value: -0.0160}
+    load_steps: 20
+    max_steps_per_load: 8000
+    tolerance: 1.0e-3
+
+solver: {backend: numba, mode: relaxation, mass: underwood, tolerance: 1.0e-3,
+         relaxation_safety: 0.3, damping: {type: kinetic}}
+
+output:
+  path: results/case_12b_ualberta_sf0b_bond.h5
+  every: 500
+  monitors:
+    P_L: {kind: reaction, region: sup_L, dof: z}
+    P_R: {kind: reaction, region: sup_R, dof: z}
+    mid: {kind: displacement, region: mid_bot, dof: z}

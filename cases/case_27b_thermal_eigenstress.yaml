@@ -1,0 +1,93 @@
+# A NONLINEAR temperature profile on a determinate beam: nothing holds it, and
+# it is stressed anyway.
+#
+# A 20 m simply supported beam, 0.6 x 1.0 m, under the shape a bridge code's
+# design gradient has -- all of the heat in the top 0.4 m and none below:
+#
+#     y = +0.5 (top)   +20 K          T
+#     y = +0.1           0 K          |    /
+#     y = -0.5 (soffit)  0 K          |___/
+#
+# NOTHING CAN RESIST IT. The beam sits on two bearings; there is no redundant
+# support to push back, no restrained end, no secondary moment to be had. And
+# yet every fibre is stressed, because plane sections must stay plane: the
+# section can take the LINEAR part of the profile (an elongation eps0 and a
+# curvature kappa) and no more, so the rest --
+#
+#     sigma(y) = E [eps0 - y kappa - alpha T(y)]
+#
+# -- is carried as stress with ZERO net force and ZERO net moment. That is the
+# whole reason a code writes a curved gradient rather than a straight one, and
+# the reason this case is a FIBRE section: a `general` section has no fibres to
+# hold a self-equilibrated stress, so on beam2 the profile is refused rather
+# than quietly reduced to its linear part (see case_27).
+#
+# WHAT THE SECTION TAKES (20 layers through the depth, which is what the case
+# meshes):  eps0 = 4.000e-5, kappa = -1.7594e-4 /m, so midspan hogs 8.797 mm.
+# WHAT IT CARRIES:
+#     soffit  y = -0.475   -1.503 MPa   compression
+#     y = -0.025           +1.228 MPa
+#     peak    y = +0.075   +1.835 MPa   TENSION, just under the heated zone
+#     top     y = +0.475   -2.206 MPa   compression, where the heat is
+# The top is compressed because it wants to be longer than the section allows;
+# the tension sits at the bottom of the heated band, which is where the crack
+# a deck gradient is designed against would start.
+#
+#   python benchmarks/generate_thermal_beam.py --check
+
+version: 1
+name: case_27b_thermal_eigenstress
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/thermal_span_20.msh}
+materials:
+  concrete: {type: linear_elastic, E: 3.45e+10, nu: 0.0, rho: 2500.0, thermal_expansion: 1.0e-5}
+sections:
+  deck:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    # ny and nz count the PATCH'S OWN EDGES: ny divides corner0 -> corner1
+    # (here the width, z) and nz divides corner1 -> corner2 (the depth, y).
+    # 20 layers through the depth is what resolves the profile; writing it the
+    # other way round leaves two, and the answer is 15% out with nothing
+    # visibly wrong.
+    patches:
+      - {corners: [[-0.5,-0.3],[-0.5,0.3],[0.5,0.3],[0.5,-0.3]], ny: 2, nz: 20}
+assign:
+# the section's own y is the depth, and orientation [0, 0, 1] stands it up
+- {region: all, section: deck, orientation: [0, 0, 1]}
+
+constraints:
+- {region: left, dofs: [1, 1, 1, 1, 0, 0]}
+- {region: right, dofs: [0, 1, 1, 1, 0, 0]}
+
+loads:
+- region: all
+  temperature:
+    profile: [[-0.5, 0.0], [0.1, 0.0], [0.5, 20.0]]
+    axis: y
+
+solver:
+  mode: static
+  # numpy, and not by preference: a `linear_elastic` FIBRE has no scalar twin
+  # for the fused kernel (the kernel is built for concrete + steel laws), so
+  # `solver.kernel_status` reports "a material has no scalar twin". The
+  # kernel's own imposed-strain path is exercised on case_11's section in
+  # tests/test_temperature.py instead.
+  backend: numpy
+  # static since 1.5: 118 s of relaxation became 4 s
+  load_steps: 10
+  tolerance: 1.0e-6
+
+output:
+  path: results/case_27b_thermal_eigenstress.h5
+  every: 1
+  fields: [displacement, axial_force, bending_z]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    ux_right: {kind: displacement, region: right, dof: x}
+    sig_top: {kind: fiber, region: mid, field: stress, at: [0.475, 0.0]}
+    sig_peak: {kind: fiber, region: mid, field: stress, at: [0.075, 0.0]}
+    sig_soffit: {kind: fiber, region: mid, field: stress, at: [-0.475, 0.0]}
+    eps_axis: {kind: fiber, region: mid, field: strain, at: [0.0, 0.0]}

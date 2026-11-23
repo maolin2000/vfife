@@ -1,0 +1,20 @@
+name: case_07_coupled_solid_truss
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/coupled_hex_truss_v22.msh}
+element: {type: coupled, formulation: full}
+members:
+  - {region: truss_members, type: truss2, area: 1.0e-3}
+material: {type: linear_elastic, E: 2.0e11, nu: 0.30, rho: 7850.0}
+constraints:
+  - {region: fixed, dofs: [1, 1, 1, 0, 0, 0]}
+  - {region: loaded, dofs: [0, 1, 1, 0, 0, 0]}
+loads:
+  - {region: loaded, vector: [1000, 0, 0]}
+solver: {mode: relaxation, backend: numpy, n_steps: 5000, damping: {type: kinetic}, tolerance: 1.0e-5}
+output:
+  path: results/case_07_coupled_solid_truss.h5
+  every: 5000
+  fields: [displacement, stress, von_mises, axial_force, axial_force_i, axial_force_j, member_type]
+  monitors:
+    loaded_ux: {kind: displacement, region: loaded, dof: x}
+    support_fx: {kind: reaction, region: fixed, dof: x}

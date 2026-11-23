@@ -1,0 +1,55 @@
+version: 1
+kind: element
+name: beam2_fiber
+target_level: benchmarked
+evidence:
+  - category: equilibrium
+    reference: tests/test_fiber_beam.py::test_fiber_beam_axial_elastic
+  - category: fundamental_response
+    reference: tests/test_fiber_beam.py::test_fiber_beam_bending_plastic
+  - category: rigid_body
+    reference: tests/test_fiber_beam.py::test_fiber_beam_bending_matches_beam2
+  - category: mixed_assembly
+    reference: tests/test_rc_fiber.py::test_rc_stronger_than_plain
+  - category: fundamental_response
+    reference: tests/test_fiber_integration.py::test_fiber_integration_both_converge_and_match
+  - category: mesh_convergence
+    reference: tests/test_fiber_benchmarked.py::test_mesh_convergence_2_vs_6
+  - category: dynamic
+    reference: tests/test_fiber_benchmarked.py::test_dynamic_runs
+  - category: restart
+    reference: tests/test_fiber_benchmarked.py::test_restart_checkpoint
+  - category: external_reference
+    reference: tests/test_fiber_benchmarked.py::test_external_reference_capacity
+  # Added after this file was written: cover/confined core, bar anchorage, and
+  # the fused kernel. Each is pinned against the NumPy reference the solver
+  # keeps, and against the geometry or formula it claims to follow.
+  - category: mixed_assembly
+    reference: tests/test_fiber_beam_kernel.py::test_confined_core_matches_the_reference_over_a_history
+  - category: mixed_assembly
+    reference: tests/test_fiber_beam_kernel.py::test_cover_fibres_are_the_outer_ones_and_carry_the_weaker_concrete
+  - category: failure_path
+    reference: tests/test_fiber_beam_kernel.py::test_a_cover_that_swallows_the_section_is_refused
+  - category: mixed_assembly
+    reference: tests/test_strain_penetration.py::test_only_the_elements_touching_the_region_are_scaled
+  - category: fundamental_response
+    reference: tests/test_strain_penetration.py::test_penetration_softens_before_yield_and_not_after
+  - category: backend_parity
+    reference: tests/test_fiber_beam_kernel.py::test_kernel_matches_the_numpy_reference_over_a_history
+  - category: backend_parity
+    reference: tests/test_strain_penetration.py::test_the_kernel_and_the_reference_agree_with_penetration_on
+  - category: failure_path
+    reference: tests/test_fiber_beam_kernel.py::test_kernel_declines_a_second_law_type
+  - category: equilibrium
+    reference: tests/test_fiber_beam.py::test_fiber_beam_axial_elongation_is_independent_of_element_length
+  - category: equilibrium
+    reference: tests/test_fiber_beam.py::test_fiber_beam_reports_section_force_not_its_integral
+  - category: restart
+    reference: tests/test_fiber_beam_kernel.py::test_kernel_state_survives_a_checkpoint_round_trip
+  # v0.1: `backend: numba` is now a declared, selectable backend that
+  # REQUIRES the fused kernel; numpy keeps promoting to it when it can.
+  - category: backend_parity
+    reference: tests/test_capability_alignment.py::test_backend_numba_on_a_qualifying_fibre_section_gets_the_kernel
+    backends: [numpy, numba]
+  - category: failure_path
+    reference: tests/test_capability_alignment.py::test_backend_numba_is_refused_by_name_when_the_kernel_cannot_be_built

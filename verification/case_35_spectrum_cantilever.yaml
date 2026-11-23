@@ -1,0 +1,74 @@
+version: 1
+case: case_35_spectrum_cantilever
+classification: analytical
+reference: >-
+  Closed form. A uniform cantilever of length L = 10 m, EI = 2.8e7 N m^2,
+  m = 314 kg/m, fixed at its foot and held in the x-z plane, under a flat
+  spectrum S_a = 2 m/s^2 along x. Its modes are psi_n(xi) = cosh b xi -
+  cos b xi - s_n (sinh b xi - sin b xi), b = beta_n L = 1.8751, 4.6941,
+  7.8548, 10.9955, s_n = (sinh b - sin b)/(cosh b + cos b), omega_n =
+  b^2 sqrt(EI / m L^4): periods 0.5984, 0.09549, 0.03410, 0.01740 s. With
+  I1 = int psi, I2 = int psi^2, J = int psi xi (quadrature to 1e-10):
+  Gamma_n = I1/I2, effective masses m L I1^2/I2 = 1925.06, 591.26, 203.26,
+  103.89 kg (61.3, 18.8, 6.5, 3.3%); modal peaks u_n(L) = Gamma_n psi_n(1)
+  S_a / omega_n^2, V_n = m_eff,n S_a, M_n = m L^2 Gamma_n J_n S_a. SRSS over
+  the four modes: tip 28.414 mm, base shear 4053.4 N, base moment 28084.8 N m.
+  Twenty lumped-mass elements stand for the continuum: the first mode is held
+  to 0.5%, the fourth period (where the lumping shows, +2.4%) to 3%.
+
+metrics:
+  - id: period_1
+    description: first period, 0.5984 s
+    source: spectrum
+    name: period
+    location: {index: 0}
+    expect: {target: 0.598432, rtol: 5.0e-3}
+  - id: period_4
+    description: fourth period, 0.01740 s (lumped masses make it 2.4% long)
+    source: spectrum
+    name: period
+    location: {index: 3}
+    expect: {target: 0.017403, rtol: 3.0e-2}
+  - id: modal_mass_1
+    description: effective mass of mode 1, 61.31% of m L = 1925.06 kg
+    source: spectrum
+    name: modal_mass
+    location: {index: 0}
+    reduction: max
+    expect: {target: 1925.059, rtol: 5.0e-3}
+  - id: modal_mass_2
+    description: effective mass of mode 2, 18.83% of m L = 591.26 kg
+    source: spectrum
+    name: modal_mass
+    location: {index: 1}
+    reduction: max
+    expect: {target: 591.263, rtol: 5.0e-3}
+  - id: tip_displacement
+    description: SRSS peak tip displacement along x, 28.414 mm
+    source: spectrum
+    name: displacement
+    location: {nearest: [0.0, 0.0, 10.0]}
+    component: x
+    reduction: max
+    expect: {target: 0.0284139, rtol: 5.0e-3}
+  - id: base_shear
+    description: SRSS base shear, combined from the modal sums of the support reactions, 4053.4 N
+    source: spectrum
+    name: base_force
+    location: {index: 0}
+    reduction: max
+    expect: {target: 4053.42, rtol: 5.0e-3}
+  - id: base_moment
+    description: SRSS bending moment of the foot member, from its modal end actions, 28084.8 N m
+    source: spectrum
+    name: end_actions
+    location: {index: 0}
+    reduction: max
+    expect: {target: 28084.8, rtol: 5.0e-3}
+  - id: nothing_across
+    description: nothing moves across the direction of shaking
+    source: spectrum
+    name: displacement
+    component: y
+    reduction: peak_abs
+    expect: {target: 0.0, atol: 1.0e-12}

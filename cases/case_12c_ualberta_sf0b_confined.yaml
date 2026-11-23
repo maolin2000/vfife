@@ -1,0 +1,101 @@
+# University of Alberta SF-0B with a CONFINED CORE: case_12 with the concrete
+# inside the stirrups given its own section. Contract: verification/case_12c_ualberta_sf0b_confined.yaml
+#
+# Two solid sections on one mesh. `cover` is painted over the
+# whole beam first, then `core` over the box inside the hoop centreline; an
+# element belongs to `core` when every one of its nodes is inside that box,
+# so on this 24 x 4 x 8 mesh the core is the 2 x 4 columns of elements the
+# box holds whole (y 0.05..0.15, z 0.075..0.225) -- refine `divisions` and
+# the core grows toward the drawn 111 x 214 mm.
+#
+# The confined curve is Mander's estimate for these hoops (11.3 mm at 75 mm,
+# k_e ~ 0.6, f_lx ~ 3.0 MPa, f_ly ~ 5.8 MPa): K ~ 1.4, so f_cc = 61.6 MPa at
+# eps_cc = 0.002 (1 + 5 (K - 1)) = 0.006, with a flatter descent (alpha_c 0.3
+# against the code's 1.6 for plain 44 MPa concrete). A choice, stated here,
+# not a derivation the solver makes.
+version: 1
+name: case_12c_ualberta_sf0b_confined
+units: {length: m, force: N, stress: Pa}
+mesh: {dimensions: [2.0, 0.2, 0.3], divisions: [24, 4, 8]}
+
+materials:
+  concrete:
+    type: cdp
+    E: 2.985e10
+    nu: 0.2
+    rho: 2400
+    viscosity: 1.0
+    crack_band: both
+    l_ref: auto
+    damage_max: 0.80
+    compression: {source: gb50010, fc: 44.0e6, Gc: 35.0e3}   # crushing energy: the compression band's length scale
+    tension: {source: fracture_energy, ft: 3.42e6, Gf: 140}
+  confined:
+    type: cdp
+    E: 2.985e10
+    nu: 0.2
+    rho: 2400
+    viscosity: 1.0
+    crack_band: both
+    l_ref: auto
+    damage_max: 0.80
+    compression: {source: gb50010, fc: 61.6e6, eps_cr: 0.006, alpha_c: 0.3, Gc: 70.0e3}
+    tension: {source: fracture_energy, ft: 3.42e6, Gf: 140}
+  steel15: {type: rebar, E: 192.0e9, rho: 7850, yield_strength: 449.0e6, hardening: 8.0e9}
+  steel10: {type: rebar, E: 195.0e9, rho: 7850, yield_strength: 404.0e6, hardening: 7.0e9}
+
+sections:
+  cover: {type: solid, material: concrete, formulation: b-bar}
+  core:  {type: solid, material: confined, formulation: b-bar}
+  bar15: {type: bar, material: steel15, shape: circle, diameter: 0.016, area: 200.0e-6}   # nominal 15M area
+  bar10: {type: bar, material: steel10, shape: circle, diameter: 0.0113, area: 100.0e-6}
+
+reinforcement:
+  main:     {layer: {from: [0, 0.0443, 0.0443], to: [2.0, 0.0443, 0.0443], count: 3, spacing: [0, 0.0557, 0]}}
+  main_top: {layer: {from: [0, 0.0443, 0.0853], to: [2.0, 0.0443, 0.0853], count: 2, spacing: [0, 0.1114, 0]}}
+  hangers:  {layer: {from: [0, 0.0443, 0.258],  to: [2.0, 0.0443, 0.258],  count: 2, spacing: [0, 0.1114, 0]}}
+  stirrups: {hoop: {corners: [[0.0443, 0.0443], [0.1557, 0.258]], axis: x, from: 0.05, to: 1.95, spacing: 0.075, divisions: 8}}
+
+assign:
+  - {region: all,      section: cover}
+  - {region: core_box, section: core}
+  - {reinforcement: [main, main_top], section: bar15, segment_length: 0.025, name: tension}
+  - {reinforcement: hangers, section: bar10, segment_length: 0.025}
+  - {reinforcement: stirrups, section: bar10}
+
+regions:
+  core_box: {box: [-0.01, 2.01, 0.0443, 0.1557, 0.0443, 0.258]}
+  sup_L:   {where: {x: 0.10, z: 0}}
+  sup_R:   {where: {x: 1.90, z: 0}}
+  pin:     {where: {x: 0.10, y: 0.1, z: 0}}
+  pin_R:   {where: {x: 1.90, y: 0.1, z: 0}}
+  load_L:  {where: {x: 0.65, z: 0.3}}
+  load_R:  {where: {x: 1.35, z: 0.3}}
+  mid_bot: {where: {x: 1.0, z: 0}}
+
+constraints:
+  - {region: sup_L, dofs: [0, 0, 1]}
+  - {region: sup_R, dofs: [0, 0, 1]}
+  - {region: pin,   dofs: [1, 1, 0]}
+  - {region: pin_R, dofs: [0, 1, 0]}
+
+steps:
+  - name: push
+    constraints:
+      - {region: load_L, dofs: [0, 0, 1], value: -0.0160}
+      - {region: load_R, dofs: [0, 0, 1], value: -0.0160}
+    load_steps: 20
+    max_steps_per_load: 8000
+    tolerance: 1.0e-3
+
+solver: {backend: numba, mode: relaxation, mass: underwood, tolerance: 1.0e-3,
+         relaxation_safety: 0.3, damping: {type: kinetic}}
+
+output:
+  path: results/case_12c_ualberta_sf0b_confined.h5
+  fields: [displacement, stress, von_mises, d, dt, dc, block]
+  every: 500
+  monitors:
+    P_L: {kind: reaction, region: sup_L, dof: z}
+    P_R: {kind: reaction, region: sup_R, dof: z}
+    mid: {kind: displacement, region: mid_bot, dof: z}

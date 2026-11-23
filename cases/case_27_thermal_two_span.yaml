@@ -1,0 +1,93 @@
+# Temperature on a redundant structure: what the supports refuse becomes force.
+#
+# Two 20 m spans on three supports, under two temperature loads at once. They
+# do not interact -- axial and bending are uncoupled in a linear elastic beam
+# -- so one step holds both halves of what a temperature field does:
+#
+#   UNIFORM +40 K, and nothing in the way axially (one end fixed, the others
+#   free to slide). The beam simply GROWS: the far end moves
+#       alpha dT (2L) = 1.2e-5 x 40 x 40 = 19.2 mm
+#   and carries NOTHING. A model that reports a force here has mistaken a free
+#   strain for a load.
+#
+#   (Hold both ends instead and all 19.2 mm becomes force,
+#   N = E A alpha dT = 10 080 kN -- which on this section is TWICE its Euler
+#   load of 5 030 kN, so the beam buckles rather than standing there being
+#   compressed. That is the right answer and the wrong benchmark; the
+#   restrained force is checked on a stocky member in
+#   tests/test_temperature.py instead, where it comes out exact.)
+#
+#   GRADIENT +15 K/m of depth (warmer on top).  Each span wants to hog at
+#   kappa = alpha dT/dy = 1.8e-4 /m. A single span would simply bow 9.0 mm and
+#   carry NOTHING. Two spans cannot: the middle support will not let the ends
+#   of the two spans rotate independently, and the kink kappa L that the free
+#   curvature would open has to be closed by a pair of moments --
+#       M_support = 3 E I kappa / 2 = 55.0 kN m
+#   with the two ends LIFTING at 2.75 kN and the middle support pushing down
+#   5.50 kN. Midspan of each span ends up 2.25 mm up instead of 9.0.
+#
+# THAT RATIO IS THE POINT. Same beam, same temperature, one extra support: the
+# deflection falls to a quarter and a moment appears from nowhere. Secondary
+# effects of temperature are why a continuous bridge deck is designed for a
+# gradient at all, and a model that treats temperature as a load vector rather
+# than as a strain gets them wrong in a way no deflection check would show.
+#
+#   python benchmarks/generate_thermal_beam.py --check
+
+version: 1
+name: case_27_thermal_two_span
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/thermal_two_span_40.msh}
+materials:
+  # `thermal_expansion` is the coefficient in 1/K. Without it a
+  # temperature load does nothing, which is the honest default: it is a
+  # property of the substance and no solver should invent one.
+  steel: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 7850.0, thermal_expansion: 1.2e-5}
+sections:
+  beam:
+    type: beam
+    material: steel
+    shape: general
+    area: 0.10
+    iy: 9.70e-4
+    iz: 9.70e-4
+    j: 1.94e-3
+# orientation [0, 0, 1] puts the section's own y axis along global z, so the
+# section's "depth" is vertical and a deck gradient is dT/dy.
+assign:
+- {region: all, section: beam, orientation: [0, 0, 1]}
+
+constraints:
+- {region: left, dofs: [1, 1, 1, 1, 0, 0]}
+- {region: support, dofs: [0, 1, 1, 1, 0, 0]}
+- {region: right, dofs: [0, 1, 1, 1, 0, 0]}
+
+loads:
+# A `general` section states area and second moments and has no shape, so the
+# gradient is stated as K per metre of depth rather than "top minus bottom":
+# there is no depth here to divide by. A `profile` is refused on this section
+# for the same reason -- see case_27b, where the fibres carry one.
+- {region: all, temperature: {uniform: 40.0}}
+- {region: all, temperature: {gradient: [15.0, 0.0]}}
+
+solver:
+  mode: static
+  backend: numpy
+  # Staged, and the temperature takes the step's own ramp (under relaxation
+  # it had to: applying the whole field at once to a structure at rest left
+  # kinetic damping resetting on every iteration). Static
+  # since 1.5: 30 s of relaxation became 1 s.
+  load_steps: 10
+  tolerance: 1.0e-6
+
+output:
+  path: results/case_27_thermal_two_span.h5
+  every: 1
+  fields: [displacement, axial_force, bending_z, shear_y]
+  monitors:
+    N_left: {kind: reaction, region: left, dof: x}
+    ux_right: {kind: displacement, region: right, dof: x}
+    R_left: {kind: reaction, region: left, dof: z}
+    R_support: {kind: reaction, region: support, dof: z}
+    w_mid1: {kind: displacement, region: mid1, dof: z}
+    w_mid2: {kind: displacement, region: mid2, dof: z}

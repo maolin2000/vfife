@@ -1,0 +1,67 @@
+version: 1
+case: case_32_bearing_laws
+classification: analytical
+reference: >-
+  Closed form. Dead load puts W/2 = 183.87 kN on each bearing. Under +30 K
+  the girder wants alpha dT L = 9.0 mm; the sliding bearing resists with
+  mu W/2 = 9.194 kN once its 0.09 mm of stick is spent, and at the 6 mm gap
+  the abutment stop takes the rest, sharing it with the girder's EA and the
+  fixed bearing's spring:
+      N = F_stop + F_f,   F_stop = k_stop (alpha dT L - gap - N L/EA - (N - F_f)/k_fixed)
+  N = 1350.86 kN, F_stop = 1341.66 kN, right end at 6.6708 mm, slip
+  6.6708 - 0.0921 = 6.5787 mm. The bearing reactions carry an extra 0.2%
+  from the lumped self-weight of the end elements; the friction reads
+  mu times the bearing's OWN vertical force, so it is compared as the
+  connector's action, not the anchor's reaction, which also carries the
+  vertical action tilted by half the girder's end rotation (0.04%).
+
+metrics:
+  - id: R_left
+    description: dead-load reaction, left bearing
+    source: monitor
+    name: R_left
+    reduction: final
+    expect: {target: 183874.7, rtol: 3.0e-3}
+  - id: R_right
+    description: dead-load reaction, right bearing
+    source: monitor
+    name: R_right
+    reduction: final
+    expect: {target: 183874.7, rtol: 3.0e-3}
+  - id: friction
+    description: the sliding bearing carries exactly mu N once it slides
+    source: field
+    name: connector_force_y
+    location: {index: 7}
+    reduction: final
+    expect: {target: 9193.7, rtol: 3.0e-3}
+  - id: stop
+    description: the abutment stop after the 6 mm gap closes
+    source: monitor
+    name: H_stop
+    reduction: final
+    expect: {target: -1341661.9, rtol: 1.0e-3}
+  - id: u_right
+    description: the girder end, 0.67 mm into the stop
+    source: monitor
+    name: u_right
+    reduction: final
+    expect: {target: 6.6708e-3, rtol: 1.0e-3}
+  - id: slip
+    description: the bearing's slipped deformation, its travel less the stick
+    source: field
+    name: connector_slip_uy
+    location: {index: 7}
+    reduction: final
+    expect: {target: 6.5787e-3, rtol: 2.0e-3}
+  - id: nothing_before_the_gap_closes
+    description: the stop carries nothing while the end is short of the gap (min over the history)
+    source: monitor
+    name: H_stop
+    reduction: max
+    expect: {target: 0.0, atol: 1.0}
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-7}

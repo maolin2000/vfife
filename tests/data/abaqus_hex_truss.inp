@@ -1,0 +1,21 @@
+*Heading
+** conforming solid/truss import fixture
+*Node
+10, 0,0,0
+20, 1,0,0
+30, 1,1,0
+40, 0,1,0
+50, 0,0,1
+60, 1,0,1
+70, 1,1,1
+80, 0,1,1
+*Element, type=C3D8, elset=SOLID
+100, 10,20,30,40,50,60,70,80
+*Element, type=T3D2, elset=BRACE
+200, 10,20
+*Nset, nset=FIXED, generate
+10, 10, 1
+*Nset, nset=LOADED
+20
+*Elset, elset=ALL_SOLID
+100

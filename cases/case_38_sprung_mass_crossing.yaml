@@ -1,0 +1,51 @@
+# case_38 -- a sprung mass crossing a simple beam.
+#
+# The benchmark of the vehicle-bridge-interaction literature (Yang & Yau
+# 1997, J. Struct. Eng. 123(11); Yang, Yau & Wu 2004, sec. 2.7): a 25 m simply
+# supported beam, E = 2.87 GPa, I = 2.9 m^4, 2303 kg/m, crossed at 100 km/h
+# (27.78 m/s) by a 5750 kg mass on a 1595 kN/m spring whose foot rides the
+# deck -- a `vehicle` with one axle and no tyre. The vehicle enters in static
+# equilibrium at the left support at t = 0 and leaves at 0.9 s.
+#
+# The reference is independent of this library: the beam's modal equations
+# (sine modes, 20 of them) coupled to the mass, integrated by an adaptive
+# Runge-Kutta (DOP853) to 1e-11 -- the reference column in the contract.
+# Twenty lumped-mass elements stand for the continuous beam.
+version: 1
+name: case_38_sprung_mass_crossing
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/vbi_beam_20.msh}
+materials:
+  # 2303 kg/m on a 1 m^2 section
+  deck: {type: linear_elastic, E: 2.87e+9, nu: 0.2, rho: 2303.0}
+sections:
+  deck: {type: beam, material: deck, shape: general, area: 1.0, iy: 2.9, iz: 2.9, j: 5.8}
+assign:
+  - {region: deck, section: deck, orientation: [0, 1, 0]}
+constraints:
+  - {region: left, dofs: [1, 1, 1, 1, 0, 1]}
+  - {region: right, dofs: [0, 1, 1, 1, 0, 1]}
+  # in the x-z plane
+  - {region: all, dofs: [0, 1, 0, 1, 0, 1]}
+loads:
+  - region: deck
+    vehicle:
+      name: car
+      speed: 27.78
+      start: 0.0
+      body: {mass: 5750.0}
+      axles:
+        - {offset: 0.0, suspension: {stiffness: 1.595e+6}}
+solver:
+  backend: numpy
+  mode: dynamic
+  total_time: 0.9
+output:
+  path: results/case_38_sprung_mass_crossing.h5
+  fields: [displacement]
+  every: 2
+  monitors:
+    midspan: {kind: displacement, region: mid, dof: z}
+    car_acc: {kind: vehicle, of: car, field: acceleration}
+    car_force: {kind: vehicle, of: car, field: contact_force}
+    car_s: {kind: vehicle, of: car, field: station}

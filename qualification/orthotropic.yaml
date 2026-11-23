@@ -1,0 +1,13 @@
+version: 1
+kind: material
+name: orthotropic
+target_level: verified
+evidence:
+  - category: monotonic
+    reference: tests/test_orthotropic.py::test_isotropic_limit_matches_linear_elastic
+  - category: step_convergence
+    reference: tests/test_orthotropic.py::test_compliance_is_inverse_and_symmetric
+  - category: energy
+    reference: tests/test_orthotropic.py::test_uniaxial_along_1_gives_1_over_E1
+  - category: multiaxial
+    reference: tests/test_orthotropic.py::test_shear_decouples

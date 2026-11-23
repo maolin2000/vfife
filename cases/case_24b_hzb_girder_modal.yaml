@@ -1,0 +1,81 @@
+# Hangzhou Bay Bridge 70 m box girder, simply supported: the elastic
+# section and its first modes against the thesis's ANSYS model.
+#
+#   Xu Aimin, "Research on structural durability and health monitoring of
+#   the 70 m box girders of the Hangzhou Bay Bridge", PhD thesis, Zhejiang
+#   University, 2008: Fig. 2.4 (the midspan section, cm), Table 2.x (a
+#   girder weighs 2140 t), and the ANSYS beam188 modal analysis of one
+#   simply supported girder, E = 3.5e10 Pa, nu = 1/6, rho = 2500 kg/m3,
+#   section varying along the girder: f = 1.8498, 4.7565, 6.7249 Hz.
+#
+# THE SECTION is the `patches` fibre section (benchmarks/generate_hzb_girder.py):
+#   a single-cell box 4.00 m deep, 15.80 m wide over the cantilevers, 6.25 m
+#   at the soffit, webs 0.50 m inclined, top slab 0.27, bottom slab 0.25,
+#   0.5 m fillets, cantilevers 0.30 -> 0.20 m. Ten quadrilateral patches,
+#   166 concrete fibres; the node line is at the centroid, 2.4785 m above
+#   the soffit. From the patches at a finer subdivision:
+#       A = 9.734 m2   I_y = 22.45 m4 (vertical bending)   I_z = 128.3 m4
+#   Bredt's J for the closed cell 29.5 m4 (`torsion_constant`; the fibre
+#   polar moment, 150 m4, would be five times too stiff).
+#
+# WHAT IS COMPARED, AND WHAT IS NOT
+#   The girder is uniform here; Xu's is thickened over 10 m at each end
+#   (webs 1.10, slabs 0.55/0.95) and carries diaphragms, which is where the
+#   2140 t (306 kN/m) come from against this section's 243 kN/m. The first
+#   vertical mode of the uniform Euler beam is 1.822 Hz; Xu's 1.850 is 1.5%
+#   above it. Xu's second and third modes are not vertical: the second
+#   vertical of any simply supported beam is four times the first (7.3 Hz),
+#   and 4.76 / 6.72 sit where the first lateral mode (I_z / I_y = 5.7 ->
+#   4.35 Hz for the uniform beam) and the first torsional mode (Bredt's J
+#   with the fibre polar inertia: 7.7 Hz) are. The modal run reports all
+#   three families; the contract holds the first vertical.
+#
+#   vfife modal cases/case_24b_hzb_girder_modal.yaml --modes 6
+
+version: 1
+name: case_24b_hzb_girder_modal
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/hzb_girder_1span_14.msh}
+materials:
+  concrete: {type: linear_elastic, E: 3.5e+10, nu: 0.16667, rho: 2500.0}
+sections:
+  girder:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 29.51
+    patches:
+      - {corners: [[-2.4785,-2.613],[-2.4785,2.613],[-2.2285,2.6676],[-2.2285,-2.6676]], ny: 3, nz: 8}
+      - {corners: [[1.2515,-3.4271],[1.2515,3.4271],[1.5215,3.486],[1.5215,-3.486]], ny: 3, nz: 10}
+      - {corners: [[-2.4785,-2.613],[-2.4785,-3.125],[1.5215,-3.998],[1.5215,-3.486]], ny: 12, nz: 3}
+      - {corners: [[-2.2285,-2.6676],[-2.2285,-2.1676],[-1.7285,-2.7767],[-1.7285,-2.7767]], ny: 2, nz: 2}
+      - {corners: [[1.2515,-3.4271],[0.7515,-3.3179],[1.2515,-2.9271],[1.2515,-2.9271]], ny: 2, nz: 2}
+      - {corners: [[1.2215,-3.998],[1.3215,-7.9],[1.5215,-7.9],[1.5215,-3.998]], ny: 2, nz: 6}
+      - {corners: [[-2.4785,2.613],[-2.4785,3.125],[1.5215,3.998],[1.5215,3.486]], ny: 12, nz: 3}
+      - {corners: [[-2.2285,2.6676],[-2.2285,2.1676],[-1.7285,2.7767],[-1.7285,2.7767]], ny: 2, nz: 2}
+      - {corners: [[1.2515,3.4271],[0.7515,3.3179],[1.2515,2.9271],[1.2515,2.9271]], ny: 2, nz: 2}
+      - {corners: [[1.2215,3.998],[1.3215,7.9],[1.5215,7.9],[1.5215,3.998]], ny: 2, nz: 6}
+assign: [{region: girder, section: girder}]
+regions: {}
+constraints:
+  - {region: left, dofs: [1, 1, 1, 1, 0, 0]}    # pin, torsion held
+  - {region: right, dofs: [0, 1, 1, 1, 0, 0]}   # roller
+loads:
+  - {region: mid, vector: [0.0, 0.0, -1.0e+6]}  # 1 MN at midspan: the static check, w = P L^3 / 48 E I = 12.5 mm
+solver:
+  backend: numpy
+  mode: relaxation
+  load_steps: 1
+  max_steps_per_load: 20000
+  tolerance: 1.0e-6
+  kinetic_tolerance: 1.0e-10
+  n_steps: 20000
+output:
+  path: results/case_24b_hzb_girder_modal.h5
+  every: 1
+  fields: [displacement, rotation, reaction_force]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    w_20m: {kind: displacement, region: x20, dof: z}
+    R_left: {kind: reaction, region: left, dof: z}

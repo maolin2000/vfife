@@ -1,0 +1,37 @@
+# Euler--Bernoulli Line2 cantilever: analytical tip uz = -PL^3/(3 E Iz).
+
+version: 1
+name: case_01_beam_cantilever
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/beam_cantilever_v22.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+sections:
+  beam:
+    type: beam
+    material: steel
+    shape: general
+    area: 0.01
+    iy: 0.0001
+    iz: 0.0001
+    j: 0.0002
+assign:
+- {region: all, section: beam, orientation: [0, 0, 1]}
+constraints:
+- {region: fixed, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: loaded, dofs: [0, 1, 0, 0, 0, 0]}
+loads:
+- {region: loaded, vector: [0, 0, -1000.0]}
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 6000
+  damping: {type: kinetic}
+  tolerance: 1.0e-10
+output:
+  path: results/case_01_beam_cantilever.h5
+  every: 1
+  fields: [displacement, rotation, axial_force, shear_y, shear_z, torsion, bending_y, bending_z]
+  monitors:
+    tip_uz: {kind: displacement, region: loaded, dof: z}
+    root_fz: {kind: reaction, region: fixed, dof: z}

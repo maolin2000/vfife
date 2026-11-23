@@ -1,0 +1,209 @@
+version: 1
+classification: public_benchmark
+case: case_15_chalmers_prc
+reference: >-
+  Fernandez, I., Ekstrom, D., Rempling, R., Gil Berrocal, C. (2025),
+  "Evaluation of post-tensioned reinforced and fiber reinforced concrete beams
+  by using DOFS", Structural Concrete 26:6274-6293, doi 10.1002/suco.70224
+  (CC-BY); data researchdata.se 2025-114. Specimen PRC: an 8.5 m post-tensioned
+  T-beam on an 8.0 m span, four-point bending with 3.0 m shear spans, loaded to
+  failure at 160 days. The load record is verification/Chalmers2025_PRC_four_point.txt.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CONTRACT ASSERTS
+# --------------------------------------------------------------------------- #
+#  The model is driven to 60 mm of deflection under the jacks, which is past
+#  cracking (the paper's slope change at about 70 kN/jack) and past yield
+#  (about 200 kN/jack), and stops well short of the measured failure at
+#  256 kN/jack and 114 mm. Load per jack against the measurement:
+#
+#      deflection mm    5.5    10     15     20     30     40     50     60
+#      model           59.8   94.0  112.8  130.3  162.2  189.6  206.6  216.9
+#      measured        56.2   77.1   97.0  115.8  152.0  183.9  195.2  206.6
+#      ratio           1.06   1.22   1.17   1.13   1.07   1.03   1.06   1.05
+#
+#  WHERE THE MODEL IS WRONG, AND WHY. It is 22% high just after cracking and
+#  converges to within a few percent past 30 mm. The first suspect was the
+#  mesh -- 125 mm elements smearing cracks over fewer, larger bands -- and an
+#  8.9-times finer mesh (10880 elements, 50 mm, run on a GPU in fp64) gives
+#  94.1 kN at that deflection against this mesh's 94.0. It is not
+#  discretisation.
+#
+#  It is that the model cracks 27 kN late, and 22.6 kN of that is f_ct. The
+#  uncracked tangent agrees (10.9 kN/mm against the measurement's 11.2) and so
+#  does the cracked one (4.2 against 4.2); only the cracking load differs.
+#  This model's own bottom fibre sits at -8.708 MPa after transfer and rises
+#  at 0.1633 MPa/kN, so it decompresses at 53.3 kN and cracks 3.7 MPa later
+#  at 76.0 (seen: 78). Both numbers are metrics below, not hand reads. The specimen cracked at 51 kN -- at
+#  decompression, with no tensile strength left, which is the shrinkage-
+#  induced restraint cracking the paper documents. Giving the web tension zone
+#  a second material at ft = 0.4 MPa takes the worst error over the record
+#  from 22.9% to 8.3% and leaves the camber at 3.574 mm. See v0.1 for
+#  the two variants that fail to explain it (`Gf` halved, `ft` cut to 2.6).
+#  The contracted case stays virgin: that is the beam as designed, and the
+#  pre-cracking belongs to this specimen's history, not to the code.
+#
+#  THE RC COMPANION CONFIRMS THE ATTRIBUTION. The same study's
+#  RC beam is this one without prestress -- identical T-section, more bottom
+#  steel, the dataset's own reactions give the same 3.0000 m shear span. With
+#  this model's W and self-weight tension, the bottom fibre where each beam
+#  cracked is +3.51 MPa for RC and -0.38 for PRC: the RC beam's effective
+#  tensile strength is the 3.7 MPa used here (its cracking load is 8.4% high,
+#  not 53%), so f_ct is not over-represented in general. RC is also 11% softer
+#  than PRC from the first reading despite more steel, which is the
+#  pre-existing cracking itself -- open in the un-prestressed beams, held shut
+#  in the prestressed ones until decompression.
+#
+#  THE MESH PAIR IS ALSO THE POINT. Over the whole record the two meshes never
+#  differ by more than 1.59%, at an 8.9-fold difference in element count. That
+#  is the crack band regularised in tension by `Gf` over `l_ref` and in
+#  compression by `Gc`, and it is the first time this project
+#  has been able to check that against a measurement rather than against
+#  itself. The contracted case is therefore the mesh that runs in half an hour
+#  on two cores.
+#
+#  WHAT THE CONTRACT NOW REACHES. It used to end here with two apologies:
+#  the effective prestress could only be asserted through the camber, because
+#  bar stress lives in the rebar sidecar that a contract cannot read, and the
+#  crushing check had to be held over the WHOLE model at 0.60, because the
+#  global maximum sits at the anchorage and the bearings rather than in the
+#  span. Both are element/bar monitors now, so this contract
+#  asserts the 632.5 MPa directly, bounds the tendon below its 0.1% proof
+#  stress, holds crushing inside the constant-moment region at 0.20 instead of
+#  0.60, and pins the bottom-fibre compression that v0.1 had to read out of
+#  the stress field by hand. The camber stays: it is a different quantity
+#  (the beam's response) that happens to move with the same input.
+
+metrics:
+  - id: camber_at_transfer
+    description: >-
+      Midspan-region camber at the bearings after transfer, from 380 kN of
+      effective prestress on a straight-parabolic-straight profile against the
+      beam's own weight.
+    source: monitor
+    name: d_L
+    reduction: max
+    expect: {target: 3.570e-3, rtol: 0.03}
+
+  - id: effective_prestress
+    description: >-
+      The tendon's own stress over the flat 2 m of its profile, after
+      transfer. `min` over the record picks that instant: loading only ever
+      adds to it. The case applies 679 MPa of prestrain so that what survives
+      the elastic shortening is the 633 MPa read off the paper's Figure 9c --
+      the one number in this model that is neither measured directly nor
+      derived from first principles, and now the one this contract states
+      instead of inferring from the camber.
+    source: monitor
+    name: sigma_p
+    reduction: min
+    expect: {target: 632.47e+6, rtol: 0.01}
+
+  - id: the_tendon_has_not_yielded
+    description: >-
+      And at 60 mm it carries 1363 MPa, 0.83 of the 1640 MPa 0.1% proof
+      stress. The measured beam failed by crushing at 114 mm with the strand
+      intact, so a run that yielded the tendon on the way to 60 would be
+      modelling a different member, however well its load-deflection curve
+      matched.
+    source: monitor
+    name: sigma_p
+    reduction: max
+    expect: {upper: 1640.0e+6}
+
+  - id: bottom_fibre_after_transfer
+    description: >-
+      Mean sigma_xx in the bottom layer of elements of the constant-moment
+      region, at its most compressed instant -- which is transfer. This is the
+      decompression reserve: with the 0.164 MPa/kN this model gains under the
+      jacks it puts decompression at 53.0 kN and first cracking, 3.7 MPa
+      later, at 75.6. The header explains why that number is the whole story
+      of this case's remaining error, and v0.1 had to read it out of the
+      stress field by hand to find out.
+    source: monitor
+    name: sigma_bot
+    reduction: min
+    expect: {target: -8.708e+6, rtol: 0.02}
+
+  - id: self_weight_reaction
+    description: >-
+      The support carries half the beam before the jacks touch it:
+      2.798 kN/m over the full 8.5 m, 11.89 kN. It is an arithmetic check on
+      the section, the density and the overhangs, and it costs nothing.
+    source: monitor
+    name: P_L
+    reduction: min
+    expect: {target: 11.892e+3, rtol: 0.01}
+
+  - id: load_at_20mm
+    description: >-
+      Reaction at 20 mm of deflection, in the cracked-elastic branch.
+      Measured 115.8 + 11.89 = 127.7 kN; this model is 11% high there, for
+      the reason in the header.
+    source: monitor
+    name: P_L
+    reduction: at
+    against: d_L
+    value: -0.016430
+    expect: {target: 142.18e+3, rtol: 0.03}
+
+  - id: load_at_40mm
+    description: >-
+      Reaction at 40 mm, past yield of the passive steel. Measured
+      183.9 + 11.89 = 195.8 kN; this model is 3% high, its closest approach.
+    source: monitor
+    name: P_L
+    reduction: at
+    against: d_L
+    value: -0.036430
+    expect: {target: 201.50e+3, rtol: 0.03}
+
+  - id: load_at_60mm
+    description: >-
+      Reaction at the end of the imposed path. Measured 206.6 + 11.89 =
+      218.5 kN; this model is 5% high.
+    source: monitor
+    name: P_L
+    reduction: final
+    expect: {target: 228.77e+3, rtol: 0.03}
+
+  - id: work_along_the_load_path
+    description: >-
+      Area under the reaction-deflection record. A curve with the right end
+      points and the wrong route between them fails this and passes the three
+      above, which is why it is here.
+    source: monitor
+    name: P_L
+    reduction: energy
+    against: d_L
+    expect: {target: 9698.0, rtol: 0.03}
+
+  - id: the_beam_has_cracked
+    description: >-
+      Tensile damage reaches the cap INSIDE the constant-moment region: at
+      60 mm the model has a real crack pattern where the moment is, not damage
+      borrowed from a stress concentration under a bearing.
+    source: monitor
+    name: dt_span
+    reduction: max
+    expect: {lower: 0.9}
+
+  - id: the_compression_zone_has_not_crushed
+    description: >-
+      And it has NOT crushed, which is the mechanism the measurement reports
+      at 114 mm and this run stops short of: 0.14 in the constant-moment
+      region. This used to be held over the whole model at 0.60, because the
+      global maximum is 0.46 at the anchorage and under the bearings and a
+      contract could not restrict an element field to a region. Asked where
+      the question belongs, the bound is three times tighter.
+    source: monitor
+    name: dc_span
+    reduction: max
+    expect: {upper: 0.20}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-3}

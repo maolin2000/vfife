@@ -1,0 +1,21 @@
+version: 1
+case: case_03_mixed_frame
+classification: analytical
+reference: Beam bending PL^3/(3EI) plus truss shortening PL/(EA)
+metrics:
+  - id: guided_tip_uz
+    source: field
+    name: displacement
+    location: {nearest: [1.0, 0.0, 1.0]}
+    component: z
+    expect: {target: -6.6666666667e-5, rtol: 3.0e-6, atol: 1.0e-12}
+  - id: member_type_range
+    source: field
+    name: member_type
+    reduction: mean
+    expect: {target: 0.5, atol: 0.0}
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-6}

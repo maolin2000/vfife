@@ -1,0 +1,487 @@
+{
+ "optional_probes": {
+  "vfife/api.py": 4,
+  "vfife/buckling.py": 8,
+  "vfife/cli.py": 2,
+  "vfife/core/analysis_steps.py": 36,
+  "vfife/core/beam_family.py": 13,
+  "vfife/core/beam_solver.py": 48,
+  "vfife/core/compiled_step.py": 38,
+  "vfife/core/diagnostics.py": 1,
+  "vfife/core/families.py": 5,
+  "vfife/core/fiber_beam_solver.py": 54,
+  "vfife/core/ground.py": 1,
+  "vfife/core/member_axes.py": 2,
+  "vfife/core/member_contact.py": 7,
+  "vfife/core/mixed_structural_solver.py": 18,
+  "vfife/core/model_totals.py": 5,
+  "vfife/core/moving_load.py": 5,
+  "vfife/core/orientation.py": 6,
+  "vfife/core/resume.py": 25,
+  "vfife/core/rigid_contact.py": 2,
+  "vfife/core/selectors.py": 1,
+  "vfife/core/shell_line_solver.py": 2,
+  "vfife/core/shell_solver.py": 3,
+  "vfife/core/soil.py": 1,
+  "vfife/core/solver.py": 12,
+  "vfife/core/step_state.py": 1,
+  "vfife/core/truss_solver.py": 2,
+  "vfife/core/vehicle.py": 1,
+  "vfife/implicit.py": 29,
+  "vfife/io/writer.py": 1,
+  "vfife/kernels/warp_backend.py": 1,
+  "vfife/kernels/warp_shell4.py": 1,
+  "vfife/modal.py": 6,
+  "vfife/preflight.py": 2,
+  "vfife/sweep.py": 3,
+  "vfife/testing/invariants.py": 1,
+  "vfife/testing/state.py": 3
+ },
+ "patched_methods": {},
+ "private_access": {
+  "vfife/api.py": [
+   "_current_age",
+   "_half"
+  ],
+  "vfife/buckling.py": [
+   "_connector_of",
+   "_connector_props",
+   "_force",
+   "_probe",
+   "_trial_mode"
+  ],
+  "vfife/core/analysis_steps.py": [
+   "_active",
+   "_apply_load_releases",
+   "_birth_raw",
+   "_conn_birth",
+   "_conn_committed",
+   "_conn_slip",
+   "_connector_of",
+   "_connector_props",
+   "_current_age",
+   "_damping_step_factor",
+   "_element_mass_share",
+   "_held_dofs",
+   "_jack_T",
+   "_jack_done",
+   "_jack_live",
+   "_jack_p",
+   "_jack_step_of",
+   "_k_ref",
+   "_kg_ref",
+   "_material_of",
+   "_members_of",
+   "_mode_cfg",
+   "_n_steps_solver",
+   "_probe",
+   "_rebuild_reference_stiffness",
+   "_refresh_fictitious_mass",
+   "_refresh_kernel_mask",
+   "_region",
+   "_relax_start"
+  ],
+  "vfife/core/beam_solver.py": [
+   "_ke_buf"
+  ],
+  "vfife/core/compiled_step.py": [
+   "_beam_batch",
+   "_carry_arrays",
+   "_conn_committed",
+   "_conn_slip",
+   "_connector_kernel",
+   "_diaphragms",
+   "_force_scale",
+   "_frame_batch",
+   "_half",
+   "_hinge_cap",
+   "_hinge_rotation",
+   "_kernel",
+   "_kernel_active",
+   "_kernel_resume",
+   "_kinematic_v",
+   "_loop_measures",
+   "_member_load_at",
+   "_motion_scale",
+   "_other_ids",
+   "_plastic_d",
+   "_relax_stepper",
+   "_reload_step",
+   "_rot_scratch",
+   "_set_actions_abs",
+   "_setup_diaphragms",
+   "_stacked_groups",
+   "_truss_T",
+   "_truss_batch",
+   "_truss_ids"
+  ],
+  "vfife/core/diagnostics.py": [
+   "_restored_energy"
+  ],
+  "vfife/core/families.py": [
+   "_conn_birth",
+   "_conn_committed",
+   "_conn_slip",
+   "_eigen_d",
+   "_frame",
+   "_frame_eigen_d",
+   "_is_cable",
+   "_threads"
+  ],
+  "vfife/core/member_axes.py": [
+   "_connector_of",
+   "_rows"
+  ],
+  "vfife/core/member_contact.py": [
+   "_held_dofs",
+   "_members_in",
+   "_region"
+  ],
+  "vfife/core/model_totals.py": [
+   "_totals_built"
+  ],
+  "vfife/core/moving_load.py": [
+   "_material_of",
+   "_release_indices"
+  ],
+  "vfife/core/resume.py": [
+   "_age_stiffness",
+   "_clock_floor",
+   "_current_age",
+   "_force_scale",
+   "_half",
+   "_hold_checkpoint",
+   "_hold_restore",
+   "_motion_scale",
+   "_phi_cur",
+   "_prev_station",
+   "_relax",
+   "_restored_energy",
+   "_resume",
+   "_step_ages"
+  ],
+  "vfife/core/soil.py": [
+   "_members_in",
+   "_region"
+  ],
+  "vfife/implicit.py": [
+   "_apply_bc",
+   "_break",
+   "_cell_actions",
+   "_commit_fibres",
+   "_current_age",
+   "_diaphragms",
+   "_force",
+   "_force_of",
+   "_force_scale",
+   "_frame_time",
+   "_half",
+   "_in_fallback",
+   "_loop",
+   "_newton",
+   "_record",
+   "_record_time_station",
+   "_refresh_fictitious_mass",
+   "_region",
+   "_relax_stage",
+   "_reorthonormalize",
+   "_static_ctx",
+   "_static_state",
+   "_tangent_begin",
+   "_thermal_d",
+   "_trial_mode"
+  ],
+  "vfife/io/model.py": [
+   "_girder"
+  ],
+  "vfife/modal.py": [
+   "_conn_committed",
+   "_connector_of",
+   "_connector_props",
+   "_lumped_physical_mass",
+   "_setup_diaphragms",
+   "_step_ages"
+  ],
+  "vfife/sweep.py": [
+   "_elem_spec",
+   "_layouts",
+   "_rows",
+   "_section_of"
+  ],
+  "vfife/testing/state.py": [
+   "_force",
+   "_probe",
+   "_trial_mode"
+  ]
+ },
+ "tests_private_access": {
+  "tests/test_beam2.py": [
+   "_cell_actions"
+  ],
+  "tests/test_cables.py": [
+   "_force",
+   "_region"
+  ],
+  "tests/test_capability_alignment.py": [
+   "_kernel"
+  ],
+  "tests/test_compiled_shear.py": [
+   "_sl_gamma"
+  ],
+  "tests/test_compiled_step.py": [
+   "_half"
+  ],
+  "tests/test_connector2.py": [
+   "_cell_actions"
+  ],
+  "tests/test_connector_birth.py": [
+   "_internal_force_reference"
+  ],
+  "tests/test_connector_laws.py": [
+   "_conn_committed"
+  ],
+  "tests/test_coupled.py": [
+   "_cell_actions"
+  ],
+  "tests/test_damping_omega.py": [
+   "_held_dofs"
+  ],
+  "tests/test_diaphragm.py": [
+   "_diaphragms",
+   "_project_diaphragms"
+  ],
+  "tests/test_erosion.py": [
+   "_driven",
+   "_force"
+  ],
+  "tests/test_fiber_beam_kernel.py": [
+   "_cpar",
+   "_kernel",
+   "_sa",
+   "_spar",
+   "_state_s",
+   "_sy"
+  ],
+  "tests/test_fiber_connector.py": [
+   "_active",
+   "_connector_ids",
+   "_connector_of",
+   "_is_fiber",
+   "_kernel",
+   "_kernel_active",
+   "_reference_k",
+   "_refresh_kernel_mask",
+   "_rows"
+  ],
+  "tests/test_fiber_creep.py": [
+   "_kernel"
+  ],
+  "tests/test_fiber_integration_rules.py": [
+   "_fiber_stress_rows",
+   "_fstress",
+   "_internal_force_kernel",
+   "_internal_force_true",
+   "_kernel",
+   "_state_c",
+   "_trial_mode"
+  ],
+  "tests/test_fiber_sections.py": [
+   "_G0J0",
+   "_elem_spec",
+   "_kernel",
+   "_section_of",
+   "_setup_fracture",
+   "_tracked_valid"
+  ],
+  "tests/test_fiber_sections_rc.py": [
+   "_kernel",
+   "_layouts",
+   "_rows",
+   "_sa",
+   "_spar"
+  ],
+  "tests/test_fiber_segment_ages.py": [
+   "_refresh_imposed",
+   "_thermal_scale"
+  ],
+  "tests/test_fiber_shear.py": [
+   "_kernel",
+   "_sl_GAcr",
+   "_sl_gamma",
+   "_sl_gcr_c",
+   "_sl_gmax_c"
+  ],
+  "tests/test_fiber_tendons.py": [
+   "_internal_force_kernel",
+   "_internal_force_true",
+   "_kernel"
+  ],
+  "tests/test_finite_rotations.py": [
+   "_advance",
+   "_apply_bc",
+   "_internal_force_reference"
+  ],
+  "tests/test_fracture.py": [
+   "_active",
+   "_failing_groups",
+   "_point_failure",
+   "_tracked_failure"
+  ],
+  "tests/test_frame_solver_at_scale.py": [
+   "_apply_bc",
+   "_convergence_measures",
+   "_internal_force_reference",
+   "_refresh_fictitious_mass"
+  ],
+  "tests/test_hold_in_place.py": [
+   "_members_of",
+   "_region"
+  ],
+  "tests/test_hollow_member_buckling.py": [
+   "_section_of"
+  ],
+  "tests/test_hollow_section.py": [
+   "_layouts"
+  ],
+  "tests/test_hzb_girder.py": [
+   "_layouts"
+  ],
+  "tests/test_jack.py": [
+   "_jack_done",
+   "_jack_live",
+   "_jack_p",
+   "_jack_step_of",
+   "_region"
+  ],
+  "tests/test_material_blocks.py": [
+   "_step_solver"
+  ],
+  "tests/test_member_failure.py": [
+   "_force",
+   "_stack_cache",
+   "_stacked_groups",
+   "_truss_batch"
+  ],
+  "tests/test_member_materials.py": [
+   "_thermal_load",
+   "_truss_force"
+  ],
+  "tests/test_particle_split.py": [
+   "_active",
+   "_element_mass_share",
+   "_queue_split",
+   "_spare_of"
+  ],
+  "tests/test_patch_material.py": [
+   "_layouts"
+  ],
+  "tests/test_piecewise_uniaxial.py": [
+   "_force"
+  ],
+  "tests/test_prescribed_from_a_moved_state.py": [
+   "_bc_start"
+  ],
+  "tests/test_review4_creep.py": [
+   "_phi_cur"
+  ],
+  "tests/test_review4_fracture.py": [
+   "_cell_actions",
+   "_element_mass_share",
+   "_force",
+   "_hinge_rotation",
+   "_plastic_d",
+   "_split_off"
+  ],
+  "tests/test_review4_vehicle.py": [
+   "_force",
+   "_vehicles"
+  ],
+  "tests/test_review5_fibre.py": [
+   "_creep_station",
+   "_creep_stations",
+   "_internal_force_true",
+   "_sl_gamma"
+  ],
+  "tests/test_review5_static.py": [
+   "_thermal_d"
+  ],
+  "tests/test_review6_bridge.py": [
+   "_fiber_rho"
+  ],
+  "tests/test_review6_followup.py": [
+   "_kernel"
+  ],
+  "tests/test_review6_service.py": [
+   "_kernel"
+  ],
+  "tests/test_seismic_devices.py": [
+   "_held_dofs"
+  ],
+  "tests/test_shell4.py": [
+   "_surface_load"
+  ],
+  "tests/test_shell_at_scale.py": [
+   "_internal_force_numba",
+   "_internal_force_numpy",
+   "_internal_force_reference",
+   "_make_warp_shell",
+   "_refresh_fictitious_mass",
+   "_sh_K"
+  ],
+  "tests/test_solver_protocol.py": [
+   "_internal_force"
+  ],
+  "tests/test_static_fallback.py": [
+   "_newton",
+   "_region"
+  ],
+  "tests/test_strain_penetration.py": [
+   "_spar"
+  ],
+  "tests/test_tangent_members.py": [
+   "_conn_birth",
+   "_jack_T",
+   "_newton",
+   "_plastic_d",
+   "_tangent_picks"
+  ],
+  "tests/test_temperature.py": [
+   "_cpre",
+   "_force",
+   "_imposed",
+   "_internal_force_kernel",
+   "_internal_force_true"
+  ],
+  "tests/test_truss2.py": [
+   "_force",
+   "_rayleigh_force"
+  ],
+  "tests/test_truss_batch.py": [
+   "_internal_force_reference"
+  ]
+ },
+ "twin_methods": {
+  "BeamSolver/FiberBeamSolver": [
+   "__init__",
+   "_assemble_reference",
+   "_check_failure",
+   "_deactivate",
+   "_element_mass_share",
+   "_force",
+   "_member_forces",
+   "_nodal_fields",
+   "_record_time_station",
+   "_reserve_split_particles",
+   "_setup_breaking",
+   "_setup_mass_and_time",
+   "_setup_time_dependence",
+   "_thermal_load",
+   "_turned_k",
+   "apply_pending_splits",
+   "compiled_pending",
+   "hold_time_strain",
+   "summary",
+   "time_dependent"
+  ]
+ }
+}

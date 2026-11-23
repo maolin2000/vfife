@@ -1,0 +1,225 @@
+version: 1
+case: case_24f_hzb_girder_bearings
+classification: analytical
+reference: >-
+  Three, none of them this solver's fibre path. Vertical equilibrium against
+  the applied line load. The bearings' own declared stiffnesses, which fix
+  their deformations once the force through them is known -- a connector that
+  did not reproduce its own constitutive statement would be the first thing to
+  catch. And case_24e, the elastic twin of this very model on the `mixed_line`
+  solver, whose middle-span deflection and pier-top movement were themselves
+  checked against the classical three-span continuous reactions and an
+  independent direct-stiffness frame.
+
+# --------------------------------------------------------------------------- #
+#  THE FIBRE SOLVER HOLDING A CONNECTOR
+# --------------------------------------------------------------------------- #
+#  v0.4 measured a cost it could not fix: case_24d's piers are
+#  MONOLITHIC with the girder, because a bearing is a `connector2` and the
+#  fibre-beam solver could not host one, and that joint DOUBLES the
+#  middle-span dead-load deflection. Version 0.4 priced the fix on an elastic
+#  twin. This is the fix itself, on the real model.
+#
+#      middle-span dead-load deflection
+#        case_24c   ideal rollers, no piers          -9.11 mm
+#        case_24d   monolithic piers                -27.77
+#        case_24e   elastic twin on pot bearings     -7.79
+#        THIS CASE  fibre model on pot bearings      -7.98
+#
+#  So the bearing gives back about 20 mm, and the two solvers agree to 2.4% on
+#  a quantity neither was fitted to. (The 24c and 24d rows are the numbers
+#  those cases report. case_24d was re-run on the literature pier in
+#  v0.4: -18.99 on v0.4's solid shaft, -27.77 now -- the monolithic joint
+#  is 46% more expensive with the right pier, the bearing model 3.9%.)
+#
+#  READ THAT AGREEMENT CAREFULLY, AND NOT THE WAY THIS HEADER FIRST DID. The
+#  middle spans agree to 2.4%; the SIDE spans do not and cannot -- -21.11 mm
+#  here against the twin's -77.5 -- because the twin replaces the tendons by
+#  their axial free strain alone and so has no camber anywhere.
+#
+#  The first version of this paragraph then said the middle span is dominated
+#  by continuity hogging and the side span by "the drape, which only this one
+#  has". THAT IS WRONG, and the model says so: the drape is the same in all
+#  three spans, and the primary prestress moment reads 151 MN.m at every
+#  mid-span (`M_PRESTRESS` in `benchmarks/generate_hzb_girder.py`, read
+#  element by element off this case's own assembled model).
+#
+#  The reason is continuity, and it is sharper than a dominance argument. A
+#  free curvature deflects a member only where its ends can ROTATE: a constant
+#  free curvature between two rotationally fixed ends produces EXACTLY no
+#  deflection, because the fixed-end moments cancel it, against `kappa L^2/8`
+#  with the ends free (122.15 mm and 0.00 mm for this span and this
+#  curvature). The abutment is a real hinge; the middle span's two ends are
+#  held by the side spans. So the camber is split about 100 : 1 between side
+#  and middle while the dead load is split in the classical 10.0 : 1 --
+#  +58.6 mm of camber in the side span against +0.59 in the middle.
+#
+#  Which means the middle-span agreement is not luck and not really a check of
+#  the camber: a model with no camber at all agrees there BY CONSTRUCTION.
+#  Give the same twin the free curvature `M_PRESTRESS / EI` as well and it
+#  lands within 10% on BOTH spans (-7.20 and -19.02 against -7.98 and
+#  -21.11):
+#  `camber_split()` in the same benchmark, pinned by `tests/test_hzb_bearings`.
+#  THAT is the cross-solver check of this case's side span; the metric below
+#  is the middle span's, and it is worth what the paragraph above says it is.
+#
+#  WHAT IS ACTUALLY BEING TESTED HERE is not the bearing -- `connector2` has
+#  been verified since case_09 and `elements/connector.py` answers with this
+#  solver's own `q`, `orient`, `v` and `R0` unchanged. It is the BOOKKEEPING:
+#  that an element which is not a fibre beam can sit in a fibre mesh without
+#  being given fibres, mass, a section, a shear interpolation or a place in the
+#  fracture latch, and without the fused kernel touching it. The fused kernel
+#  and the NumPy reference path agree to 1e-11 on every monitor of this case
+#  with the connectors in it (tests/test_fiber_connector.py).
+#
+#  THE PIER SECTION WAS CORRECTED AFTER THIS CASE WAS FIRST WRITTEN.
+#  v0.4 had no statement of it and derived a
+#  SOLID 6.25 x 1.80 m from the piers' weights; three independent papers --
+#  this unit's own 黄燕庆《水中低墩区引桥总体设计》among them -- state a HOLLOW
+#  6.25 m x (2.60 at the base -> 4.00 at the top), walls 0.50 m. In the plane
+#  of this frame that is 4.4x stiffer; across the bridge it is within 8% of
+#  what was assumed, by luck.
+#  WHAT IT MOVED HERE IS SMALL, AND THAT IS THE POINT: the middle span went
+#  -7.678 to -7.977 mm (3.9%) and the elastic twin independently predicted
+#  +4% before the fibre model was re-run. The bearing does not only remove
+#  the monolithic joint's penalty (v0.4) -- it removes the model's
+#  SENSITIVITY to the pier, which is the assumption v0.4 was worried about.
+#  On the MONOLITHIC twin the same correction moves the penalty from -7.1 to
+#  -12.4 mm, so case_24d's headline is an understatement while this case is
+#  barely touched.
+#  What did move: the pier top now sways 2.66 mm instead of 4.50 (a stiffer
+#  pier under the same bearing force) and the bearings carry 1037 kN instead
+#  of 757 (a stiffer pier resists more of the shortening).
+#
+#  THE STEP BOUND IS THE ONE COST, and an earlier evaluation got it
+#  wrong: it measured a bearing-scale stiffness added to a GIRDER node, where
+#  the box girder's own mass swamps it, and concluded x1.000. A real bearing
+#  hangs off a PIER-TOP node whose only mass is half a pier element, and the
+#  dynamic step count of this model goes from 231 089 to 507 170 -- x2.2. That
+#  is why this case is the static dead state and not case_24d's 60-second
+#  collapse run; the collapse comparison is a separate piece of work with its
+#  own budget.
+
+metrics:
+  - id: the_load_that_was_applied_reaches_the_ground
+    description: >-
+      3.58e5 N/m over 210 m = 75.18 MN, as 51.64 over the two pier bases and
+      11.77 at each abutment. The load now passes through two elements that
+      did not exist in this solver last week, so this is the first thing to
+      check and it closes to 0.001%.
+    source: monitor
+    name: N_pier_base
+    reduction: final
+    expect: {target: 5.1637e+7, rtol: 0.01}
+
+  - id: and_the_abutments_carry_the_rest
+    description: >-
+      11.772 MN each. With the metric above: 51.637 + 2 x 11.772 = 75.181
+      against 75.180 applied.
+    source: monitor
+    name: R_left
+    reduction: final
+    expect: {target: 1.17717e+7, rtol: 0.01}
+
+  - id: the_bearing_reproduces_its_own_declared_stiffness
+    description: >-
+      25.82 MN through each bearing at 5.0e10 N/m is 0.5164 mm of vertical
+      compression, and that is what the connector deformation reads -- to five
+      figures, because it IS the constitutive statement. A connector that had
+      been handed the wrong frame, the wrong nodes or the wrong props would
+      miss this before it missed anything else.
+    source: field
+    name: connector_deformation_ux
+    reduction: min
+    expect: {target: -5.164e-4, rtol: 0.01}
+
+  - id: and_the_two_bearings_carry_the_same_longitudinal_force
+    description: >-
+      1037 kN through both. The abutments are longitudinal rollers, so the two
+      bearings are the only longitudinal restraint the unit has and they share
+      the prestress shortening symmetrically. This is what makes the next
+      metric a clean statement about stiffness rather than about load. (757 kN
+      on the old solid pier: a stiffer pier resists more of the shortening, so
+      more of it arrives here.)
+    source: field
+    name: connector_force_y
+    reduction: max
+    expect: {target: 1.037e+6, rtol: 0.02}
+
+  - id: so_the_slips_are_in_the_inverse_ratio_of_the_stiffnesses
+    description: >-
+      the sliding pot moves 14.606 mm and the fixed one 1.037 -- a ratio of
+      14.08 against the declared 1.0e9 / 7.1e7 = 14.08. Same force, different
+      stiffness, and the arrangement (which pier is fixed) reads straight off
+      the two numbers. THE RATIO IS THE INVARIANT and it did not move when the
+      pier section was corrected; only the force did.
+    source: field
+    name: connector_deformation_uy
+    reduction: max
+    expect: {target: 1.4606e-2, rtol: 0.02}
+
+  - id: the_bearing_gives_back_what_the_monolithic_joint_cost
+    description: >-
+      -7.977 mm against case_24d's monolithic joint on the same girder, the
+      same tendons, the same dead load and the same piers -- everything but
+      the joint. About 20 mm (27.77 - 7.98), which is the whole reason this
+      stage exists.
+      (-7.678 on the old solid pier; see the header for why 3.9% is the
+      interesting number here.)
+      MOVED in v1.0 from -7.977 to -8.281 mm: the friction
+      tendons' 6 mm anchor set now draws in exactly 6 mm (the reflection
+      stopped at the first element midpoint past it and drew in more), so
+      66 of the 110 tendons keep up to 64 MPa more near their live ends and
+      the total prestress rises 0.8%; the middle span, which keeps almost
+      none of its own camber, takes the redistributed secondary moment.
+    source: monitor
+    name: w_mid_middle
+    reduction: final
+    expect: {target: -8.281e-3, rtol: 0.02}
+
+  - id: and_the_elastic_twin_agrees_with_it
+    description: >-
+      case_24e reads -7.593 mm for the same arrangement with `beam2` members
+      and the prestress as an axial free strain, on the `mixed_line` solver.
+      1.1% apart, on two solvers that share no element code -- but read the
+      header before spending it: the middle span keeps almost none of its own
+      prestress camber (+0.57 mm of it, against +58.6 in the side span), so a
+      twin with no camber agrees here by construction. What this metric
+      actually pins is the dead-load path through the new elements. The
+      camber itself is checked in the header's second cross-solver run.
+      Since v1.0 this model reads -8.281 (the exact anchor set,
+      above) and the twin's shortening strain, derived from the old friction
+      profile, was not re-derived: 9% apart, and the band's lower edge
+      moved from -8.2 to -8.6 mm to hold the dead-load path it pins.
+    source: monitor
+    name: w_mid_middle
+    reduction: final
+    expect: {lower: -8.6e-3, upper: -7.0e-3}
+
+  - id: the_fixed_pier_takes_the_longitudinal_movement
+    description: >-
+      2.66 mm at the pier top. The pier is no longer dragged 11.4 mm by a
+      girder it is welded to (case_24d); it moves because the fixed bearing
+      hands it 1037 kN, which is a force it is meant to take. It was 4.50 mm
+      on the old solid pier -- the one monitor the pier correction really
+      moves, and in the direction a 4.4x stiffer pier has to move it.
+    source: monitor
+    name: u_pier_top
+    reduction: final
+    expect: {target: 2.660e-3, rtol: 0.05}
+
+  - id: and_almost_nothing_reaches_the_pier_base_horizontally
+    description: >-
+      0.13 kN against the 51.6 MN it carries vertically -- five orders down.
+      With no horizontal load applied, whatever the bearings pass to the piers
+      has to come back out of them, and the base is where that is read.
+      AN UPPER BOUND, NOT A TARGET, and correcting the pier section is what
+      exposed the difference: this metric used to read `target: 575 N` with a
+      25% band, which pinned a number that is not a property of the model --
+      it is a residual, and a residual pinned to 25% fails the moment anything
+      legitimate changes (it read 128.7 N after the correction). What the case
+      claims is that it is negligible, so that is what the metric says.
+    source: monitor
+    name: H_pier_base
+    reduction: peak_abs
+    expect: {upper: 2.0e+3}

@@ -1,0 +1,45 @@
+# A cable hanging under its own weight, found by dynamic relaxation
+# (`vfife new cable`): 100 m between two supports at one level, 102 m of
+# cable (`unstressed_length`), tension only. Its mass is the 100 m mesh's,
+# not 102 m of cable's (2% light): the end tension is 2% under the catenary's
+# for 102 m, the sag within 0.5%.
+#
+#   vfife run      @FILE@
+#   vfife summary  results/@NAME@.h5     # the sag and the end tension
+version: 1
+name: @NAME@
+units: {length: m, force: N, stress: Pa}
+mesh:
+  type: lines
+  points:
+    left: [0.0, 0.0, 0.0]
+    mid: [50.0, 0.0, 0.0]
+    right: [100.0, 0.0, 0.0]
+  lines:
+    cable: {through: [left, mid, right], size: 2.5}
+regions:
+  ends: {union: [left, right]}
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+sections:
+  strand: {type: bar, material: steel, shape: general, area: 0.005}
+assign:
+  - {region: cable, section: strand, unstressed_length: 102.0, tension_only: true}
+constraints:
+  - {region: ends, dofs: [1, 1, 1, 1, 1, 1]}
+  - {region: all, dofs: [0, 1, 0, 1, 1, 1]}       # in the x-z plane
+loads:
+  - {region: all, gravity: [0.0, 0.0, -9.80665]}
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 200000
+  load_steps: 1
+  max_steps_per_load: 200000
+  stage_ramp_iterations: 100
+  tolerance: 1.0e-6
+output:
+  path: results/@NAME@.h5
+  monitors:
+    sag: {kind: displacement, region: mid, dof: z}
+    H: {kind: reaction, region: left, dof: x}

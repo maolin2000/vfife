@@ -1,0 +1,208 @@
+# RC frame pushover -- Vecchio & Emara (1992), one bay, two storeys
+#
+# The reference frame for nonlinear RC frame analysis for thirty years
+# (VecTor2, OpenSees, every fibre-beam paper that needs a frame), and the
+# first FRAME in this library whose beams and columns are different sections
+# with their own reinforcement. Tested at the University of Toronto:
+#
+#   Vecchio, F.J. and Emara, M.B., "Shear Deformations in Reinforced Concrete
+#   Frames", ACI Structural Journal 89(1), Jan-Feb 1992, pp. 46-56.
+#
+# Geometry and loading are read from Fig. 10 of Guner & Vecchio, "Pushover
+# Analysis of Shear-Critical Frames: Verification and Application", ACI
+# Structural Journal 107(1), 2010, which reproduces the test; the measured
+# load-deflection curve is verification/VecchioEmara_1992_frame.txt,
+# digitised from their Fig. 11 (its area under the loading branch, 44.8 kN.m,
+# matches the 44.4 kN.m "total energy dissipated" the paper quotes).
+#
+# SPECIMEN (centreline model, benchmarks/generate_vecchio_emara.py)
+#   span 3500 mm, two storeys of 2000 mm; base beam bolted to the strong floor,
+#   so the columns are built in at z = 0
+#   all members 300 wide x 400 deep (bending in the plane of the frame)
+#   beams (A-A)    4 + 4 No.20, bar centres 50 mm from the top/bottom faces,
+#                  No.10 @ 125 hoops
+#   columns (B-B)  4 + 4 No.20, bar centres 40 mm from the faces, No.10 @ 125
+#   concrete       f'c = 30 MPa
+#   No.20          fy = 418, fu = 596 MPa, Es = 192.5 GPa
+#   No.10          fy = 454, fu = 640 MPa, Es = 200 GPa
+#   axial          700 kN on each column top, held throughout
+#   lateral        displacement at the second-storey beam level, pushed
+#                  monotonically to 155 mm, then unloaded to zero net load
+#
+# MEASURED (verification/VecchioEmara_1992_frame.txt)
+#   235 kN at 25 mm, 308 at 50, peak 333 kN at 80-100 mm, 312 at 155 mm;
+#   residual displacement 106 mm after unloading. Ductile hinging at both
+#   beam ends of both storeys and both column bases, tension AND compression
+#   bars yielded, some crushing. P-delta was 12% of the overturning moment at
+#   ultimate (Guner & Vecchio).
+#
+# HAND CHECK of the lateral capacity
+#   beam plastic moment, 4 No.20 each face, arm 300 mm:
+#       M_pb ~ As fy (d - d') = 1200e-6 * 418e6 * 0.30 = 150 kN.m
+#   column, N = 700 kN + beam shears, 300x400 with 4+4 No.20:
+#       T = C_s = 502 kN, C_c = N ~ 700-800 kN -> a ~ 100 mm,
+#       M_pc ~ N*(0.2 - 0.05) + 2 * 502 * 0.16 ~ 110 + 160 = 270 kN.m
+#   beam-sway mechanism, 4 beam hinges + 2 column-base hinges, storey 2 m:
+#       V ~ (4 M_pb + 2 M_pc) / (2 * 2.0) ~ (600 + 540) / 4 = 285 kN
+#   measured 333 kN: hardening (fu/fy = 1.43) and the moments from the 700 kN
+#   axial loads. The model should land near 333; at 200 or 450 the input is
+#   wrong, not the concrete.
+#
+# WHY 8 ELEMENTS PER MEMBER, AND WHAT THE MESH IS WORTH
+#   Displacement-based fibre elements hold the axial strain constant along
+#   the element, so a hinging end station is forced to carry spurious axial
+#   compression, which raises its moment -- the coarser the mesh the stronger
+#   the frame. Measured on this model, no strain penetration:
+#       4 per member   peak 400 kN   1.20 x measured   10 s
+#       8 per member   peak 354      1.06              36 s
+#      16 per member   peak 337      1.01              3.7 min, and the
+#                      staged relaxation needs 40 000 iterations per stage
+#   Eight is the ten-minute compromise the case ships with; the 6% it leaves
+#   on the peak is the mesh, not the physics, and the contract's peak band
+#   is set knowing that.
+#
+# STRAIN PENETRATION at the six joints (column bases, both beam-column
+#   joints of each storey): Lsp = 0.022 fy db = 184 mm (Priestley), applied
+#   through `anchorage` to the elements touching the joint nodes. It takes
+#   the stiffness ratio at 20-50 mm from 1.33 to 1.15 and the peak from 354
+#   to 347 kN (one section) / 345 (two); plateau 100-155 mm within 3%.
+#
+# MEMBER SHEAR: `shear_stiffness` is the uncracked kappa G A
+#   of the 300 x 400 section, G = E_c / 2(1 + 0.2) = 12.5 GPa -- derived, not
+#   fitted. It is worth 2% on the rising branch (1.17 -> 1.15 at 30 mm).
+#   Vecchio & Emara attribute 20% of the frame's total deformation to shear,
+#   and most of that is CRACKED shear: a quarter of the uncracked stiffness
+#   takes the 30 mm ratio to 1.10 and the 20 mm one to 1.06. That quarter is
+#   a parameter with no derivation behind it here, so the case ships the
+#   uncracked value and the contract holds the ratio as a band.
+#
+# WHAT IS STILL MISSING
+#   Cracked shear stiffness (above). Rigid end zones at the joints would
+#   move the model the WRONG way (stiffer still), so the centreline model
+#   is kept.
+
+version: 1
+name: case_21_vecchio_emara_frame
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/vecchio_emara_frame_8.msh}
+materials:
+  concrete:
+    type: concrete02
+    fpc: 3.0e+7
+    epsc0: 0.002
+    fcu: 6.0e+6
+    epscu: 0.005
+    ft: 2.0e+6
+    Ets: 1.0e+9
+    rat: 0.1
+    rho: 2400
+  core:
+    # Mander for No.10 @ 125 in a 300 x 400 section: rho_s = 0.0096,
+    # f_l' = 1.3 MPa, f'cc = 38 MPa, eps_cc = 0.0047, eps_cu ~ 0.02
+    type: concrete02
+    fpc: 3.8e+7
+    epsc0: 0.0047
+    fcu: 7.6e+6
+    epscu: 0.02
+    ft: 2.0e+6
+    Ets: 1.0e+9
+    rat: 0.1
+    rho: 2400
+  steel: {type: steel02, E: 1.925e+11, Fy: 4.18e+8, b: 0.01, R0: 20.0, rho: 7850}
+sections:
+  no20: {type: bar, material: steel, shape: general, area: 0.000314}
+  # Beams and columns are the same 300 x 400 with the same eight No.20, and
+  # differ in where the bars sit: 50 mm from the face in the beams (A-A),
+  # 40 mm in the columns (B-B). Two sections, each with its own bars, core
+  # and anchorage; the single-section form of v0.2 put the
+  # bars at the mean 155 mm and gave a peak of 347 kN, 1 kN from this one.
+  beam:
+    type: fiber
+    material: concrete
+    shape: rect
+    width: 0.3           # section y: out of the plane of the frame
+    height: 0.4          # section z: the bending depth
+    ny: 4
+    nz: 16
+    cover: 0.03
+    core_material: core
+    integration: lobatto3
+    shear_stiffness: 1.25e9     # kappa G A: 5/6 x 12.5 GPa x 0.12 m^2, uncracked
+    bars:
+    - {y: 0.089, z: 0.150, section: no20}
+    - {y: 0.030, z: 0.150, section: no20}
+    - {y: -0.030, z: 0.150, section: no20}
+    - {y: -0.089, z: 0.150, section: no20}
+    - {y: 0.089, z: -0.150, section: no20}
+    - {y: 0.030, z: -0.150, section: no20}
+    - {y: -0.030, z: -0.150, section: no20}
+    - {y: -0.089, z: -0.150, section: no20}
+  column:
+    type: fiber
+    material: concrete
+    shape: rect
+    width: 0.3
+    height: 0.4
+    ny: 4
+    nz: 16
+    cover: 0.02
+    core_material: core
+    integration: lobatto3
+    shear_stiffness: 1.25e9
+    bars:
+    - {y: 0.089, z: 0.160, section: no20}
+    - {y: 0.030, z: 0.160, section: no20}
+    - {y: -0.030, z: 0.160, section: no20}
+    - {y: -0.089, z: 0.160, section: no20}
+    - {y: 0.089, z: -0.160, section: no20}
+    - {y: 0.030, z: -0.160, section: no20}
+    - {y: -0.030, z: -0.160, section: no20}
+    - {y: -0.089, z: -0.160, section: no20}
+assign:
+- {region: columns, section: column, orientation: [0, 1, 0],
+   anchorage: {region: joints, bar_diameter: 0.02}}
+- {region: beams, section: beam, orientation: [0, 1, 0],
+   anchorage: {region: joints, bar_diameter: 0.02}}
+regions:
+  # an element is a column element when BOTH its nodes lie on a column line
+  columns: {union: [column_l, column_r]}
+  column_l: {box: [-0.01, 0.01, -1, 1, -0.01, 4.01]}
+  column_r: {box: [3.49, 3.51, -1, 1, -0.01, 4.01]}
+  beams: {union: [beam_1, beam_2]}
+  beam_1: {box: [-0.01, 3.51, -1, 1, 1.99, 2.01]}
+  beam_2: {box: [-0.01, 3.51, -1, 1, 3.99, 4.01]}
+  bases: {union: [base_l, base_r]}
+  tops: {union: [top_l, top_r]}
+  # the six beam-column joints (the bases count: the base beam is a joint)
+  joint_1l: {box: [-0.01, 0.01, -1, 1, 1.99, 2.01]}
+  joint_1r: {box: [3.49, 3.51, -1, 1, 1.99, 2.01]}
+  joints: {union: [bases, tops, joint_1l, joint_1r]}
+constraints:
+- {region: bases, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: all, dofs: [0, 1, 0, 1, 0, 1]}      # a plane frame
+loads:
+# `vector` is the TOTAL over the region (README, loads), so one load per
+# column top, not one over `tops` -- that would be 350 kN each
+- {region: top_l, vector: [0.0, 0.0, -700000.0]}
+- {region: top_r, vector: [0.0, 0.0, -700000.0]}
+steps:
+- {name: axial, load_steps: 4, max_steps_per_load: 6000}
+- name: push
+  constraints:
+  - {region: top_l, dofs: [1, 0, 0, 0, 0, 0], value: 0.155}
+  load_steps: 31
+solver:
+  backend: numpy
+  # static since 1.5 (28 s of relaxation became 6 s); case_21c is the same
+  # frame under static with a tight tolerance, case_21b keeps relaxation for
+  # its cracking shear law
+  mode: static
+  tolerance: 0.0005
+output:
+  path: results/case_21_vecchio_emara_frame.h5
+  every: 1
+  fields: [displacement, rotation, reaction_force, axial_force, bending_y, bending_z,
+           fiber_stress, fiber_damage]   # what `vfife sweep` paints the frame with
+  monitors:
+    drift: {kind: displacement, region: top_l, dof: x}
+    base_shear: {kind: reaction, region: bases, dof: x}

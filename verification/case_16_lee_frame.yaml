@@ -1,0 +1,109 @@
+version: 1
+classification: independent_reference
+case: case_16_lee_frame
+reference: >-
+  NAFEMS Non-Linear Benchmarks NL7, "Lee's frame buckling problem" (NAFEMS,
+  Glasgow, 1989), after Lee, Manuel & Rossow (1968). Two 1.2 m members at a
+  right angle, pinned ends, 30 x 20 mm section (I = 2.0e-8 m^4), E = 71.74 GPa,
+  vertical load at 0.2 L from the corner. Targets are given as dimensionless
+  pairs (P L^2 / EI, v_A / L): (18.552, 0.407) at the limit point and
+  (31.887, 0.784) on the final rising branch; Abaqus reports 0.387 and 0.781
+  for the two deflections (Abaqus Benchmarks Manual, NL7).
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CONTRACT ASSERTS
+# --------------------------------------------------------------------------- #
+#  A is driven down to 0.783 L under displacement control, so the load is the
+#  reaction at the driven node, recorded as `P` (negative = downward load).
+#  The path: up to the limit point, down the descending branch, a dynamic
+#  jump across the snap-back (the one thing displacement control cannot
+#  follow -- see the case file), the negative-load region, and the final
+#  climb. EI/L^2 = 71.74e9 x 2.0e-8 / 1.44 = 996.39 N.
+#
+#  THE LIMIT POINT IS READ AS A LOAD, NOT A DEFLECTION. NAFEMS states it as
+#  "v/L = 0.407 at PL^2/EI = 18.552", and the codes it compares give 0.32 to
+#  0.41 for that deflection while agreeing on the load -- because the tangent
+#  is horizontal there: the deflection at a given load is ill-conditioned by
+#  exactly as much as the load at a given deflection is well-conditioned.
+#  So the first metric reads P at NAFEMS's v/L = 0.407 and holds it to 1%;
+#  this model gives 18.569 there, 0.09% off, and its own maximum, 18.575 at
+#  v/L = 0.400, is the same number to 0.03%.
+#
+#  The second NAFEMS point is on a branch steep enough (PL^2/EI goes from 15
+#  to 37 in 0.017 L) that the DEFLECTION at the given load is the sensible
+#  reading, and that is how it is held: 0.779 L against 0.784, 0.6% off, with
+#  Abaqus at 0.781.
+#
+#  What NAFEMS does not give a number for -- the descending branch, the load
+#  minimum, where the jump lands -- is held as this model's own (regression),
+#  and says so.
+
+metrics:
+  - id: limit_load
+    description: >-
+      The load at v_A/L = 0.407, NAFEMS's limit-point deflection. Target
+      18.552 EI/L^2 = 18485 N; this model 18502 N, 0.09% off. The maximum of
+      P over the traced path is 18508 N at v/L = 0.400 -- the same number,
+      because at a limit point the load does not depend on where you read it.
+    source: monitor
+    name: P
+    reduction: at
+    against: v_A
+    value: -0.4884
+    expect: {target: -18485.0, rtol: 0.01}
+
+  - id: the_load_has_peaked_and_fallen
+    description: >-
+      P at v/L = 0.5, on the descending branch: 14.88 EI/L^2, a fifth below
+      the limit and still on the near side of the snap-back (u_A/L = 0.43).
+      No NAFEMS number here; this is the model's own, held to 5% so that a
+      solver which merely stalled at the limit point, or jumped early, fails
+      it. Regression.
+    source: monitor
+    name: P
+    reduction: at
+    against: v_A
+    value: -0.60
+    expect: {target: -14826.0, rtol: 0.05}
+
+  - id: load_minimum
+    description: >-
+      The most negative load, -9.15 EI/L^2 -- the frame has to be held back.
+      It is the first converged level after the dynamic jump across the
+      snap-back, so it depends on where the jump lands; held to 5%. NAFEMS
+      gives no number; published curves put the minimum near -9. Regression.
+    source: monitor
+    name: P
+    reduction: max
+    expect: {target: 9115.0, rtol: 0.05}
+
+  - id: the_jump_landed_on_the_far_branch
+    description: >-
+      Horizontal displacement of A at the end of the path, 0.72 L. Before the
+      snap-back it was 0.43 L; the jump takes it to 0.78 L and the final
+      branch pulls it back slightly. A run that never crossed the fold ends
+      near 0.45 L and fails this by a factor of 1.6. Regression.
+    source: monitor
+    name: u_A
+    reduction: final
+    expect: {target: 0.8665, rtol: 0.03}
+
+  - id: deflection_where_the_load_is_31_887
+    description: >-
+      NAFEMS's second point, read the way NAFEMS reads it: v_A where
+      PL^2/EI first reaches 31.887 (P = -31772 N), on the final rising branch
+      where the load is the well-conditioned axis. Target 0.784 L = -0.9408 m;
+      this model -0.9352 m (0.779 L), 0.6% off; Abaqus 0.781 L.
+    source: monitor
+    name: v_A
+    reduction: at
+    against: P
+    value: -31772.0
+    expect: {target: -0.9408, rtol: 0.01}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-4}

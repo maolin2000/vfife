@@ -1,0 +1,15 @@
+version: 1
+kind: material
+name: chaboche
+target_level: verified
+evidence:
+  - category: monotonic
+    reference: tests/test_chaboche.py::test_pure_shear_monotonic_matches_closed_form
+  - category: step_convergence
+    reference: tests/test_chaboche.py::test_pure_shear_error_halves_with_step_size
+  - category: energy
+    reference: tests/test_chaboche.py::test_damage_applied_once
+  - category: unload_reverse
+    reference: tests/test_chaboche.py::test_bauschinger_reversal
+  - category: multiaxial
+    reference: tests/test_chaboche.py::test_pure_shear_monotonic_matches_closed_form

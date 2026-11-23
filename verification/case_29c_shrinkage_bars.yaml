@@ -1,0 +1,89 @@
+version: 1
+case: case_29c_shrinkage_bars
+classification: analytical
+reference: >-
+  Closed form, and the model function's own arithmetic. MC90's shrinkage is
+  eps_sh(t) = eps_s beta_rh beta_s(t - ts) with eps_s = [160 + 10 bsc
+  (9 - fcm/10)] 1e-6 = 420e-6 for a normal cement at fcm = 38 MPa,
+  beta_rh = -1.55 [1 - (RH/100)^3] = -1.0184 at 70% RH, and
+  beta_s = sqrt(d / [350 (h0/100)^2 + d]) = sqrt(d / (1400 + d)) at
+  h0 = 200 mm. A free member then shortens by eps_sh L and carries nothing;
+  a member held at both ends does not move and carries E A eps_sh. Both bars
+  are in the same analysis.
+
+# --------------------------------------------------------------------------- #
+#  WHAT A FREE STRAIN IS
+# --------------------------------------------------------------------------- #
+#  eps_sh is the same number in both bars. The difference in what happens is
+#  entirely a difference in what is in the way:
+#
+#      age (days)      28        100       365      1000
+#      eps_sh       -52.0e-6  -106.8e-6 -193.0e-6 -275.5e-6
+#      free end      -0.520 mm  -1.068    -1.930    -2.755   and 0 N
+#      held bar       0 mm and  15.60 kN   32.02     57.90     82.66
+#
+#  The free bar's reaction is the metric with real content: it is held at
+#  zero against a scale of E A eps_sh = 82.7 kN, which is the number an
+#  implementation reports if it turns the free strain into equivalent nodal
+#  loads and forgets to take it back out at stress recovery. The model gives
+#  2e-8 N.
+#
+#  NO CREEP IN THIS CASE. Real concrete relaxes most of that 82.7 kN away --
+#  that is case_29b's mechanism and the reason restrained shrinkage does not
+#  routinely crack members in two -- and mixing the two would leave a failure
+#  here with two possible causes instead of one.
+
+metrics:
+  - id: the_free_bar_shortens_by_the_shrinkage_strain
+    description: eps_sh(1000) L = -275.5e-6 x 10 m = -2.755 mm
+    source: monitor
+    name: u_free
+    reduction: final
+    expect: {target: -2.7552e-3, rtol: 0.005}
+
+  - id: and_carries_nothing_at_all
+    description: >-
+      zero, against a scale of E A eps_sh = 82.7 kN. The absolute tolerance
+      is 1 N, which is 1.2e-5 of that scale.
+    source: monitor
+    name: N_free
+    reduction: peak_abs
+    expect: {target: 0.0, atol: 1.0}
+
+  - id: the_held_bar_carries_e_a_eps_sh
+    description: 3e10 x 0.01 x 275.5e-6 = 82.66 kN of tension at 1000 days
+    source: monitor
+    name: N_held
+    reduction: final
+    expect: {target: 8.2655e+4, rtol: 0.005}
+
+  - id: at_28_days
+    description: >-
+      15.60 kN, from beta_s(21) = sqrt(21/1421) = 0.1216. The step boundary
+      is at 28 days exactly, so this reads a station and not an interpolation.
+    source: monitor
+    name: N_held
+    reduction: at
+    against: age
+    value: 28.0
+    expect: {target: 1.5598e+4, rtol: 0.005}
+
+  - id: at_365_days
+    description: 57.90 kN, from beta_s(358) = sqrt(358/1758) = 0.4513
+    source: monitor
+    name: N_held
+    reduction: at
+    against: age
+    value: 365.0
+    expect: {target: 5.7903e+4, rtol: 0.005}
+
+  - id: the_free_end_at_100_days
+    description: >-
+      -1.068 mm: the same shrinkage function read on the other bar, which is
+      what says the two bars differ only in their restraint.
+    source: monitor
+    name: u_free
+    reduction: at
+    against: age
+    value: 100.0
+    expect: {target: -1.0675e-3, rtol: 0.005}

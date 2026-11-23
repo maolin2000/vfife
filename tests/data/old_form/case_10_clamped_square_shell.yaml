@@ -1,0 +1,35 @@
+# E03 homogeneous Mindlin shell: clamped square plate under uniform pressure.
+# Classical thin-plate reference: w_c = 0.00126 q a^4 / D = 6.8796e-5 m.
+name: case_10_clamped_square_shell
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/clamped_square_shell4_v22.msh}
+element:
+  type: shell4
+  formulation: selective
+  thickness: 0.01
+  shear_correction: 0.8333333333333333
+  drilling_factor: 1.0
+  hourglass_coeff: 0.1
+material: {type: linear_elastic, E: 2.0e11, nu: 0.30, rho: 7850.0}
+regions:
+  centre: {nearest: [0.5, 0.5, 0.0]}
+constraints:
+  - {region: clamped, dofs: [1, 1, 1, 1, 1, 1]}
+loads:
+  - {region: plate, pressure: 1000.0}
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 20000
+  load_steps: 5
+  max_steps_per_load: 3000
+  damping: {type: kinetic}
+  tolerance: 1.0e-6
+output:
+  path: results/case_10_clamped_square_shell.h5
+  every: 1
+  fields: [displacement, rotation, shell_stress_top, shell_stress_bottom,
+           von_mises_top, von_mises_bottom, reaction_force, reaction_moment]
+  monitors:
+    centre_w: {kind: displacement, region: centre, dof: z}
+    support_fz: {kind: reaction, region: clamped, dof: z}

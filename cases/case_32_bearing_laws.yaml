@@ -1,0 +1,91 @@
+# case_32 -- a girder on a fixed and a sliding bearing, warming against an
+# abutment stop: the two bearing laws a bridge needs first.
+#
+# A 30 m concrete girder (E 35 GPa, A 0.5 m^2, 12.26 kN/m) sits on two
+# bearings 1 m below its ends: the left one FIXED (a stiff longitudinal
+# spring), the right one SLIDING -- Coulomb friction, mu = 0.05, pressing on
+# the bearing's own vertical spring. 1 m beyond the right end stands the
+# abutment, with a 6 mm expansion gap: a `gap` law that carries nothing until
+# the gap closes and 2 GN/m after.
+#
+# Step 1, dead load: each bearing takes W/2 = 183.87 kN; nothing slides.
+# Step 2, +30 K uniform: the girder wants to grow alpha dT L = 9.0 mm. The
+# sliding bearing lets it, at the price of mu W/2 = 9.19 kN of friction once
+# the 0.09 mm of stick is used up; at 6 mm the end meets the abutment, and
+# from there the stop and the girder's own EA share what is left:
+#
+#     N = F_stop + F_friction,   F_stop = k_stop (alpha dT L - gap - N L / EA)
+#     N = 1356.9 kN, F_stop = 1347.7 kN, right end at 6.674 mm.
+#
+# Both laws are one line each on the connector section; the girder is an
+# ordinary beam2. Static, so the laws run under the trial discipline: every
+# evaluation of a load level starts from the last equilibrium's slip.
+version: 1
+name: case_32_bearing_laws
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/bearing_girder_6.msh}
+
+materials:
+  concrete: {type: linear_elastic, E: 3.5e+10, nu: 0.2, rho: 2500.0, thermal_expansion: 1.0e-5}
+
+sections:
+  girder: {type: beam, material: concrete, shape: general, area: 0.5, iy: 0.5, iz: 0.5, j: 0.8}
+  # bearings: the chord is vertical, so local ux is the vertical spring and,
+  # with orientation [1, 0, 0], local uy is the longitudinal direction
+  fixed: {type: connector, stiffness: [1.0e+10, 1.0e+11, 0, 0, 0, 0]}
+  sliding:
+    type: connector
+    stiffness: [1.0e+10, 0, 0, 0, 0, 0]
+    laws:
+      uy: {type: friction, mu: 0.05, normal: ux, stiffness: 1.0e+8}
+  # the stop: the chord runs from the abutment to the girder end, so local ux
+  # is the longitudinal direction and the gap closes as ux goes NEGATIVE
+  stop:
+    type: connector
+    laws:
+      ux: {type: gap, lo: -0.006, stiffness: 2.0e+9}
+
+assign:
+  - {region: girder, section: girder, orientation: [0, 0, 1]}
+  - {region: fixed_bearing, section: fixed, orientation: [1, 0, 0]}
+  - {region: sliding_bearing, section: sliding, orientation: [1, 0, 0]}
+  - {region: stop, section: stop, orientation: [0, 0, 1]}
+
+constraints:
+  - {region: anchor_left, dofs: [1, 1, 1, 1, 1, 1]}
+  - {region: anchor_right, dofs: [1, 1, 1, 1, 1, 1]}
+  - {region: abutment, dofs: [1, 1, 1, 1, 1, 1]}
+  # the girder stays in its vertical plane
+  - {region: girder_nodes, dofs: [0, 1, 0, 1, 0, 1]}
+
+loads:
+  - {region: girder_nodes, gravity: [0, 0, -9.80665], amplitude: hold}
+
+steps:
+  - name: dead
+    load_steps: 2
+    max_steps_per_load: 40000
+  - name: heat
+    loads:
+      - {region: girder_nodes, temperature: {uniform: 30.0}}
+    load_steps: 10
+    max_steps_per_load: 40000
+
+solver:
+  # static since 1.5 (98 s of relaxation became 2 s): the laws' history is
+  # committed at every converged level, as relaxation commits it
+  mode: static
+  backend: numpy
+  tolerance: 1.0e-7
+
+output:
+  path: results/case_32_bearing_laws.h5
+  every: 1
+  fields: [displacement, axial_force, connector_force_x, connector_force_y,
+           connector_deformation_uy, connector_slip_uy]
+  monitors:
+    R_left: {kind: reaction, region: anchor_left, dof: z}
+    R_right: {kind: reaction, region: anchor_right, dof: z}
+    H_sliding: {kind: reaction, region: anchor_right, dof: x}
+    H_stop: {kind: reaction, region: abutment, dof: x}
+    u_right: {kind: displacement, region: right_end, dof: x}

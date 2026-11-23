@@ -1,0 +1,116 @@
+version: 1
+case: case_26_moving_load_beam
+classification: analytical
+reference: >-
+  Fryba, "Vibration of Solids and Structures under Moving Loads", section
+  1.2: a constant force P crossing a simply supported Bernoulli-Euler beam
+  at constant speed, from rest. Separating the modes leaves one forced
+  oscillator per mode, q_j'' + omega_j^2 q_j = (2P/mu L) sin(Omega_j t)
+  with omega_j = (j pi/L)^2 sqrt(EI/mu) and Omega_j = j pi c / L, whose
+  solution from rest is
+      q_j = (2P/mu L)/(omega_j^2 - Omega_j^2)
+            [sin(Omega_j t) - (Omega_j/omega_j) sin(omega_j t)].
+  benchmarks/generate_moving_load_beam.fryba evaluates the series; it agrees
+  with an RK4 integration of the same modal equations to 13 digits, so the
+  targets below are the closed form and not a second numerical solution.
+
+# --------------------------------------------------------------------------- #
+#  WHAT A MOVING LOAD IS, AND WHY IT NEEDS ITS OWN CHECK
+# --------------------------------------------------------------------------- #
+#  Every other load in this library has a fixed distribution over the nodes
+#  that an amplitude scales. This one does not move by being scaled: it moves
+#  because its POSITION changes, and between two nodes it acts where the mesh
+#  has no degree of freedom. What is being verified is therefore two things
+#  at once -- that the consistent (Hermite) distribution of a point load onto
+#  a member's ends is right, and that a load re-evaluated every explicit step
+#  drives the dynamics correctly.
+#
+#  THE NUMBERS. 100 kN at 40 m/s over a 20 m beam with f1 = 2.000 Hz, so
+#  alpha = Omega_1/omega_1 = 0.500. The model against Fryba, midspan:
+#        t [s]       0.10    0.20    0.25    0.30   0.333    0.40
+#        Fryba [mm]  10.87   70.74  108.32  134.29  139.53  114.28
+#        vfife [mm]  10.88   70.73  108.28  134.29  139.47  114.40
+#  -- 0.05% at the peak and inside 0.3% everywhere, on 20 elements.
+#
+#  THE PHYSICS WORTH ASSERTING, not just the agreement:
+#   - the peak is 1.70 times the static P L^3 / 48 EI. Speed is not a
+#     correction factor here.
+#   - and it arrives at t = 0.333 s, a third of the crossing AFTER the load
+#     passed midspan at 0.250. The beam is not tracking the load; it is
+#     vibrating, and the peak is where the load's sweep and the beam's own
+#     first mode happen to add.
+#   - at the exit the beam is left vibrating (it has energy the load gave it
+#     and no damping to take it away), so the final midspan deflection is
+#     small and NEGATIVE-going, not the static zero.
+
+metrics:
+  - id: peak_midspan
+    description: >-
+      Peak midspan deflection during the crossing: Fryba 139.53 mm, model
+      139.47 mm. The static deflection is 81.82 mm, so this is the 1.70
+      amplification -- the number the whole benchmark exists for.
+    source: monitor
+    name: w_mid
+    reduction: min
+    expect: {target: -0.13953, rtol: 0.02}
+
+  - id: time_of_peak
+    description: >-
+      When the peak arrives: 0.3332 s, a third of the crossing after the load
+      left midspan at 0.250 s. A model that merely tracked the load would put
+      it at 0.250.
+    source: monitor
+    name: time
+    reduction: at_peak_of
+    against: w_mid
+    expect: {target: 0.3332, rtol: 0.03}
+
+  - id: midspan_at_0p20
+    description: Midspan at t = 0.20 s (load at 8.0 m); Fryba 70.74 mm
+    source: monitor
+    name: w_mid
+    reduction: at
+    against: time
+    value: 0.20
+    expect: {target: -0.07074, rtol: 0.02}
+
+  - id: midspan_at_0p40
+    description: Midspan at t = 0.40 s (load at 16.0 m, past the peak); Fryba 114.28 mm
+    source: monitor
+    name: w_mid
+    reduction: at
+    against: time
+    value: 0.40
+    expect: {target: -0.11428, rtol: 0.02}
+
+  - id: quarter_at_0p30
+    description: >-
+      The quarter point at t = 0.30 s; Fryba 90.04 mm. A second station, so
+      the check is on the deflected SHAPE and not only on one number.
+    source: monitor
+    name: w_quarter
+    reduction: at
+    against: time
+    value: 0.30
+    expect: {target: -0.09004, rtol: 0.03}
+
+  - id: reaction_when_the_load_arrives
+    description: >-
+      The right-hand reaction at the end of the crossing, when the axle is
+      standing on that support: the whole 100 kN, less what the beam's own
+      motion is carrying at that instant.
+    source: monitor
+    name: R_right
+    reduction: final
+    expect: {target: 9.9e+4, rtol: 0.05}
+
+  - id: it_is_still_moving_when_the_load_leaves
+    description: >-
+      Undamped, the beam keeps the energy the crossing gave it, so midspan at
+      the exit is a small value on the way through zero -- not the static
+      zero. Fryba puts it at -0.07 mm; what is held is that it is SMALL, i.e.
+      the load really did leave.
+    source: monitor
+    name: w_mid
+    reduction: final
+    expect: {min: -0.004, max: 0.004}

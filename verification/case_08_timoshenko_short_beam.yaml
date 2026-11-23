@@ -1,0 +1,22 @@
+version: 1
+case: case_08_timoshenko_short_beam
+classification: analytical
+reference: Timoshenko cantilever, u=P[L^3/(3EI)+L/(kappa G Ay)]
+metrics:
+  - id: tip_uz
+    description: Closed-form bending plus transverse-shear tip displacement
+    source: monitor
+    name: tip_uz
+    reduction: final
+    expect: {target: -1.8616666667e-5, rtol: 2.0e-6, atol: 1.0e-12}
+  - id: root_fz
+    description: Vertical equilibrium reaction
+    source: monitor
+    name: root_fz
+    reduction: final
+    expect: {target: 1000.0, rtol: 2.0e-6, atol: 1.0e-6}
+  - id: residual
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-10}

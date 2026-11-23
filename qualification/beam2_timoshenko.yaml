@@ -1,0 +1,13 @@
+version: 1
+kind: element
+name: beam2_timoshenko
+target_level: verified
+evidence:
+  - category: rigid_body
+    reference: tests/test_beam2_timoshenko.py::test_corotational_timoshenko_beam_rejects_rigid_motion
+  - category: fundamental_response
+    reference: tests/test_beam2_timoshenko.py::test_short_cantilever_matches_bending_plus_shear_in_both_planes
+  - category: equilibrium
+    reference: verification/case_08_timoshenko_short_beam.yaml
+  - category: mixed_assembly
+    reference: tests/test_beam2_timoshenko.py::test_timoshenko_member_uses_common_mixed_line_assembly

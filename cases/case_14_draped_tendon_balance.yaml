@@ -1,0 +1,139 @@
+version: 1
+name: case_14_draped_tendon_balance
+
+# LOAD BALANCING: A PARABOLIC TENDON AGAINST A UNIFORM LOAD
+#
+# 8.0 x 0.30 x 0.60 m simply supported, four strands on a parabolic profile
+# that starts and ends AT THE CENTROID and sags 0.20 m to midspan. Because the
+# ends are at the centroid there is no end moment, so the whole effect of the
+# prestress is the transverse force its curvature produces:
+#
+#     w_balance = 8 P a / L^2        (Lin's load balancing, 1963)
+#
+# and a downward uniform load of exactly that magnitude leaves the beam FLAT.
+# That is what this case runs: step 1 is transfer and the beam cambers, step 2
+# applies the balancing load and the camber goes away.
+#
+# WHY IT IS THE RIGHT TEST FOR A CURVED TENDON. A straight tendon can be got
+# right with the force in the wrong place; this one cannot. The uplift comes
+# entirely from the ANGLE CHANGE between consecutive bar segments, so it is a
+# direct measurement of the discretised profile -- the geometry, the arc-length
+# sampling, and the direction each segment's force acts in. Get the profile
+# wrong and the beam does not come flat.
+#
+# AND IT IS A RATIO, which is why a coarse mesh is enough. Camber and the
+# load's deflection are both under-predicted by the same b-bar through-depth
+# stiffness (v0.1 measured -4.4% at six layers), so the DIFFERENCE
+# between them is far less sensitive to the mesh than either one alone.
+#
+#     A = 0.18 m2    I = 5.400e-3 m4    E_c = 34 GPa    EI = 1.836e8 N m2
+#     A_p = 4 x 120 mm2 = 480 mm2       sigma_pe = 1000 MPa   P_jack = 480 kN
+#     a = 0.20 m     w_balance = 0.025 P
+#
+# The applied load is set from the tendon force AFTER elastic shortening, which
+# the solver produces by equilibrating -- balancing the jacked
+# force would leave the loss behind as a visible sag, and the loss is not the
+# thing this case is measuring. Measured at transfer: 973.0 MPa median in the
+# strands, 467.1 kN in total, a 2.7% loss, so w_balance = 11.678 kN/m.
+#
+# WHAT IT GIVES:
+#
+#     midspan at transfer                       +3.1947 mm  (camber)
+#     midspan under the balancing load          +0.0080 mm  = 0.25% of it
+#     5 w L^4 / (384 EI), gross section          3.3918 mm
+#
+# The camber is 5.8% under beam theory -- six b-bar elements through the depth,
+# the same discretisation error v0.1 measured at -4.4% on a constant-moment
+# beam, plus this one's shear. The BALANCE is 0.25%, twenty times better than
+# either deflection, which is the ratio argument above showing up in the
+# numbers: both sides carry the same stiffness error and it cancels.
+#
+# WHAT IS NOT HERE: friction. A curved tendon has a total angular change, and
+# preflight reports it (INFO PRESTRESS_PROFILE) precisely because the solver
+# does not use it -- `prestress` is the effective stress after the losses the
+# analyst computes. Self weight is left out too, so the balance is between two
+# things the case states and not three.
+
+units: {length: m, force: N, stress: Pa}
+
+mesh:
+  dimensions: [8.0, 0.30, 0.60]
+  divisions: [32, 2, 6]
+
+materials:
+  concrete: {type: linear_elastic, E: 34.0e+9, nu: 0.2, rho: 2400.0}
+  strand:
+    type: rebar
+    E: 195.0e+9
+    rho: 7850.0
+    yield_strength: 1580.0e+6
+    hardening: 2.0e+9
+
+sections:
+  body: {type: solid, material: concrete, formulation: b-bar}
+  strand12: {type: bar, material: strand, shape: circle, diameter: 0.0140, area: 120.0e-6}
+
+reinforcement:
+  tendons:
+    path:
+      # anchorages at the centroid, low point 0.20 m below it at midspan
+      points: [[0.0, 0.09, 0.30], [4.0, 0.09, 0.10], [8.0, 0.09, 0.30]]
+      shape: parabola
+      segment_length: 0.25
+      repeat: {count: 4, offset: [0.0, 0.04, 0.0]}
+
+assign:
+  - {section: body, region: all}
+  - {section: strand12, reinforcement: tendons, name: tendons, prestress: 1000.0e+6}
+
+regions:
+  support_left:  {box: [-0.01, 0.01, -0.01, 0.31, -0.01, 0.01]}
+  support_right: {box: [7.99, 8.01, -0.01, 0.31, -0.01, 0.01]}
+  spine: {box: [-0.01, 8.01, -0.01, 0.01, -0.01, 0.01]}
+  midspan_soffit: {box: [3.99, 4.01, -0.01, 0.31, -0.01, 0.01]}
+
+constraints:
+  - {region: support_left,  dofs: [1, 0, 1]}
+  - {region: support_right, dofs: [0, 0, 1]}
+  - {region: spine,         dofs: [0, 1, 0]}
+
+steps:
+  - name: transfer
+    load_steps: 1
+    max_steps_per_load: 150000
+    tolerance: 1.0e-6
+
+  - name: balance
+    # w_balance as a BODY FORCE over the whole volume: 11.678 kN/m over a
+    # 0.18 m2 section is 64878 N/m3. A body force is integrated with the shape
+    # functions, so it is a true uniform load. The same total put on the top
+    # face as `vector` is NOT: that spreads it equally over the face's nodes,
+    # which gives the two end columns a full share where a consistent lumping
+    # gives them half, and takes about 3% of the bending straight into the
+    # supports. Measured, it left 0.124 mm of camber instead of 0.008.
+    loads:
+      - {region: all, body_force: [0.0, 0.0, -64878.0]}
+    load_steps: 2
+    max_steps_per_load: 150000
+    tolerance: 1.0e-6
+
+solver:
+  backend: numba
+  mode: relaxation
+  mass: underwood
+  n_steps: 800000
+  tolerance: 1.0e-6
+  relaxation_safety: 0.3
+  damping: {type: kinetic}
+
+output:
+  path: results/case_14_draped_tendon_balance.h5
+  every: 25000
+  fields: [displacement]
+  monitors:
+    mid: {kind: displacement, region: midspan_soffit, dof: z}
+    R_L: {kind: reaction, region: support_left, dof: z}
+    # THE force this whole case is about: load balancing says a uniform load
+    # of 8 P a / L^2 cancels the camber, and P is the tendon force. It was
+    # only ever checked through the deflection it produces.
+    sigma_p: {kind: bar, of: tendons, field: axial_stress, reduce: mean}

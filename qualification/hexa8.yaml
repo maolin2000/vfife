@@ -1,0 +1,11 @@
+version: 1
+kind: element
+name: hexa8
+target_level: verified
+evidence:
+  - category: rigid_body
+    reference: tests/test_kinematics.py::test_rigid_body_rotation
+  - category: fundamental_response
+    reference: tests/test_kinematics.py::test_patch_test
+  - category: equilibrium
+    reference: tests/test_kinematics.py::test_patch_test_equilibrium

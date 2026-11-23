@@ -1,0 +1,9 @@
+# 仓库内一律存 LF；检出到 Windows 时按平台给 CRLF。
+# 没有这一行时，Windows 工作区的 CRLF 会让 227 个文件永远显示为"已修改"，
+# git status 因此失去意义，每次提交都变成人工从噪音里挑真改动的活。
+* text=auto
+
+# 唯一的二进制文件：Gmsh 4.1 binary 格式。git 的启发式本来就会判为 binary
+# （前 8000 字节里有 NUL），这里写明是因为它内部还有 6 处 CR 属于浮点数据，
+# 一旦被误当文本转换，结果是**损坏网格**，而不只是重排格式。
+tests/data/box_tet4_bin.msh binary

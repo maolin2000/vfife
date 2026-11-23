@@ -1,0 +1,98 @@
+# Kuang, Y. et al. (2023), "Experimental Study on the Flexural Behavior of
+# Corroded Prestressed Concrete Box Girders", Applied Sciences 13, 8396.
+# https://doi.org/10.3390/app13148396   (open access, CC BY)
+#
+# Six 1:15.68 scaled T-beams of a 32.6 m high-speed-railway PC box girder, L1
+# to L6, post-tensioned with ONE 1x7-15.2-1860 strand in a grouted phi 50
+# bellows, the strand corroded by impressed current, then broken in four-point
+# bending. Digitised from Tables 1, 3 and 4 and Figure 2 of the PDF with
+# `pdftotext -layout`; used by cases/case_30_kuang_control_beam.yaml.
+#
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE USING THE ULTIMATE LOADS: THEY ARE NOT USABLE.
+# ---------------------------------------------------------------------------
+# The reported ultimate loads violate section equilibrium. The beam's steel is
+# one strand and two phi 8 bars at the soffit, so
+#
+#     T_max = 140 mm2 x 1872 MPa + 101 mm2 x 430.4 MPa = 305.4 kN
+#
+# and the beam is 250 mm deep, so no internal lever arm can exceed 0.250 m:
+#
+#     M_u <= 305.4 kN x 0.250 m = 76.34 kN m      (an unreachable ceiling --
+#     compression resultant on the top surface, tension resultant on the
+#     soffit, every bar at its ULTIMATE strength simultaneously)
+#
+# Table 4 reports 76.14 kN m for the uncorroded L1: 99.7% of that ceiling, a
+# lever arm of 249.4 mm on a 250 mm beam. Corroborating rather than rescuing:
+#
+#   * the authors' OWN section analysis in the same table gives 49.43 kN m --
+#     35% below their own measurement -- and the paper does not remark on it;
+#   * an independent fibre model (case_30) gives 54.59 kN m;
+#   * L1's reported failure mode is concrete crushing (CC), which means the
+#     strand did NOT reach f_pu, so the true capacity is below the ceiling.
+#
+# The CRACKING loads are consistent and are used: measured M_cr 23.58 kN m
+# against the authors' predicted 23.06 (2.3%), and 23.58 / 72.0 = 0.3275 m
+# recovers the shear span a/2, so the lever arm is confirmed by the same data.
+# The DEFLECTIONS are consistent too. It is the load SCALE alone that does not
+# close, which is why this is read as a measurement problem rather than a
+# geometry one. Li et al. (2024) -- Li2024_corroded_pc_beam.txt -- is the
+# campaign whose capacities do close, and carries that check instead.
+# ---------------------------------------------------------------------------
+#
+# GEOMETRY (Figure 2, mm)
+#   total length            2080        depth                  250
+#   support spacing         1890        flange                 270 x 80
+#   overhang each end         95        web, midspan            90
+#   shear span               655        web, support           160
+#   load-point spacing       580        web taper length       192 (idealised
+#   tendon above soffit   53 (mid)                             as a step at 285
+#                         90 (support)                         from each end)
+#   Table 1 section: midspan 3.69e4 mm2 / 1.88e8 mm4
+#                    support 4.88e4 mm2 / 2.65e8 mm4
+#   (integrating the figure gives 3.690e4 / 1.883e8 and 4.880e4 / 2.651e8)
+#
+# REINFORCEMENT
+#   prestress   1 x 1x7-15.2-1860, A = 140 mm2, phi 50 grouted metal bellows
+#   flange      8 HRB335 phi 8
+#   soffit      2 HRB335 phi 8
+#   stirrups    HPB235 phi 6 @ 100
+#
+# MATERIALS (Table 3, measured; concrete from the text)
+#   concrete    f_cu,28 = 45.24 MPa on cubes (design C50, mix in Table 2)
+#   strand      f_py 1834, f_pu 1872 MPa, E 1.95e5 MPa
+#   HRB335 phi8 f_y 322.4, f_u 430.4 MPa, E 2.00e5 MPa
+#   HPB235 phi6 f_y 330.0, f_u 480.0 MPa, E 2.10e5 MPa
+#
+# PRESTRESS
+#   Final tensioning control 157 kN, elongation 12 mm. The text ALSO says the
+#   initial prestress was 0.72 f_py, which would be 185 kN; the elongation
+#   settles it -- P L / (E A) = 11.96 mm over 2.08 m at 157 kN. The EFFECTIVE
+#   prestress at test time is NOT published, and there is no loss breakdown.
+#
+# COLUMNS
+#   mass_loss[%]  cracking_load[kN]  ultimate_load[kN]  ultimate_deflection[mm]
+#   (ultimate_load retained only so that the inconsistency above stays
+#    inspectable; do not use it as a target)
+0.00    72.0    232.5   36.500
+2.12    68.0    230.7   34.900
+4.06    62.2    222.0   38.140
+6.28    65.8    218.6   35.800
+7.84    58.0    196.7   35.280
+12.30   52.0    163.0   31.356
+#
+# ALSO IN TABLE 4, per specimen in the same order
+#   cracking moment    23.58  22.20  20.35  21.56  18.88  17.03   kN m
+#   predicted M_cr     23.06  21.50  20.27  19.32  18.62  17.41   kN m
+#   reported M_u       76.14  75.55  72.71  71.59  64.43  53.38   kN m  (see above)
+#   predicted M_u      49.43  48.48  48.11  47.18  42.90  35.32   kN m
+#   yield deflection   11.357 11.035 12.316 11.903 12.100 11.024  mm
+#   ductility           3.21   3.16   3.10   3.01   2.92   2.84
+#   failure mode         CC     CC     CC     CC     SR     SR
+#     CC = concrete crushing, SR = strand rupture
+#
+# TWO NON-MONOTONICITIES TO RESPECT rather than smooth over:
+#   * L4 (6.28%) cracks HIGHER than L3 (4.06%), 65.8 against 62.2 kN. The
+#     authors attribute it to scatter between specimens.
+#   * the ultimate-load reduction has a clear knee at about 7% mass loss,
+#     which is also where the failure mode changes from CC to SR.

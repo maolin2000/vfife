@@ -1,0 +1,183 @@
+version: 1
+case: case_24d_hzb_girder_piers
+classification: regression
+reference: >-
+  The Hangzhou Bay Bridge approach unit of case_24c, with its piers.
+  Pier geometry from 章汉斌, "70 m 跨连续梁的设计与施工" (474 precast shafts,
+  7.372-17.383 m tall, 240-440 t, rectangular with rounded corners, 6.25 m
+  wide) and 王仁贵, "总体设计". There is no measurement of this frame: the
+  girder checks live in verification/case_24_hzb_girder.yaml and
+  case_24c_hzb_girder_collapse.yaml, and what this contract holds is
+  EQUILIBRIUM, the substructure's own quantities, and the size of the one
+  idealisation the model had to make.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THE PIERS COST, MEASURED (re-cut in v0.4)
+# --------------------------------------------------------------------------- #
+#  Against case_24c -- same girder mesh node for node, same section, same
+#  tendons, same loads, same solver, ideal rollers replaced by 12 m shafts:
+#
+#     dead state            case_24c      case_24d
+#       midspan, middle       -9.11 mm     -27.77 mm
+#       midspan, side        -23.22       -12.89
+#       pier reaction (both)   51.70 MN     52.32 MN
+#
+#  VERTICALLY THE PIERS ARE AS GOOD AS RIGID: the reactions move 1.2%, and
+#  nothing about the girder's vertical load path changes. That is the
+#  expected half.
+#
+#  THE OTHER HALF IS NOT EXPECTED AND IS THE POINT OF THE CASE. The middle
+#  span's dead deflection TRIPLES. It is not the piers' vertical flexibility:
+#  it is that the girder shortens under its prestress and, with the shafts
+#  monolithic with it and both abutments now rollers, the shafts have to
+#  follow. Their tops sway 10.9 mm and lean TOWARDS each other, and a leaning
+#  fixed-base column delivers a moment to whatever holds its top. That moment
+#  pair pushes the middle span down and lifts the side spans -- which is
+#  exactly the antisymmetric signature in the table above.
+#
+#  A REAL 70 m UNIT DOES NOT DO THIS, because it sits on POT BEARINGS: fixed
+#  at one pier, sliding at the others and at the joints, so the shortening
+#  goes into the bearings and not into the shafts. Version 0.4 built that:
+#  `beam2_fiber` hosts a `connector2`, and case_24f is this model on pot
+#  bearings, -7.98 mm of middle span against the -27.77 here. case_24d stays
+#  as the MONOLITHIC member of the pair, because the comparison is what
+#  measures the joint: 20 mm of dead deflection, 2.5x the bearing model's
+#  whole value.
+#
+#  THE PIER IS NO LONGER ASSUMED, AND THAT IS WHY THIS CONTRACT WAS RE-CUT.
+#  v0.4 back-calculated a solid 6.25 x 1.80 m shaft from the shafts'
+#  weights and bracketed its thickness at 1.62-2.08 m, worth -17.4 to -21.4 mm
+#  here. Three papers then gave the real section:
+#  HOLLOW, 6.25 m across, 2.60 m along the bridge at the base growing to
+#  4.00 m at the top, 0.50 m walls. Its longitudinal I is 8.2-20.0 m4 against
+#  the solid shaft's 3.04 -- 4.4x stiffer where it bends, and OUTSIDE the old
+#  bracket, which bracketed the wrong shape. So the bracket's +-10% did not
+#  contain the answer:
+#
+#                            solid 1.80 m    literature pier    change
+#     midspan dead, middle     -18.99 mm       -27.77 mm         +46%
+#     midspan dead, side       -17.18          -12.89
+#     pier-top sway             11.39           10.89             -4%
+#
+#  The elastic twin in the pier research predicted +49% on the middle span
+#  before this run existed; the fibre model gives +46%. And the sway moved
+#  4% for a 4.4x stiffer shaft, which is the check the old header could only
+#  make over a 1.3x bracket: the sway is a DISPLACEMENT the girder imposes,
+#  set by the girder's shortening; the shaft's stiffness sets the FORCE, and
+#  through it the moment that reaches the girder. The bearing model is 4%
+#  sensitive to the same change, which is the other half of why case_24f is
+#  the one to believe.
+#
+#  THE PUSH. -59 mm at k = 5 (case_24c -60); the piered model is STIFFER
+#  from k = 10 to 14 (-158 at k = 14 against case_24c's -251) because the
+#  same moment restraint now helps; the limit point falls between k = 15.2
+#  and 15.4, where it did before the pier was corrected. Past it the paths
+#  diverge and NOTHING here holds them -- case_24c's own header says why its
+#  descending branch is not a comparison either.
+
+metrics:
+  - id: vertical_equilibrium_at_the_pier_bases
+    description: >-
+      Both shafts carry 52.32 MN at the end of the dead-load stage, against
+      case_24c's 51.70 MN through ideal rollers. With 2 x 11.43 MN at the
+      abutments that is 75.18 MN against the 3.58e5 N/m x 210 m = 75.18 MN
+      applied: the model closes vertically to 2e-6. The 1.2% more the piers
+      take than case_24c's rollers is continuity, moved by the moment pair
+      the header describes.
+    source: monitor
+    name: N_pier_base
+    reduction: at
+    against: time
+    value: 10.0
+    expect: {target: 5.2317e+07, rtol: 0.03}
+
+  - id: the_abutments_carry_what_is_left
+    description: >-
+      11.43 MN at one abutment. The other half of the same statics, held
+      separately so that a redistribution between piers and abutments is
+      caught rather than absorbed into the total.
+    source: monitor
+    name: R_left
+    reduction: at
+    against: time
+    value: 10.0
+    expect: {target: 1.1432e+07, rtol: 0.03}
+
+  - id: no_horizontal_reaction_without_a_horizontal_load
+    description: >-
+      THE INVARIANT THIS CASE EXISTS TO SATISFY. Nothing horizontal is
+      applied and both abutments are longitudinal rollers, so the sum of the
+      two shaft bases' longitudinal reactions must be zero. It is -8.7e-3 N at
+      the dead state and never exceeds 0.15 N anywhere up to k = 14 -- nine
+      orders below the 52 MN of axial force. A frame whose
+      pier-to-girder connection were mis-assembled would not do that, and it
+      is the first thing a seismic or wave case will lean on, because those
+      loads are exactly what this reaction is for.
+    source: monitor
+    name: H_pier_base
+    reduction: at
+    against: time
+    value: 10.0
+    expect: {min: -1.0, max: 1.0}
+
+  - id: pier_top_sway_under_the_prestress
+    description: >-
+      10.89 mm, and it is the GIRDER that sets it: the unit shortens under its
+      prestress and the monolithic shafts must follow. Replacing the solid
+      1.80 m shaft by the 4.4x stiffer literature pier moved it 4% (11.39 to
+      10.89), because a prescribed displacement does not care how stiff the
+      thing following it is. The shaft's stiffness sets the FORCE instead,
+      and that is what moved the girder's dead deflection by 46%.
+    source: monitor
+    name: u_pier_top
+    reduction: at
+    against: time
+    value: 10.0
+    expect: {target: 1.0891e-02, rtol: 0.10}
+
+  - id: dead_state_midspan
+    description: >-
+      -27.77 mm at the middle span against case_24c's -9.11 through ideal
+      rollers and case_24f's -7.98 on pot bearings. NOT a check on the bridge
+      -- a real unit is on sliding bearings and would not carry this moment
+      pair at all (see the header). It is the price of the monolithic
+      idealisation, pinned so that a change to it is deliberate. The band was
+      15% while it had to cover an assumed thickness; the pier is read from
+      the literature now, and 3% is a regression band.
+    source: monitor
+    name: w_mid_middle
+    reduction: at
+    against: time
+    value: 10.0
+    expect: {target: -2.7770e-02, rtol: 0.03}
+
+  - id: the_side_span_lifts_as_the_middle_drops
+    description: >-
+      -12.89 mm against case_24c's -23.22: the side spans come UP by the same
+      mechanism that pushes the middle down, which is what makes the moment
+      pair the explanation rather than a guess. The stiffer pier pushed both
+      further: middle -18.99 to -27.77, side -17.18 to -12.89. Held with the
+      same band.
+    source: monitor
+    name: w_mid_side
+    reduction: at
+    against: time
+    value: 10.0
+    expect: {target: -1.2888e-02, rtol: 0.03}
+
+  - id: the_snap_is_where_case_24c_puts_it
+    description: >-
+      -599 mm at k = 16, against case_24c's -660. The limit point itself is
+      between k = 15.2 and 15.4 (-224 mm to -614 mm across that interval),
+      the same interval as with the solid shaft; k = 16 is just past it, on
+      the dynamic jump, so the value there carries the overshoot and gets the
+      wide band. The substructure changes the road to the limit point
+      (stiffer from k = 10 to 14) but not where it is, which is the one thing
+      about the collapse that IS comparable. Past it the paths diverge and
+      nothing here holds them.
+    source: monitor
+    name: w_mid_middle
+    reduction: at
+    against: time
+    value: 50.0
+    expect: {target: -0.5988, rtol: 0.12}

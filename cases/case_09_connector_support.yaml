@@ -1,0 +1,43 @@
+# Reversible bilinear axial support connector. The fixed i-node is the ground
+# anchor; at F=1500 N the inverse skeleton gives ux=2.0e-5 m.
+
+version: 1
+name: case_09_connector_support
+units: {length: m, force: N, moment: N*m}
+mesh: {type: gmsh, path: ../benchmarks/assets/beam_cantilever_v22.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+sections:
+  connector:
+    type: connector
+    material: steel
+    stiffness: [0, 0, 0, 0, 0, 0]
+    curves:
+      ux:
+      - [-3.0e-5, -2000]
+      - [-1.0e-5, -1000]
+      - [0, 0]
+      - [1.0e-5, 1000]
+      - [3.0e-5, 2000]
+assign:
+- {region: all, section: connector, orientation: [0, 0, 1], coordinate_system: local}
+constraints:
+- {region: fixed, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: loaded, dofs: [0, 1, 1, 1, 1, 1]}
+loads:
+- {region: loaded, vector: [1500, 0, 0]}
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 6000
+  load_steps: 20
+  max_steps_per_load: 5000
+  damping: {type: kinetic}
+  tolerance: 1.0e-9
+output:
+  path: results/case_09_connector_support.h5
+  every: 1
+  fields: [displacement, connector_force_x, connector_deformation_ux, reaction_force]
+  monitors:
+    support_ux: {kind: displacement, region: loaded, dof: x}
+    ground_fx: {kind: reaction, region: fixed, dof: x}

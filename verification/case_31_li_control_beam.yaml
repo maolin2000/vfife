@@ -1,0 +1,184 @@
+version: 1
+case: case_31_li_control_beam
+classification: public_benchmark
+reference: >-
+  Li, S. et al., "Experimental Study on Flexural Performance of
+  Corrosion-Affected Simply Supported Prestressed Concrete T-Beams",
+  Buildings 14 (2024) 3322, beam A0 -- the uncorroded control of eight
+  1:16.155 scaled post-tensioned T-beams, four-point bending over a
+  1952 mm clear span with an 850 mm shear span. Table 2 gives 145.0 kN
+  of ultimate load, 72.5 kN of measured support reaction and 61.63 kN m
+  of flexural capacity; section 3.2 gives the cracking moment as
+  "approximately 22 kN m" for A0-A3 and describes A0's curve as an
+  ascending branch followed by a horizontal one. The extract is
+  verification/Li2024_corroded_pc_beam.txt.
+
+# --------------------------------------------------------------------------- #
+#  WHY THIS CAMPAIGN AND NOT KUANG'S CARRIES THE CAPACITY CHECK
+# --------------------------------------------------------------------------- #
+#  Two campaigns of corroded scaled beams were digitised for this line of
+#  work. Kuang et al. (2023) report 76.14 kN m for their uncorroded L1, on a
+#  250 mm deep beam whose steel can develop at most 305.4 kN -- an internal
+#  lever arm of 249.4 mm, which is not attainable. Their own section analysis
+#  in the same table says 49.43. This campaign's table closes instead:
+#  145.0 kN is exactly twice the 72.5 kN of measured reaction, and
+#  72.5 x 0.850 = 61.63 kN m needs 0.200 m of lever arm on a 240 mm beam.
+#  case_30 is what is left of Kuang's beam -- a cracking check.
+#
+#  WHAT THE MODEL DOES
+#        ultimate load      measured 145.0 kN     model 137.7 kN   -5.0%
+#        support reaction   measured  72.5 kN     model  69.8 kN   -3.7%
+#        cracking moment    paper  approx 22      model  21.8      -1%
+#        curve shape        "ascending then horizontal"  -- the model rises to
+#                           137.7 kN at 13.2 mm and runs flat to 42 mm
+#
+#  THE ONE CALIBRATED NUMBER is the effective prestress (109.0 kN against a
+#  162 kN jacking force), back-calculated from the paper's own cracking
+#  moment. It does not buy the capacity: over 105 -> 140 kN of effective
+#  prestress the ultimate load moves 0.12% while the cracking moment moves
+#  28%. The case header prints that table. So `ultimate_load` and
+#  `support_reaction` below are FREE predictions and `cracking_moment` is not.
+#
+#  WHAT THIS CONTRACT DOES NOT HOLD, and why:
+#    - the DESCENDING branch. The test used one jack on a distribution steel
+#      beam, so the two point loads are equal by construction; the model
+#      prescribes two DISPLACEMENTS instead. Up to the peak the response is
+#      symmetric (68.6 / 69.1 kN) and it does not matter; past the peak the
+#      softening localises to one side and the two diverge.
+#    - the deflection at the peak against a measurement. Figure 9 IS digitised
+#      now (verification/Li2024_fig9_moment_deflection.txt) but its deflection
+#      axis carries about 1.4 mm that is not the beam: at the paper's own
+#      cracking moment, where the section is still uncracked and its stiffness
+#      is pure geometry, the figure reads 2.44 mm against the 1.14 mm the
+#      transformed section gives (the model gives 1.06). All eight curves show
+#      it. Remove it as a series compliance -- calibrated on that one point and
+#      on nothing from any model -- and the measured ascending branch sits
+#      within 1.2 mm of this case up to 95% of capacity. So `deflection_at_peak`
+#      stays a REGRESSION lock; the comparison it would make is to a corrected
+#      curve, and a contract should not hold a correction.
+#    - the LENGTH of the plateau. Corrected as above, A0 runs from 14.1 mm at
+#      58.5 kN m to 30.4 mm before its wires rupture; this model turns over at
+#      12.9. Strength and stiffness agree, ductility does not, and that is one
+#      question about the compression zone's descending branch rather than a
+#      disagreement about the whole curve. Kuang's campaign, on the same
+#      1:16 scale and the same strand, reports 11.36 mm of yield deflection
+#      (L/166) where this one ruptures at L/57 -- the two campaigns do not
+#      agree with each other about ductility either.
+#    - anything about shear. There is no shear-failure criterion in the model
+#      and the paper reports "almost no oblique cracks".
+#
+#  v1.0: each fibre now weighs at its own material's density (the bars
+#  and strands weighed as concrete). Every value moved by 0.1% or less:
+#  camber 0.9711 -> 0.9701 mm, decompression 42.36 -> 42.32 kN, cracking
+#  moment 51.23 -> 51.19 kN m, ultimate 133.73 -> 133.70 kN, support reaction
+#  67.78 -> 67.80 kN, deflection at peak unchanged (12.24 mm).
+
+metrics:
+  - id: camber_at_transfer
+    description: >-
+      The beam rises 0.98 mm under the effective prestress and its own weight
+      before loading. This is a check on the CALIBRATED prestress, not an
+      independent one -- over the calibration range the camber moves 40%.
+    source: monitor
+    name: w_mid
+    reduction: at
+    against: time
+    value: 1.0
+    expect: {target: 9.75e-4, rtol: 0.15}
+
+  - id: decompression_load
+    description: >-
+      Total load that brings the soffit strain back to zero: 42.5 kN, i.e.
+      18.07 kN m. This is the ELASTIC half of the cracking check, separated
+      out -- it depends on the section properties and the effective prestress
+      and not at all on f_t, and unlike the cracking point it sits entirely on
+      the uncracked branch, so `at` interpolates it exactly rather than across
+      two different branches. A regression lock on the pair (section,
+      calibrated prestress).
+    source: monitor
+    name: P_tot
+    reduction: at
+    against: eps_bot
+    value: 0.0
+    expect: {target: -4.253e+4, rtol: 0.05}
+
+  - id: cracking_moment
+    description: >-
+      Total load where the soffit strain reaches f_t / E0 = 9.02e-5; the paper
+      gives M_cr approximately 22 kN m, i.e. 51.8 kN over the 0.425 m lever.
+      CALIBRATED -- the effective prestress was chosen to land here. Note the
+      reduction itself leans LOW: `at` interpolates between the last uncracked
+      frame and the first softened one, so it reads under the uncracked
+      branch's own extrapolation (51.4 against 52.8 kN at this step size).
+    source: monitor
+    name: P_tot
+    reduction: at
+    against: eps_bot
+    value: 9.02e-5
+    expect: {target: -5.18e+4, rtol: 0.10}
+
+  - id: ultimate_load
+    description: >-
+      The peak total load; measured 145.0 kN (model 133.7, 7.8% low; 137.7 and 5.0% until v1.0, when steel02 became OpenSees' Steel02 and lost the 3.45% its envelope ran over its asymptote). A FREE
+      prediction -- the capacity of a bonded tendon does not depend on the
+      calibrated prestress.
+    source: monitor
+    name: P_tot
+    reduction: min
+    expect: {target: -1.450e+5, rtol: 0.08}
+
+  - id: support_reaction
+    description: >-
+      The support reaction at the peak, against the 72.5 kN the paper reports
+      as MEASURED (model 67.8; 69.8 before v1.0). An independent reading of the same failure --
+      it differs from half the applied load by the beam's own weight.
+    source: monitor
+    name: R_left
+    reduction: at_peak_of
+    against: P_tot
+    expect: {target: 7.25e+4, rtol: 0.08}
+
+  - id: load_stays_flat_after_the_peak
+    description: >-
+      The paper describes A0's curve as an ascending branch followed by a
+      HORIZONTAL one, and the model does that: 133.7 kN at the peak and still
+      123 kN at 42 mm. Held loosely because the descending branch is not a
+      faithful idealisation (see above) -- what is held is that it neither
+      keeps climbing nor collapses.
+    source: monitor
+    name: P_tot
+    reduction: final
+    expect: {min: -1.38e+5, max: -0.95e+5}
+
+  - id: compression_zone_passes_its_peak_strain
+    description: >-
+      The top fibre goes past concrete02's epsc0 = 0.002 onto the descending
+      branch, so the plateau is a compression-side failure.
+
+      A NOTE ON THE `eps_p` MONITOR, because it has already misled once: it
+      reads the SECTION's strain at the tendon's position and does NOT include
+      the tendon's own prestrain (779 MPa / 195 GPa = 4.0e-3). At the peak it
+      reads 8.98e-3, which is below the 9.41e-3 yield strain and was once
+      taken to mean the strand had not yielded. It had: the strand's own
+      strain there is 1.39e-2, on the hardening asymptote at about 1840 MPa
+      (1905, past f_pu = 1872, with the steel02 before v1.0, whose envelope
+      ran 3.45% over that asymptote). A
+      section analysis of this midspan section (moment-curvature at N = 0,
+      the same fibres and the same laws) confirms it independently -- the
+      strand passes f_pu at a curvature of 0.040, well before the peak
+      moment at 0.061.
+    source: monitor
+    name: eps_top
+    reduction: min
+    expect: {min: -0.0045, max: -0.0020}
+
+  - id: deflection_at_peak
+    description: >-
+      Midspan deflection at the peak. A REGRESSION lock, not a measurement --
+      see the header: Figure 9's deflection axis carries about 1.4 mm of rig
+      compliance, and a contract should not hold a corrected curve.
+    source: monitor
+    name: w_mid
+    reduction: at_peak_of
+    against: P_tot
+    expect: {target: -0.01222, rtol: 0.15}

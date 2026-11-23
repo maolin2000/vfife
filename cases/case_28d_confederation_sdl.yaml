@@ -1,0 +1,184 @@
+# Confederation Bridge, the superimposed dead load and 630 days of its creep:
+# the one piece of Ghali's long-term record that can be built without the
+# erection history.
+#
+# Ghali, Elbadry & Megally (2000) report 669 days of measured deflection on
+# the 250 m portal frame case_28 already models, against three analyses --
+# CEB-FIP MC90, ACI 209, and their own recorded concrete properties. NONE of
+# those three curves is reproducible here, and the reason is worth stating
+# before the case is read: they carry segment-by-segment erection, external
+# prestressing with friction losses, steel relaxation and shrinkage, each
+# increment creeping from its own loading age, and this paper gives neither
+# the erection dates nor the tendon forces. Building a case against those
+# curves would be fitting unknowns.
+#
+# ONE INCREMENT OF THAT HISTORY IS FULLY SPECIFIED, and it is the largest
+# single jump in the record: the superimposed dead load of 54 kN/m placed in
+# April 1997, about 40 days after the reference reading. The paper states the
+# load, and states what its own analysis makes of it (p. 1147):
+#
+#     "about 70 mm instantaneous deflection occurs at mid span and 80 mm
+#      deflection occurs at cantilever tips"
+#
+# So this case applies that load to the existing model, reads those two
+# numbers, and then holds it for 630 days of MC90 creep. Everything is in
+# verification/Ghali2000_confederation_longterm.txt, including the digitised
+# figures the case deliberately does NOT try to hit.
+#
+# THE DROP-IN BEAM REACTION IS PART OF THE LOAD. Each 60 m drop-in beam is
+# simply supported between the tips of two adjacent overhangs (250 m pier
+# spacing = 95 + 60 + 95), so each tip takes V = 54 x 60 / 2 = 1620 kN on top
+# of the line load. That is the V drawn in Ghali's own Fig. 9, and it is not a
+# detail: without it the tips deflect 28 mm instead of 89 and midspan 104
+# instead of 66. `generate_confederation.py --check` prints both.
+#
+# WHY E IS 46.5 GPa HERE AND 38.7 IN case_28. Both are the same measured
+# Ec(28) = 38.7 GPa; this one is aged. Ghali fitted s = 0.25 to his own
+# measured moduli, so MC90's exp[s (1 - sqrt(28/t))] applies to E directly,
+# and at 400 days it gives 46.5. That choice is FORCED by what this case
+# checks: 70 and 80 mm are outputs of Ghali's analysis, and to reproduce
+# another analysis one has to meet it on its own modulus. case_28 checks a
+# MEASUREMENT instead, and there the unaged 38.7 is what matches (17.0 mm
+# against 17.1 measured) while 46.4 gives 14.1 -- which is almost exactly
+# Ghali's own 13.7. The two cases together say something neither says alone:
+# this model reproduces Ghali's ANALYSIS when given Ghali's modulus and the
+# MEASUREMENT when given the unaged one, and the gap between those two is his,
+# not ours. 400 days is the one assumed number and it is a weak one: 200 days
+# gives 45.2 GPa and 800 gives 47.4.
+#
+# AND THE PIER ASSUMPTION BARELY MATTERS HERE. case_28's truck deflection
+# moves 25% over a fourfold change in the unpublished pier wall thickness.
+# This load moves 3% (64.4 / 65.8 / 66.3 mm): it is nearly uniform and nearly
+# symmetric, so the piers mostly carry axial force. This is therefore a check
+# on the GIRDER, which is the part that was reconstructed.
+#
+# WHAT IS NOT IN THE CASE, and why:
+#   * SHRINKAGE. It is not a property of this load increment -- it belongs to
+#     the bridge's own clock, which started at casting dates this paper does
+#     not give. Leaving it out also keeps the creep answer exact: with one
+#     load, one material and time-invariant supports, every displacement grows
+#     by exactly (1 + phi) and no internal force moves at all. Shrinkage on a
+#     redundant frame does neither, and case_29c is where it is checked.
+#   * AGEING during the 630 days. E is declared at its aged value and held,
+#     so every displacement still grows by ONE factor, exactly. That factor is
+#     1 + phi Ec(400)/Ec28, not 1 + phi: MC90's phi is referenced to the
+#     28-day modulus, J = 1/Ec(t0) + phi/Ec28, and `E28: 38.7 GPa` in the
+#     creep spec says what that is (it was 1 + phi = 1.533,
+#     the creep part 17% low).
+#   * PRESTRESSING STEEL RELAXATION. Ghali used MC90's low-relaxation law
+#     after testing this bridge's own strand; the library has no steel
+#     relaxation at all (docs/creep.md).
+#
+#   python benchmarks/generate_confederation.py --check
+
+version: 1
+name: case_28d_confederation_sdl
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/confederation_frame.msh}
+
+materials:
+  # The same concrete as case_28, at the aged modulus, plus a creep law.
+  # rho 2879 = 2450 x 1.175 carries the 15% of the erection weight that has
+  # nowhere to go in a beam model; it plays no part here, since this case
+  # applies no gravity.
+  concrete:
+    type: linear_elastic
+    E: 4.651e+10
+    nu: 0.2
+    rho: 2879.0
+    # notional_size h0 = 2 Ac / u. The box is 378 mm counting the inside of
+    # the cell as a drying surface and 610 at midspan counting only the
+    # outside, rising to 896 over the pier: ONE number has to stand for a
+    # section that changes fivefold in area along the girder, and 600 mm is
+    # the middle of that range. It is worth little -- 380 and 900 move
+    # phi(630 d) from 0.586 to 0.520 against 0.533 here.
+    # rh 80% is the Northumberland Strait, not measured in this paper; 70%
+    # gives 0.613 and 90% gives 0.481.
+    # fcm 63 MPa IS stated: the 28-day strength achieved against 55 design.
+    # E28 is the measured Ec(28) the aged E above was derived from: MC90's
+    # phi is a multiple of the strain at Ec28, not at E.
+    creep: {model: mc90, notional_size: 600.0, rh: 80.0, fcm: 63.0e+6, E28: 3.87e+10}
+
+sections:
+  # Identical to case_28, band for band. Written by
+  # `python benchmarks/generate_confederation.py`.
+  b00: {type: beam, material: concrete, shape: general, area: 21.8219, iz: 601.4, iy: 155.9, j: 281.3}
+  b01: {type: beam, material: concrete, shape: general, area: 20.7004, iz: 549.7, iy: 150.3, j: 265.9}
+  b02: {type: beam, material: concrete, shape: general, area: 18.8354, iz: 461.2, iy: 141.0, j: 239.2}
+  b03: {type: beam, material: concrete, shape: general, area: 18.0227, iz: 398.9, iy: 137.3, j: 224.6}
+  b04: {type: beam, material: concrete, shape: general, area: 16.9962, iz: 321.0, iy: 132.4, j: 204.4}
+  b05: {type: beam, material: concrete, shape: general, area: 15.6566, iz: 235.0, iy: 125.8, j: 177.0}
+  b06: {type: beam, material: concrete, shape: general, area: 14.0536, iz: 155.0, iy: 117.2, j: 143.0}
+  b07: {type: beam, material: concrete, shape: general, area: 12.2723, iz: 89.32, iy: 107.0, j: 104.5}
+  b08: {type: beam, material: concrete, shape: general, area: 10.7346, iz: 49.77, iy: 97.54, j: 71.69}
+  b09: {type: beam, material: concrete, shape: general, area: 9.7490, iz: 31.38, iy: 91.18, j: 51.69}
+  bmid: {type: beam, material: concrete, shape: general, area: 9.4534, iz: 26.85, iy: 89.22, j: 45.94}
+  pshaft: {type: beam, material: concrete, shape: general, area: 13.9487, iz: 96.11, iy: 96.11, j: 192.2}
+  pbase1: {type: beam, material: concrete, shape: general, area: 20.5460, iz: 306.1, iy: 306.1, j: 612.1}
+  pbase0: {type: beam, material: concrete, shape: general, area: 33.7407, iz: 1353.0, iy: 1353.0, j: 2706.0}
+
+assign:
+- {region: b00, section: b00, orientation: [0, 0, 1]}
+- {region: b01, section: b01, orientation: [0, 0, 1]}
+- {region: b02, section: b02, orientation: [0, 0, 1]}
+- {region: b03, section: b03, orientation: [0, 0, 1]}
+- {region: b04, section: b04, orientation: [0, 0, 1]}
+- {region: b05, section: b05, orientation: [0, 0, 1]}
+- {region: b06, section: b06, orientation: [0, 0, 1]}
+- {region: b07, section: b07, orientation: [0, 0, 1]}
+- {region: b08, section: b08, orientation: [0, 0, 1]}
+- {region: b09, section: b09, orientation: [0, 0, 1]}
+- {region: bmid, section: bmid, orientation: [0, 0, 1]}
+- {region: pshaft, section: pshaft, orientation: [1, 0, 0]}
+- {region: pbase1, section: pbase1, orientation: [1, 0, 0]}
+- {region: pbase0, section: pbase0, orientation: [1, 0, 0]}
+
+regions:
+  girder: {union: [b00, b01, b02, b03, b04, b05, b06, b07, b08, b09, bmid]}
+
+constraints:
+# A plane frame in x-z, as Ghali's is.
+- {region: all, dofs: [0, 1, 0, 1, 0, 1]}
+- {region: base32, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: base31, dofs: [1, 1, 1, 1, 1, 1]}
+
+loads:
+- {region: girder, line_load: [0.0, 0.0, -5.4e+4]}      # the 54 kN/m itself
+- {region: tip_west, vector: [0.0, 0.0, -1.62e+6]}      # half a drop-in beam
+- {region: tip_east, vector: [0.0, 0.0, -1.62e+6]}      # ... and the other
+
+steps:
+# Step 1 is the instant the load arrives, at a concrete age of 400 days: no
+# `to_age`, so no time passes, and this is the frame the contract reads
+# Ghali's 70 and 80 mm from.
+- {name: sdl, age: 400.0, load_steps: 1, max_steps_per_load: 30000}
+# Step 2 holds it for 630 days -- to January 1999, the last reading in the
+# paper's Fig. 20. Twelve stations, log-spaced, which is the axis creep
+# happens on. The load is inherited with the `hold` amplitude.
+- {name: creep, to_age: 1030.0, load_steps: 12, max_steps_per_load: 30000}
+
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 500000
+  age: 400.0
+  damping: {type: kinetic}
+  # 0.9 as in case_28, and for the same reason: a linear elastic frame in
+  # small displacements resets too rarely at the default 0.6.
+  relaxation_safety: 0.9
+  tolerance: 1.0e-4
+
+output:
+  path: results/case_28d_confederation_sdl.h5
+  every: 1
+  fields: [displacement, bending_z, bending_z_i, bending_z_j, axial_force, shear_y]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    w_q_west: {kind: displacement, region: q_west, dof: z}
+    w_o_west: {kind: displacement, region: o_west, dof: z}
+    w_tip_west: {kind: displacement, region: tip_west, dof: z}
+    w_tip_east: {kind: displacement, region: tip_east, dof: z}
+    R_base32: {kind: reaction, region: base32, dof: z}
+    R_base31: {kind: reaction, region: base31, dof: z}
+    R_total: {kind: reaction, regions: [base31, base32], dof: z}
+    ux_p31: {kind: displacement, region: p31, dof: x}

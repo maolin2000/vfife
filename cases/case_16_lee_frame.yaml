@@ -1,0 +1,130 @@
+version: 1
+name: case_16_lee_frame
+
+# LEE'S FRAME: A LIMIT POINT, A SNAP-BACK, AND A LOAD THAT CHANGES SIGN
+#
+# Lee, Manuel & Rossow (1968); NAFEMS Non-Linear Benchmarks NL7 (1989), in
+# the NAFEMS form: two members of L = 1.2 m at a right angle, pinned at both
+# far ends, a rectangular 30 x 20 mm section bending about its weak axis
+# (I = 2.0e-8 m^4), E = 71.74 GPa, nu = 0, and a vertical load at point A,
+# 0.2 L along the beam from the corner. Every version of the benchmark shares
+# one dimensionless path, P L^2 / EI against v_A / L.
+#
+# WHAT THE PATH DOES. The load rises to a limit point at PL^2/EI = 18.55 with
+# v/L about 0.41, falls, goes NEGATIVE (the frame has to be held back), turns
+# at about -9, and climbs again -- steeply, because by then the two pinned
+# members are being stretched like a cable. Along the way the vertical
+# displacement itself folds back (snap-back), which is why the benchmark is
+# the standard test of an arc-length solver.
+#
+# WHAT A RELAXATION SOLVER CAN AND CANNOT DO WITH IT
+#   Under DISPLACEMENT control at A the path is traced through the limit
+#   point and down the descending branch with nothing special: the limit
+#   point is a maximum of the reaction, not a loss of stability of the
+#   controlled system. At the snap-back the controlled displacement cannot
+#   follow the fold, and the kinetic-damped relaxation does what the real
+#   structure would: it jumps, dynamically, to the branch on the other side
+#   and settles there. Between v/L = 0.50 and 0.53 the horizontal
+#   displacement of A goes from 0.43 L to 0.78 L in one load level. Both
+#   NAFEMS targets lie OFF the fold -- one before it, one after -- so both
+#   are reached; the fold itself is the piece an arc-length method would
+#   add, and this case is what that method will have to reproduce.
+#
+# THE FOUR THINGS THIS CASE FOUND ON ITS FIRST RUN, none of them mechanics:
+#   1. the frame solver evaluated its members one at a time in Python and ran
+#      at 120 iterations/s on forty of them (every earlier beam case had one
+#      or two); the members are batched now, 2700/s;
+#   2. its residual was normalised by max(|F_ext|, 1 N), which under
+#      displacement control -- F_ext = 0 -- made the tolerance an absolute
+#      number of newtons; it is |F_int| now, as in the solid solver;
+#   3. a step's own `load_steps` was ignored in favour of the solver block's,
+#      so fifty levels ran as one continuous relaxation; and prescribed
+#      displacements jumped to each level's target in one iteration -- both
+#      things the solid solver had already been fixed for;
+#   4. the fictitious mass came from the REFERENCE stiffness. A member that
+#      has rotated spreads its axial stiffness over several global rows, the
+#      Gershgorin bound stops being a bound, the stiffest mode crosses the
+#      stability limit and the kinetic damping resets on its every peak
+#      (16882 resets in 60000 iterations) while the global mode never moves.
+#      At the default safety the frame stalled at v/L = 0.13; at 0.4 it
+#      reached 0.5 -- the stall moved with the safety, which is the
+#      signature. The mass is rebuilt from the current geometry at every
+#      load level now, and the whole path converges at the default.
+#   And one more in the CLI: `vfife run` crashed after writing the result of
+#   ANY structural case, reading an erosion counter only solids have.
+#
+# WHAT IT GIVES (48 levels of 20 mm, run in about four minutes on one core):
+#
+#     PL^2/EI at the limit    18.575 at v/L = 0.400     NAFEMS 18.552 at 0.407
+#     load minimum            -9.15  at v/L = 0.52
+#     v/L where PL^2/EI = 31.887      0.779             NAFEMS 0.784, Abaqus 0.781
+#
+#   The limit point is measured by the LOAD at NAFEMS's deflection, not the
+#   deflection at NAFEMS's load: at a limit point the tangent is horizontal,
+#   so the load there is insensitive to where exactly you read it and the
+#   deflection is not -- which is why the codes NAFEMS compares scatter from
+#   0.32 to 0.41 on that displacement while agreeing on the load.
+
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/lee_frame_v22.msh}   # benchmarks/generate_lee_frame.py, 20 per member
+
+materials:
+  aluminium: {type: linear_elastic, E: 71.74e+9, nu: 0.0, rho: 2700.0}
+
+sections:
+  # 30 wide (out of plane) by 20 deep: I = 30 x 20^3 / 12 = 2.0e-8 m^4 about
+  # the bending axis. The other inertia never acts (out-of-plane rotation is
+  # held) and neither does torsion; both are given the same value so nothing
+  # depends on which local axis the section's `orientation` picks.
+  bar30x20:
+    type: beam
+    material: aluminium
+    shape: general
+    area: 6.0e-4
+    iy: 2.0e-8
+    iz: 2.0e-8
+    j: 4.0e-8
+
+assign:
+  - {region: members, section: bar30x20, orientation: [0, 1, 0]}
+
+constraints:
+  # a plane problem on a six-dof element: out-of-plane translation and the
+  # two rotations that are not about y are held everywhere
+  - {region: all,   dofs: [0, 1, 0, 1, 0, 1]}
+  - {region: pin_l, dofs: [1, 1, 1, 1, 0, 1]}
+  - {region: pin_r, dofs: [1, 1, 1, 1, 0, 1]}
+
+steps:
+  - name: push
+    # A is driven down 0.94 m = 0.783 L in 47 levels of 20 mm: through the
+    # limit point at 0.40 L, across the snap-back, past the load minimum and
+    # up the final branch to just beyond where PL^2/EI = 31.887 (0.779 L).
+    # Not further: from 0.8 L the pinned members are in pure tension and the
+    # load climbs by two orders of magnitude in 40 mm.
+    constraints:
+      - {region: load, dofs: [0, 0, 1, 0, 0, 0], value: -0.94}
+    # 60000 a level: most converge in about 11000, but the level that jumps
+    # the snap-back is a genuine dynamic transient across half the structure
+    # and takes over 30000 to settle
+    load_steps: 47
+    max_steps_per_load: 60000
+    tolerance: 1.0e-5
+
+solver:
+  mode: relaxation
+  backend: numba
+  n_steps: 3000000
+  damping: {type: kinetic}
+  tolerance: 1.0e-5
+
+output:
+  path: results/case_16_lee_frame.h5
+  every: 1000000
+  fields: [displacement, rotation, axial_force, bending_y]
+  monitors:
+    v_A: {kind: displacement, region: load, dof: z}      # down is negative
+    u_A: {kind: displacement, region: load, dof: x}
+    P:   {kind: reaction, region: load, dof: z}          # the load, as the reaction at the driven node
+    u_C: {kind: displacement, region: corner, dof: x}
+    w_C: {kind: displacement, region: corner, dof: z}

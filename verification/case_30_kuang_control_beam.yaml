@@ -1,0 +1,160 @@
+version: 1
+case: case_30_kuang_control_beam
+classification: public_benchmark
+reference: >-
+  Kuang, Y. et al., "Experimental Study on the Flexural Behavior of Corroded
+  Prestressed Concrete Box Girders", Applied Sciences 13 (2023) 8396,
+  specimen L1 -- the uncorroded control of six 1:15.68 scaled
+  post-tensioned T-beams, four-point bending over an 1890 mm support
+  spacing with a 655 mm shear span. Table 4 gives 72.0 kN of cracking
+  load (23.58 kN m), 11.357 mm of yield deflection and 36.500 mm of
+  ultimate deflection. The extract is
+  verification/Kuang2023_corroded_pc_beam.txt.
+
+# --------------------------------------------------------------------------- #
+#  THIS CONTRACT DELIBERATELY DOES NOT HOLD THE PAPER'S ULTIMATE LOAD
+# --------------------------------------------------------------------------- #
+#  Table 4 reports 232.5 kN, i.e. 76.14 kN m. The beam's steel is ONE
+#  1x7-15.2 strand and two phi 8 bars at the soffit:
+#
+#      140 mm2 x 1872 MPa + 101 mm2 x 430.4 MPa = 305.4 kN
+#
+#  and the beam is 250 mm deep, so M_u <= 305.4 x 0.250 = 76.34 kN m is an
+#  absolute ceiling -- compression resultant on the top surface, tension
+#  resultant on the soffit, every bar at its ULTIMATE strength at once. The
+#  reported value is 99.7% of that: a lever arm of 249.4 mm on a 250 mm beam.
+#  Three things corroborate rather than rescue it:
+#
+#    * the authors' own section analysis in the same table says 49.43 kN m --
+#      35% below their own measurement -- and the paper does not remark on it;
+#    * this model says 55.60 kN m, agreeing with their analysis and not with
+#      their measurement;
+#    * L1's reported failure mode is concrete crushing, so the strand did NOT
+#      reach f_pu and the true capacity is below the ceiling, not at it.
+#
+#  The CRACKING moment is consistent (measured 23.58 against their predicted
+#  23.06) and 23.58 / 72.0 recovers the 0.3275 m half-shear-span, so the same
+#  lever arm gives a sound cracking moment and an impossible ultimate one. The
+#  DEFLECTIONS are consistent too. It is the load SCALE alone that does not
+#  close. The flexural-capacity check therefore moved to case_31 (Li et al.
+#  2024, whose table closes) and this contract holds cracking and shape.
+#
+#  WHAT THE MODEL DOES
+#        cracking load      measured 72.0 kN      model 69.9 kN    -2.9%
+#        cracking moment    measured 23.58        model 22.89
+#        decompression      --                    model 57.7 kN
+#        peak               authors' 150.9 kN     model 169.8 kN  +12.5%
+#                           reported 232.5 kN     -- not held, see above
+#        peak deflection    between the measured yield (11.36 mm) and
+#                           ultimate (36.50 mm) deflections, at 16.95 mm
+#        at 36.50 mm        still carrying 158.5 kN, on its plateau
+#
+#  THE ONE CALIBRATED NUMBER is the effective prestress, 124.8 kN against the
+#  stated 157 kN of jacking force, back-calculated from the measured cracking
+#  load because the paper publishes no loss breakdown. `cracking_load` and
+#  `camber_at_transfer` below therefore are NOT free; the peak is (case_31
+#  measures that a third of the effective prestress moves the capacity 0.12%).
+#
+#  WHAT IS NOT HELD: the descending branch. The test used one jack on a
+#  distribution steel beam, so its two point loads are equal by construction;
+#  the model prescribes two DISPLACEMENTS instead. At the peak the two agree
+#  (84.85 / 84.91 kN); past it the softening localises to one side and they
+#  diverge to 85.8 / 74.1 at 52 mm.
+
+metrics:
+  - id: camber_at_transfer
+    description: >-
+      The beam rises 0.81 mm under the effective prestress and its own weight
+      before loading. A check on the CALIBRATED prestress, not an independent
+      one. It is also what the loading amplitude's start value encodes, so a
+      drift here shows up as a non-zero load in the first loaded frame.
+    source: monitor
+    name: w_mid
+    reduction: at
+    against: time
+    value: 1.0
+    expect: {target: 8.149e-4, rtol: 0.15}
+
+  - id: decompression_load
+    description: >-
+      Total load that brings the soffit strain back to zero: 57.7 kN, i.e.
+      18.89 kN m. The ELASTIC half of the cracking check, separated out -- it
+      depends on the section and the effective prestress and not at all on
+      f_t, and it sits entirely on the uncracked branch, so `at` interpolates
+      it exactly instead of across two branches. A regression lock on the pair
+      (section, calibrated prestress).
+    source: monitor
+    name: P_tot
+    reduction: at
+    against: eps_bot
+    value: 0.0
+    expect: {target: -5.768e+4, rtol: 0.05}
+
+  - id: cracking_load
+    description: >-
+      Total load where the soffit strain reaches f_t / E0 = 9.02e-5; measured
+      72.0 kN, i.e. 23.58 kN m. CALIBRATED -- the effective prestress was
+      chosen to land here, and on the uncracked branch's own extrapolation it
+      does (71.06 kN). The reduction reads 69.90 because `at` interpolates
+      between the last uncracked frame and the first softened one, which
+      always leans LOW by about half a step (8.8 kN here); the tolerance
+      covers that bias rather than hiding it.
+    source: monitor
+    name: P_tot
+    reduction: at
+    against: eps_bot
+    value: 9.02e-5
+    expect: {target: -7.20e+4, rtol: 0.06}
+
+  - id: flexural_capacity
+    description: >-
+      The peak total load, held against the AUTHORS' OWN section analysis --
+      49.43 kN m, i.e. 150.9 kN -- and NOT against their reported 232.5 kN,
+      which the header shows is above what the section can develop. The model
+      is 8.9% above their analysis (164.4 kN; 12.5% with the steel02 before
+      v1.0, whose envelope ran 3.45% over its asymptote), which a rectangular stress block with the
+      strand at a nominal 0.85 f_pu and no flange bars would be. The band
+      here tops out at 175 kN, so a model that reproduced the reported
+      232.5 kN would FAIL this check -- which is the intent.
+    source: monitor
+    name: P_tot
+    reduction: min
+    expect: {target: -1.509e+5, rtol: 0.16}
+
+  - id: deflection_at_peak
+    description: >-
+      Midspan deflection at the peak, 18.0 mm below the camber (16.95 with
+      the steel02 before v1.0). Not a measured quantity -- Table 4 gives 11.357 mm at yield and 36.500 at
+      failure, and the model's peak sits between them, which is the sense in
+      which this beam's DEFLECTIONS are consistent while its loads are not.
+    source: monitor
+    name: w_mid
+    reduction: at_peak_of
+    against: P_tot
+    expect: {target: -0.017223, rtol: 0.20}
+
+  - id: still_carrying_at_the_measured_failure_deflection
+    description: >-
+      At 36.50 mm of midspan deflection -- the deflection at which the test
+      failed -- the model is still on its plateau at 158.6 kN. That is the
+      shape check the reported loads cannot provide: the model neither fails
+      early nor stiffens.
+    source: monitor
+    name: P_tot
+    reduction: at
+    against: w_mid
+    value: -0.0356851
+    expect: {target: -1.585e+5, rtol: 0.10}
+
+  - id: compression_zone_passes_its_peak_strain
+    description: >-
+      The top fibre goes past concrete02's epsc0 = 0.002 onto the descending
+      branch, which is the reported failure mode (CC, concrete crushing).
+      No lower bound since v1.0: with OpenSees' Steel02 the crushing
+      LOCALISES in the midspan element after the peak (at about 18 mm) and
+      its strain runs to -59e-3, a number set by the element length. Until
+      then it stopped at -2.19e-3, just past epsc0, and was held to 4.5e-3.
+    source: monitor
+    name: eps_top
+    reduction: min
+    expect: {max: -0.0019}

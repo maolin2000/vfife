@@ -1,0 +1,104 @@
+version: 1
+case: case_29d_fiber_creep_bar
+classification: analytical
+reference: >-
+  Closed form, and the same one case_29 is checked against. A bar loaded at
+  age t0 and held carries the same force for ever -- nothing is redundant, so
+  nothing can redistribute -- and its strain grows to
+  sigma [1 + phi(t, t0)] / Ec(t0). The creep function is a standard linear
+  solid, phi(d) = 2 (1 - exp(-d/40 d)), supplied as a measured `curve`, so the
+  elongation at 1028 days is exactly three times the elastic one and the axial
+  force is exactly P. benchmarks/generate_creep_bar.py --check prints both.
+
+# --------------------------------------------------------------------------- #
+#  THE SAME BAR, THROUGH A DIFFERENT MECHANISM
+# --------------------------------------------------------------------------- #
+#  case_29 is the beam path: one member law, one creep history per member, and
+#  the station's own creep carried by a factor `1/(1 + phi_cur)` on the MEMBER
+#  STIFFNESS. This is the fibre path, where none of those three things exists.
+#  Sixteen concrete02 fibres each keep their own state; the free strain
+#  arrives in the fibre's imposed-strain slot, the same one a temperature and
+#  a tendon's prestrain use; and the implicit half of the step is a SCALE ON
+#  THE LAW'S OWN INPUT, because a nonlinear law has no stiffness to scale --
+#  only a stress at a strain, and what the station must hand it is the elastic
+#  strain.
+#
+#  The two paths share `core.creep` and nothing else. So this file is not a
+#  duplicate of case_29's: it is the second independent implementation, and
+#  the numbers below agreeing with case_29's to six figures is the evidence.
+#
+#        elastic elongation   10.000 mm
+#        at 1028 days         30.000 mm   = (1 + 2) x elastic
+#        axial force          300.0 kN throughout
+#
+#  ONE METRIC IS NEW HERE and could not exist on the beam path:
+#  `eps_fibre` is the SECTION's plane strain at the centroid, and it reads
+#  3.000e-3 at the end -- three times the elastic strain the MATERIAL is being
+#  driven at. The creep strain is in the section and not in the material,
+#  which is the whole claim of the imposed-strain formulation, stated as one
+#  number that a wrong slot cannot hit.
+
+metrics:
+  - id: the_elastic_step_is_still_exact
+    description: >-
+      the first station, at age 28, is the elastic answer: 10.000 mm. The
+      station that a load ARRIVES at has no interval behind it and must carry
+      no creep at all -- `station_phi` returns zero there by construction, and
+      this is what says so.
+    source: monitor
+    name: u_right
+    reduction: first
+    expect: {target: 0.010, rtol: 0.002}
+
+  - id: the_fibre_bar_creeps_to_three_times_its_elastic_strain
+    description: >-
+      P L / (E A) (1 + phi_inf) = 10 mm x 3, on a section made of sixteen
+      concrete02 fibres whose material never leaves its linear tension branch.
+      The whole fibre creep path -- the curve, the superposition, the strain
+      scale, the imposed slot -- reduced to one number.
+    source: monitor
+    name: u_right
+    reduction: final
+    expect: {target: 0.030, rtol: 0.002}
+
+  - id: midspan_creeps_by_the_same_factor
+    description: >-
+      15.000 mm: half the bar, half the movement. A uniform stress field must
+      creep uniformly, which is what says the history is kept per FIBRE of per
+      element and not once for the model.
+    source: monitor
+    name: u_mid
+    reduction: final
+    expect: {target: 0.015, rtol: 0.002}
+
+  - id: a_determinate_member_carries_what_it_always_carried
+    description: >-
+      300.0 kN at 1028 days, the same as on day one. This is the metric that
+      fails if the creep strain is put in as a load instead of subtracted from
+      the total.
+    source: monitor
+    name: N_left
+    reduction: final
+    expect: {target: -3.0e+5, rtol: 0.002}
+
+  - id: and_it_never_moved_on_the_way
+    description: >-
+      the extreme of the whole record is the same 300.0 kN: not merely equal
+      at the two ends of the analysis but constant across all thirteen
+      stations.
+    source: monitor
+    name: N_left
+    reduction: peak_abs
+    expect: {target: 3.0e+5, rtol: 0.002}
+
+  - id: the_creep_strain_is_in_the_section_not_in_the_material
+    description: >-
+      the section's plane strain at the centroid reads 3.000e-3 while the
+      material is being driven at 1.000e-3 -- the elastic strain, which is
+      what holds 30 MPa. A metric with no counterpart on the beam path, and
+      the one that says the free strain went into the imposed slot rather than
+      into the law.
+    source: monitor
+    name: eps_fibre
+    reduction: final
+    expect: {target: 0.003, rtol: 0.002}

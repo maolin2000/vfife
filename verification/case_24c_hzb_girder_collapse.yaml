@@ -1,0 +1,122 @@
+version: 1
+case: case_24c_hzb_girder_collapse
+classification: public_benchmark
+reference: >-
+  Chen Hengzhi, PhD thesis, Zhejiang University, 2005, §6.6.3, Fig. 6.30:
+  the 3 x 70 m Hangzhou Bay unit under load case 1 -- k F_L (818 kN) at
+  the middle span's midspan and k q_L (25 kN/m) over the middle span on
+  top of the dead load -- pushed proportionally until the implicit solver
+  failed: ultimate load factor k_u = 16.8 at 727 mm under the load. His
+  curve is digitised in verification/Chen2005_hzb_girder_case1.txt (it
+  ends at k = 16.8, 734 mm, 1% from the stated 727: the check on the
+  digitising). It starts at k = 0, delta = 21.3 mm -- his delta is the
+  TOTAL deflection, dead load included -- so the comparison below is of
+  INCREMENTS from each curve's own k = 0.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THE MODEL DOES, AND WHAT IS HELD
+# --------------------------------------------------------------------------- #
+#  Dead load and prestress are present from t = 0 and the first ten seconds
+#  damp the transient out; the live load then ramps at 0.4 k/s, k =
+#  (t - 10) / 2.5. The girder follows it quasi-statically to k = 14.5 (287
+#  mm), at k = 14.8 the pier sections yield and the middle span snaps to
+#  the strands' hardening branch (654 mm), holds there while k climbs to
+#  17.5, and then runs away: 2 m at k = 18.1, 3.3 m at k = 20, hanging on
+#  its strands (the abutment pin holds x). That was the steel02 before
+#  v1.0; with OpenSees' Steel02 the snap does not stop -- see below.
+#
+#  AGAINST CHEN, INCREMENT FROM k = 0 (his / model, mm):
+#      k = 2    23 / 17     k = 8   130 / 90     k = 14   361 / 242
+#      k = 4    54 / 37     k = 10  176 / 128    k = 14.5 401 / 278
+#      k = 6    90 / 59     k = 12  254 / 173
+#  The model is a flat 0.65-0.72 of his deflection all the way up -- it is
+#  stiffer, by a factor that does not drift, and case_24's contract says
+#  what the candidates are (his staged girder enters the push with a third
+#  less soffit compression and cracks earlier; his effective prestress is
+#  not stated; concrete02's tension stiffening is generous for a 4 m deep
+#  section). The ULTIMATE, which a mechanism decides and none of those
+#  moves much, is what this file holds:
+#      first yield / snap      k = 14.7 (400 mm)      -13% of his k_u
+#      his 727 mm reached at   k = 14.8                 -12%
+#      mechanism runs away     k = 16.9 (2 m)            0%
+#  His single number sits at the top of that bracket.
+#
+#  SINCE v1.0 (steel02 = OpenSees' Steel02) THE SNAP DOES NOT STOP ON
+#  THE STRANDS' HARDENING BRANCH. With the law before it -- whose envelope
+#  ran 3.45% over its own asymptote -- the middle span snapped to 654 mm and
+#  held there while k climbed to 17.5, passing 727 mm at k = 17.3 and 2 m at
+#  18.1. Now the strands have that 3.45% less to hold with: the span runs
+#  through 727 mm 0.3 s after the pier yields (k = 14.8) and passes 2 m at
+#  16.9. The first yield is unchanged (14.8 -> 14.7). What a load-controlled
+#  implicit run does at a snap is its solver's business, not the
+#  structure's, which is why the bracket rather than one number.
+#
+#  THE DEAD STATE IS NOT case_24's, BY 3 mm (9.1 against 5.9 at the middle
+#  midspan) and by 180 microstrain at the pier soffit. Same model, same
+#  loads, same reactions to 0.1%: the difference is concrete02's path
+#  dependence under the start-up transient, which cycles the concrete and
+#  leaves it on a softer unloading branch. Measured on a dead-load-only
+#  run: damping 2/s gives 9.1 mm, 6/s gives 8.7, 20/s (nearly critical)
+#  gives 7.3, the staged relaxation 5.9. The case ships 2/s so that the
+#  collapse is not damped out of recognition, and `quasi_static_at_k10`
+#  below holds the 5% the difference is worth at service load.
+
+metrics:
+  - id: snap_at_400mm
+    description: Time at which the middle midspan passes 400 mm -- the pier hinges form (model 46.6 s, k = 14.7; Chen's k_u = 16.8 -> 52 s)
+    source: monitor
+    name: time
+    reduction: at
+    against: w_mid_middle
+    value: -0.400
+    expect: {target: 47.0, rtol: 0.05}
+
+  - id: k_at_chen_delta_u
+    description: Time at which it passes Chen's 727 mm (his k_u = 16.8 -> 52 s; model 46.9 s, k = 14.8 -- since v1.0, with OpenSees' Steel02, the girder runs from 400 mm through 727 mm in 0.3 s; it was 53.3 s, k = 17.3)
+    source: monitor
+    name: time
+    reduction: at
+    against: w_mid_middle
+    value: -0.727
+    expect: {target: 52.0, rtol: 0.12}
+
+  - id: k_at_collapse
+    description: Time at which it passes 2 m, the mechanism running away (model 52.1 s, k = 16.9; 55.2 s, k = 18.1 before v1.0)
+    source: monitor
+    name: time
+    reduction: at
+    against: w_mid_middle
+    value: -2.0
+    expect: {target: 52.0, rtol: 0.08}
+
+  - id: quasi_static_at_k10
+    description: Deflection at k = 10 (t = 35 s) against the staged relaxation of case_24 (144 mm); the 5% is the dead state's 3 mm and the transient's imprint
+    source: monitor
+    name: w_mid_middle
+    reduction: at
+    against: time
+    value: 35.0
+    expect: {target: -0.144, rtol: 0.10}
+
+  - id: dead_state
+    description: The dead-load state at k = 0 (t = 10 s), 9.1 mm down against the relaxation's 5.9 (see above); Chen's is 21.3 mm, which is his construction sequence
+    source: monitor
+    name: w_mid_middle
+    reduction: at
+    against: time
+    value: 10.0
+    expect: {min: -0.012, max: -0.005}
+
+  - id: collapsed_by_k20
+    description: The middle span has fallen more than 3 m by the end of the ramp
+    source: monitor
+    name: w_mid_middle
+    reduction: min
+    expect: {max: -3.0}
+
+  - id: pier_yielded_before_collapse
+    description: The deck over the pier is past 3000e-6 at the end -- the pier hinges are real
+    source: monitor
+    name: eps_pier_top
+    reduction: final
+    expect: {min: 3.0e-3}

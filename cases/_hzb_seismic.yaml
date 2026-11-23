@@ -1,0 +1,552 @@
+# --------------------------------------------------------------------------- #
+#  THE SAME UNIT, SHAKEN.  Run it AFTER case_24f: it starts from that run's
+#  dead + prestress state (`solver.initial_state`), not from an unloaded,
+#  uncambered girder.
+#
+#      python -m vfife run cases/case_24f_hzb_girder_bearings.yaml
+#      python -m vfife run cases/_hzb_seismic.yaml
+#
+#  (It said `--restart` before 1.0. A restart continues the SAME analysis,
+#  and since v1.0 a relaxation's checkpoint is refused for a
+#  dynamic run; `initial_state` is the way to start a new one from it.)
+#
+#  NOT A VERIFIED CASE. It has no `verification/` contract and no published
+#  record behind it, which is why its name starts with an underscore and the
+#  test suite skips it. What it is: a working template, with every mechanism
+#  in it exercised, for the 地震 stage the route has not done yet.
+#
+#  WHAT THE RUN GIVES (literature pier, El Centro NS unscaled):
+#  first longitudinal mode 0.87 Hz; pier-top 89.6 mm at 3.5 s; base shear
+#  10.3 MN, 0.137 of the dead load; all 12 bars at the fixed pier's base
+#  yield at 1.88 s and half the sliding pier's at 2.94 s -- on the 0.6%
+#  code-minimum steel, which is an assumption. The girder moves 9.2 mm
+#  vertically at 3.37 Hz, excited through the bearing's offset below the
+#  section centroid. THE PIER AXIAL FORCE IS NOT A RESULT: it swings 42-61 MN
+#  with content above what the 119 Hz monitor rate resolves -- pier axial and
+#  local modes that cracking excites and alpha damping (0.03% at 80 Hz)
+#  leaves ringing. A 5 Hz low-pass leaves 3.9 MN of it and does not move the
+#  displacements or the base shear. Read reactions filtered, or add a small
+#  beta and pay for it in the step.
+#
+#  WHAT IS REAL HERE
+#    * `ground_motion` on `beam2_fiber` works -- checked against `gravity`:
+#      a constant a_g = -9.80665 in +z gives exactly the mirror of gravity
+#      (tip +1.08503e-2 m against -1.08508e-2, base reaction -3.671e4 against
+#      +3.664e4). It had never been run on a fibre model before.
+#    * The bearings are the ones v0.4 put in, so the girder is no longer
+#      welded to the piers and the seismic path girder -> bearing -> pier is
+#      the real one.
+#
+#  WHAT IS NOT
+#    * THIS IS A PLANE FRAME, so there is no transverse direction to shake.
+#      `{region: all, dofs: [0, 1, 0, 1, 0, 1]}` below locks `uy` at every one
+#      of the 57 nodes, and `direction: [0, 1, 0]` would put the whole of
+#      `-m a_g` into the reactions: the run converges, every monitor is flat,
+#      and nothing says why. Preflight refuses it now
+#      (GROUND_MOTION_FULLY_RESTRAINED). For the transverse component the
+#      model itself has to change.
+#    * UNIFORM EXCITATION ONLY. The implementation adds -m a_g(t) to every
+#      node in the relative frame, which is the textbook formulation and is
+#      right only when every support moves together. No multi-support
+#      excitation, no travelling wave, no soil-structure interaction, no pile
+#      or cap flexibility -- the pier bases are built in.
+#    * LINEAR BEARINGS. `connector2` v1 has no gap, no friction and no
+#      hysteresis, so the "sliding" pot here is a secant stiffness, not a
+#      friction pendulum. This is NOT an isolation analysis.
+#    * RAYLEIGH beta MULTIPLIES THE INITIAL K, which is the usual choice but
+#      over-damps once the section softens -- and it SHRINKS the stable step.
+#      Start with alpha only and add beta deliberately.
+#    * THE RECORD IS EL CENTRO, which is a convention, not a hazard
+#      assessment. Nothing here says 1940 Imperial Valley is the right input
+#      for a Hangzhou Bay site, and the 0.3188 g is unscaled -- no site
+#      spectrum, no scaling factor, no set of seven records. It is the record
+#      everyone recognises, which makes it good for checking that the model
+#      behaves and bad for a design statement. Point `path` elsewhere and the
+#      format is two whitespace columns: seconds, then acceleration in the
+#      unit that `scale` multiplies to m/s^2.
+# --------------------------------------------------------------------------- #
+version: 1
+name: _hzb_seismic
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/hzb_girder_3span_14_bearings.msh}
+materials:
+  concrete: {type: concrete02, fpc: 3.24e+7, epsc0: 0.0019, fcu: 6.5e+6, epscu: 0.004,
+             ft: 2.65e+6, Ets: 1.5e+9, rat: 0.1, rho: 2500}
+  strand: {type: steel02, E: 1.95e+11, Fy: 1.58e+9, b: 0.063, R0: 20.0, rho: 7850}
+  rebar: {type: steel02, E: 2.0e+11, Fy: 3.35e+8, b: 0.01, R0: 20.0, rho: 7850}
+sections:
+  phi16: {type: bar, material: rebar, shape: circle, diameter: 0.016}
+  duct27: {type: bar, material: strand, shape: general, area: 0.00378}   # 27 strands
+  duct12: {type: bar, material: strand, shape: general, area: 0.00168}   # 12 strands
+  duct19: {type: bar, material: strand, shape: general, area: 0.00266}   # 19 strands
+  pierbar: {type: bar, material: rebar, area: 4.2750e-03}   # 0.6% of the mid-height section / 12
+  # THE PIER, hollow and tapered, as three papers state it:
+  # 6.25 m across the bridge, 2.60 m along it
+  # at the base growing to 4.00 m at the top, walls 0.50 m. `width` is the y
+  # extent (along the bridge) and `height` the z extent, so ONE SECTION PER
+  # PIER ELEMENT carries the taper and the two piers share them. The walls
+  # are four `patches` rather than `shape: box`, which refuses bars.
+  # v0.4's back-calculated solid 6.25 x 1.80 read A = 11.25 and
+  # I_long = 3.04: right across the bridge by luck (8%), 4.4x too soft
+  # along it. The taper is LINEAR, which is a reading of the two stated end
+  # widths and not a measurement.
+  #   seg    z from     z to     depth      A      I_long       J
+  #    1     -0.500   -2.417    3.883   9.133    20.014  41.438
+  #    2     -2.417   -4.333    3.650   8.900    17.185  36.861
+  #    3     -4.333   -6.250    3.417   8.667    14.598  32.453
+  #    4     -6.250   -8.167    3.183   8.433    12.248  28.228
+  #    5     -8.167  -10.083    2.950   8.200    10.127  24.202
+  #    6    -10.083  -12.000    2.717   7.967     8.229  20.392
+  pier1:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 41.438
+    patches:
+      - {corners: [[1.4417,-3.1250],[1.4417,3.1250],[1.9417,3.1250],[1.9417,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.9417,-3.1250],[-1.9417,3.1250],[-1.4417,3.1250],[-1.4417,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.4417,2.6250],[-1.4417,3.1250],[1.4417,3.1250],[1.4417,2.6250]], ny: 8, nz: 2}
+      - {corners: [[-1.4417,-3.1250],[-1.4417,-2.6250],[1.4417,-2.6250],[1.4417,-3.1250]], ny: 8, nz: 2}
+    bars:
+      - {y: 1.6917, z: -2.8, section: pierbar}
+      - {y: 1.6917, z: -1.68, section: pierbar}
+      - {y: 1.6917, z: -0.56, section: pierbar}
+      - {y: 1.6917, z: 0.56, section: pierbar}
+      - {y: 1.6917, z: 1.68, section: pierbar}
+      - {y: 1.6917, z: 2.8, section: pierbar}
+      - {y: -1.6917, z: -2.8, section: pierbar}
+      - {y: -1.6917, z: -1.68, section: pierbar}
+      - {y: -1.6917, z: -0.56, section: pierbar}
+      - {y: -1.6917, z: 0.56, section: pierbar}
+      - {y: -1.6917, z: 1.68, section: pierbar}
+      - {y: -1.6917, z: 2.8, section: pierbar}
+  pier2:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 36.861
+    patches:
+      - {corners: [[1.3250,-3.1250],[1.3250,3.1250],[1.8250,3.1250],[1.8250,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.8250,-3.1250],[-1.8250,3.1250],[-1.3250,3.1250],[-1.3250,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.3250,2.6250],[-1.3250,3.1250],[1.3250,3.1250],[1.3250,2.6250]], ny: 8, nz: 2}
+      - {corners: [[-1.3250,-3.1250],[-1.3250,-2.6250],[1.3250,-2.6250],[1.3250,-3.1250]], ny: 8, nz: 2}
+    bars:
+      - {y: 1.5750, z: -2.8, section: pierbar}
+      - {y: 1.5750, z: -1.68, section: pierbar}
+      - {y: 1.5750, z: -0.56, section: pierbar}
+      - {y: 1.5750, z: 0.56, section: pierbar}
+      - {y: 1.5750, z: 1.68, section: pierbar}
+      - {y: 1.5750, z: 2.8, section: pierbar}
+      - {y: -1.5750, z: -2.8, section: pierbar}
+      - {y: -1.5750, z: -1.68, section: pierbar}
+      - {y: -1.5750, z: -0.56, section: pierbar}
+      - {y: -1.5750, z: 0.56, section: pierbar}
+      - {y: -1.5750, z: 1.68, section: pierbar}
+      - {y: -1.5750, z: 2.8, section: pierbar}
+  pier3:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 32.453
+    patches:
+      - {corners: [[1.2083,-3.1250],[1.2083,3.1250],[1.7083,3.1250],[1.7083,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.7083,-3.1250],[-1.7083,3.1250],[-1.2083,3.1250],[-1.2083,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.2083,2.6250],[-1.2083,3.1250],[1.2083,3.1250],[1.2083,2.6250]], ny: 8, nz: 2}
+      - {corners: [[-1.2083,-3.1250],[-1.2083,-2.6250],[1.2083,-2.6250],[1.2083,-3.1250]], ny: 8, nz: 2}
+    bars:
+      - {y: 1.4583, z: -2.8, section: pierbar}
+      - {y: 1.4583, z: -1.68, section: pierbar}
+      - {y: 1.4583, z: -0.56, section: pierbar}
+      - {y: 1.4583, z: 0.56, section: pierbar}
+      - {y: 1.4583, z: 1.68, section: pierbar}
+      - {y: 1.4583, z: 2.8, section: pierbar}
+      - {y: -1.4583, z: -2.8, section: pierbar}
+      - {y: -1.4583, z: -1.68, section: pierbar}
+      - {y: -1.4583, z: -0.56, section: pierbar}
+      - {y: -1.4583, z: 0.56, section: pierbar}
+      - {y: -1.4583, z: 1.68, section: pierbar}
+      - {y: -1.4583, z: 2.8, section: pierbar}
+  pier4:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 28.228
+    patches:
+      - {corners: [[1.0917,-3.1250],[1.0917,3.1250],[1.5917,3.1250],[1.5917,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.5917,-3.1250],[-1.5917,3.1250],[-1.0917,3.1250],[-1.0917,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.0917,2.6250],[-1.0917,3.1250],[1.0917,3.1250],[1.0917,2.6250]], ny: 8, nz: 2}
+      - {corners: [[-1.0917,-3.1250],[-1.0917,-2.6250],[1.0917,-2.6250],[1.0917,-3.1250]], ny: 8, nz: 2}
+    bars:
+      - {y: 1.3417, z: -2.8, section: pierbar}
+      - {y: 1.3417, z: -1.68, section: pierbar}
+      - {y: 1.3417, z: -0.56, section: pierbar}
+      - {y: 1.3417, z: 0.56, section: pierbar}
+      - {y: 1.3417, z: 1.68, section: pierbar}
+      - {y: 1.3417, z: 2.8, section: pierbar}
+      - {y: -1.3417, z: -2.8, section: pierbar}
+      - {y: -1.3417, z: -1.68, section: pierbar}
+      - {y: -1.3417, z: -0.56, section: pierbar}
+      - {y: -1.3417, z: 0.56, section: pierbar}
+      - {y: -1.3417, z: 1.68, section: pierbar}
+      - {y: -1.3417, z: 2.8, section: pierbar}
+  pier5:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 24.202
+    patches:
+      - {corners: [[0.9750,-3.1250],[0.9750,3.1250],[1.4750,3.1250],[1.4750,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.4750,-3.1250],[-1.4750,3.1250],[-0.9750,3.1250],[-0.9750,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-0.9750,2.6250],[-0.9750,3.1250],[0.9750,3.1250],[0.9750,2.6250]], ny: 8, nz: 2}
+      - {corners: [[-0.9750,-3.1250],[-0.9750,-2.6250],[0.9750,-2.6250],[0.9750,-3.1250]], ny: 8, nz: 2}
+    bars:
+      - {y: 1.2250, z: -2.8, section: pierbar}
+      - {y: 1.2250, z: -1.68, section: pierbar}
+      - {y: 1.2250, z: -0.56, section: pierbar}
+      - {y: 1.2250, z: 0.56, section: pierbar}
+      - {y: 1.2250, z: 1.68, section: pierbar}
+      - {y: 1.2250, z: 2.8, section: pierbar}
+      - {y: -1.2250, z: -2.8, section: pierbar}
+      - {y: -1.2250, z: -1.68, section: pierbar}
+      - {y: -1.2250, z: -0.56, section: pierbar}
+      - {y: -1.2250, z: 0.56, section: pierbar}
+      - {y: -1.2250, z: 1.68, section: pierbar}
+      - {y: -1.2250, z: 2.8, section: pierbar}
+  pier6:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 20.392
+    patches:
+      - {corners: [[0.8583,-3.1250],[0.8583,3.1250],[1.3583,3.1250],[1.3583,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-1.3583,-3.1250],[-1.3583,3.1250],[-0.8583,3.1250],[-0.8583,-3.1250]], ny: 2, nz: 12}
+      - {corners: [[-0.8583,2.6250],[-0.8583,3.1250],[0.8583,3.1250],[0.8583,2.6250]], ny: 8, nz: 2}
+      - {corners: [[-0.8583,-3.1250],[-0.8583,-2.6250],[0.8583,-2.6250],[0.8583,-3.1250]], ny: 8, nz: 2}
+    bars:
+      - {y: 1.1083, z: -2.8, section: pierbar}
+      - {y: 1.1083, z: -1.68, section: pierbar}
+      - {y: 1.1083, z: -0.56, section: pierbar}
+      - {y: 1.1083, z: 0.56, section: pierbar}
+      - {y: 1.1083, z: 1.68, section: pierbar}
+      - {y: 1.1083, z: 2.8, section: pierbar}
+      - {y: -1.1083, z: -2.8, section: pierbar}
+      - {y: -1.1083, z: -1.68, section: pierbar}
+      - {y: -1.1083, z: -0.56, section: pierbar}
+      - {y: -1.1083, z: 0.56, section: pierbar}
+      - {y: -1.1083, z: 1.68, section: pierbar}
+      - {y: -1.1083, z: 2.8, section: pierbar}
+  girder:
+    type: fiber
+    material: concrete
+    shape: patches
+    integration: lobatto3
+    j: 29.51
+    patches:
+      - {corners: [[-2.4785,-2.613],[-2.4785,2.613],[-2.2285,2.6676],[-2.2285,-2.6676]], ny: 3, nz: 8}
+      - {corners: [[1.2515,-3.4271],[1.2515,3.4271],[1.5215,3.486],[1.5215,-3.486]], ny: 3, nz: 10}
+      - {corners: [[-2.4785,-2.613],[-2.4785,-3.125],[1.5215,-3.998],[1.5215,-3.486]], ny: 12, nz: 3}
+      - {corners: [[-2.2285,-2.6676],[-2.2285,-2.1676],[-1.7285,-2.7767],[-1.7285,-2.7767]], ny: 2, nz: 2}
+      - {corners: [[1.2515,-3.4271],[0.7515,-3.3179],[1.2515,-2.9271],[1.2515,-2.9271]], ny: 2, nz: 2}
+      - {corners: [[1.2215,-3.998],[1.3215,-7.9],[1.5215,-7.9],[1.5215,-3.998]], ny: 2, nz: 6}
+      - {corners: [[-2.4785,2.613],[-2.4785,3.125],[1.5215,3.998],[1.5215,3.486]], ny: 12, nz: 3}
+      - {corners: [[-2.2285,2.6676],[-2.2285,2.1676],[-1.7285,2.7767],[-1.7285,2.7767]], ny: 2, nz: 2}
+      - {corners: [[1.2515,3.4271],[0.7515,3.3179],[1.2515,2.9271],[1.2515,2.9271]], ny: 2, nz: 2}
+      - {corners: [[1.2215,3.998],[1.3215,7.9],[1.5215,7.9],[1.5215,3.998]], ny: 2, nz: 6}
+    bars:
+      - {y: 1.4715, z: -7.11, section: phi16, count: 11}
+      - {y: 1.4715, z: -5.53, section: phi16, count: 11}
+      - {y: 1.4715, z: -3.95, section: phi16, count: 11}
+      - {y: 1.4715, z: -2.37, section: phi16, count: 11}
+      - {y: 1.4715, z: -0.79, section: phi16, count: 11}
+      - {y: 1.4715, z: 0.79, section: phi16, count: 10}
+      - {y: 1.4715, z: 2.37, section: phi16, count: 10}
+      - {y: 1.4715, z: 3.95, section: phi16, count: 10}
+      - {y: 1.4715, z: 5.53, section: phi16, count: 10}
+      - {y: 1.4715, z: 7.11, section: phi16, count: 10}
+      - {y: 1.3015, z: -2.8559, section: phi16, count: 8}
+      - {y: 1.3015, z: -1.7135, section: phi16, count: 8}
+      - {y: 1.3015, z: -0.5712, section: phi16, count: 8}
+      - {y: 1.3015, z: 0.5712, section: phi16, count: 8}
+      - {y: 1.3015, z: 1.7135, section: phi16, count: 7}
+      - {y: 1.3015, z: 2.8559, section: phi16, count: 7}
+      - {y: 1.2715, z: -6.9245, section: phi16, count: 13}
+      - {y: 1.2715, z: -4.9735, section: phi16, count: 13}
+      - {y: 1.2715, z: 4.9735, section: phi16, count: 13}
+      - {y: 1.2715, z: 6.9245, section: phi16, count: 13}
+      - {y: -2.4285, z: -2.6042, section: phi16, count: 7}
+      - {y: -2.4285, z: -1.5625, section: phi16, count: 7}
+      - {y: -2.4285, z: -0.5208, section: phi16, count: 7}
+      - {y: -2.4285, z: 0.5208, section: phi16, count: 7}
+      - {y: -2.4285, z: 1.5625, section: phi16, count: 7}
+      - {y: -2.4285, z: 2.6042, section: phi16, count: 7}
+      - {y: -2.2785, z: -2.223, section: phi16, count: 6}
+      - {y: -2.2785, z: -1.3338, section: phi16, count: 6}
+      - {y: -2.2785, z: -0.4446, section: phi16, count: 6}
+      - {y: -2.2785, z: 0.4446, section: phi16, count: 6}
+      - {y: -2.2785, z: 1.3338, section: phi16, count: 6}
+      - {y: -2.2785, z: 2.223, section: phi16, count: 6}
+      - {y: -1.9785, z: -2.7721, section: phi16, count: 7}
+      - {y: -1.9785, z: -3.1721, section: phi16, count: 7}
+      - {y: -0.9785, z: -2.9904, section: phi16, count: 7}
+      - {y: -0.9785, z: -3.3904, section: phi16, count: 7}
+      - {y: 0.0215, z: -3.2086, section: phi16, count: 7}
+      - {y: 0.0215, z: -3.6086, section: phi16, count: 7}
+      - {y: 1.0215, z: -3.4269, section: phi16, count: 6}
+      - {y: 1.0215, z: -3.8269, section: phi16, count: 6}
+      - {y: -1.9785, z: 2.7721, section: phi16, count: 7}
+      - {y: -1.9785, z: 3.1721, section: phi16, count: 7}
+      - {y: -0.9785, z: 2.9904, section: phi16, count: 7}
+      - {y: -0.9785, z: 3.3904, section: phi16, count: 7}
+      - {y: 0.0215, z: 3.2086, section: phi16, count: 7}
+      - {y: 0.0215, z: 3.6086, section: phi16, count: 7}
+      - {y: 1.0215, z: 3.4269, section: phi16, count: 6}
+      - {y: 1.0215, z: 3.8269, section: phi16, count: 6}
+    tendons:
+      - {section: duct27, profile: [[0.0,0.5215,-3.5238],[24.0,-1.7585,-3.0261],[46.0,-1.7585,-3.0261],[70.0,0.5215,-3.5238]], extent: [0.0, 70.0], jack: 1.256e+09, friction: &fr {mu: 0.25, k: 0.0015, jack: both, anchor_set: 0.006}}   # W1L_s1
+      - {section: duct27, profile: [[0.0,0.5215,3.5238],[24.0,-1.7585,3.0261],[46.0,-1.7585,3.0261],[70.0,0.5215,3.5238]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W1R_s1
+      - {section: duct27, profile: [[0.0,0.0215,-3.4146],[21.0,-1.8785,-3.0],[49.0,-1.8785,-3.0],[70.0,0.0215,-3.4146]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W2L_s1
+      - {section: duct27, profile: [[0.0,0.0215,3.4146],[21.0,-1.8785,3.0],[49.0,-1.8785,3.0],[70.0,0.0215,3.4146]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W2R_s1
+      - {section: duct12, profile: [[0.0,-0.4285,-3.3164],[18.0,-2.0085,-2.9716],[52.0,-2.0085,-2.9716],[70.0,-0.4285,-3.3164]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W3L_s1
+      - {section: duct12, profile: [[0.0,-0.4285,3.3164],[18.0,-2.0085,2.9716],[52.0,-2.0085,2.9716],[70.0,-0.4285,3.3164]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W3R_s1
+      - {section: duct27, profile: [[0.0,-0.9285,-3.2073],[14.0,-2.1285,-2.9454],[56.0,-2.1285,-2.9454],[70.0,-0.9285,-3.2073]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W4L_s1
+      - {section: duct27, profile: [[0.0,-0.9285,3.2073],[14.0,-2.1285,2.9454],[56.0,-2.1285,2.9454],[70.0,-0.9285,3.2073]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W4R_s1
+      - {section: duct27, profile: [[0.0,-1.4285,-3.0982],[12.0,-2.1285,-2.9454],[58.0,-2.1285,-2.9454],[70.0,-1.4285,-3.0982]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W5L_s1
+      - {section: duct27, profile: [[0.0,-1.4285,3.0982],[12.0,-2.1285,2.9454],[58.0,-2.1285,2.9454],[70.0,-1.4285,3.0982]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # W5R_s1
+      - {section: duct19, profile: [[0.0,-2.3585,-2.5],[70.0,-2.3585,-2.5]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B19_2.5L_s1
+      - {section: duct19, profile: [[0.0,-2.3585,2.5],[70.0,-2.3585,2.5]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B19_2.5R_s1
+      - {section: duct19, profile: [[0.0,-2.3585,-2.2],[70.0,-2.3585,-2.2]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B19_2.2L_s1
+      - {section: duct19, profile: [[0.0,-2.3585,2.2],[70.0,-2.3585,2.2]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B19_2.2R_s1
+      - {section: duct19, profile: [[0.0,-2.3585,-1.9],[70.0,-2.3585,-1.9]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B19_1.9L_s1
+      - {section: duct19, profile: [[0.0,-2.3585,1.9],[70.0,-2.3585,1.9]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B19_1.9R_s1
+      - {section: duct12, profile: [[0.0,-2.3585,-1.5],[70.0,-2.3585,-1.5]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B12_1.5L_s1
+      - {section: duct12, profile: [[0.0,-2.3585,1.5],[70.0,-2.3585,1.5]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B12_1.5R_s1
+      - {section: duct12, profile: [[0.0,-2.3585,-1.0],[70.0,-2.3585,-1.0]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B12_1L_s1
+      - {section: duct12, profile: [[0.0,-2.3585,1.0],[70.0,-2.3585,1.0]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B12_1R_s1
+      - {section: duct12, profile: [[0.0,-2.3585,-0.5],[70.0,-2.3585,-0.5]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B12_0.5L_s1
+      - {section: duct12, profile: [[0.0,-2.3585,0.5],[70.0,-2.3585,0.5]], extent: [0.0, 70.0], jack: 1.256e+09, friction: *fr}   # B12_0.5R_s1
+      - {section: duct27, profile: [[70.0,0.5215,-3.5238],[94.0,-1.7585,-3.0261],[116.0,-1.7585,-3.0261],[140.0,0.5215,-3.5238]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W1L_s2
+      - {section: duct27, profile: [[70.0,0.5215,3.5238],[94.0,-1.7585,3.0261],[116.0,-1.7585,3.0261],[140.0,0.5215,3.5238]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W1R_s2
+      - {section: duct27, profile: [[70.0,0.0215,-3.4146],[91.0,-1.8785,-3.0],[119.0,-1.8785,-3.0],[140.0,0.0215,-3.4146]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W2L_s2
+      - {section: duct27, profile: [[70.0,0.0215,3.4146],[91.0,-1.8785,3.0],[119.0,-1.8785,3.0],[140.0,0.0215,3.4146]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W2R_s2
+      - {section: duct12, profile: [[70.0,-0.4285,-3.3164],[88.0,-2.0085,-2.9716],[122.0,-2.0085,-2.9716],[140.0,-0.4285,-3.3164]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W3L_s2
+      - {section: duct12, profile: [[70.0,-0.4285,3.3164],[88.0,-2.0085,2.9716],[122.0,-2.0085,2.9716],[140.0,-0.4285,3.3164]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W3R_s2
+      - {section: duct27, profile: [[70.0,-0.9285,-3.2073],[84.0,-2.1285,-2.9454],[126.0,-2.1285,-2.9454],[140.0,-0.9285,-3.2073]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W4L_s2
+      - {section: duct27, profile: [[70.0,-0.9285,3.2073],[84.0,-2.1285,2.9454],[126.0,-2.1285,2.9454],[140.0,-0.9285,3.2073]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W4R_s2
+      - {section: duct27, profile: [[70.0,-1.4285,-3.0982],[82.0,-2.1285,-2.9454],[128.0,-2.1285,-2.9454],[140.0,-1.4285,-3.0982]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W5L_s2
+      - {section: duct27, profile: [[70.0,-1.4285,3.0982],[82.0,-2.1285,2.9454],[128.0,-2.1285,2.9454],[140.0,-1.4285,3.0982]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # W5R_s2
+      - {section: duct19, profile: [[70.0,-2.3585,-2.5],[140.0,-2.3585,-2.5]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B19_2.5L_s2
+      - {section: duct19, profile: [[70.0,-2.3585,2.5],[140.0,-2.3585,2.5]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B19_2.5R_s2
+      - {section: duct19, profile: [[70.0,-2.3585,-2.2],[140.0,-2.3585,-2.2]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B19_2.2L_s2
+      - {section: duct19, profile: [[70.0,-2.3585,2.2],[140.0,-2.3585,2.2]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B19_2.2R_s2
+      - {section: duct19, profile: [[70.0,-2.3585,-1.9],[140.0,-2.3585,-1.9]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B19_1.9L_s2
+      - {section: duct19, profile: [[70.0,-2.3585,1.9],[140.0,-2.3585,1.9]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B19_1.9R_s2
+      - {section: duct12, profile: [[70.0,-2.3585,-1.5],[140.0,-2.3585,-1.5]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B12_1.5L_s2
+      - {section: duct12, profile: [[70.0,-2.3585,1.5],[140.0,-2.3585,1.5]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B12_1.5R_s2
+      - {section: duct12, profile: [[70.0,-2.3585,-1.0],[140.0,-2.3585,-1.0]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B12_1L_s2
+      - {section: duct12, profile: [[70.0,-2.3585,1.0],[140.0,-2.3585,1.0]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B12_1R_s2
+      - {section: duct12, profile: [[70.0,-2.3585,-0.5],[140.0,-2.3585,-0.5]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B12_0.5L_s2
+      - {section: duct12, profile: [[70.0,-2.3585,0.5],[140.0,-2.3585,0.5]], extent: [70.0, 140.0], jack: 1.256e+09, friction: *fr}   # B12_0.5R_s2
+      - {section: duct27, profile: [[140.0,0.5215,-3.5238],[164.0,-1.7585,-3.0261],[186.0,-1.7585,-3.0261],[210.0,0.5215,-3.5238]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W1L_s3
+      - {section: duct27, profile: [[140.0,0.5215,3.5238],[164.0,-1.7585,3.0261],[186.0,-1.7585,3.0261],[210.0,0.5215,3.5238]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W1R_s3
+      - {section: duct27, profile: [[140.0,0.0215,-3.4146],[161.0,-1.8785,-3.0],[189.0,-1.8785,-3.0],[210.0,0.0215,-3.4146]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W2L_s3
+      - {section: duct27, profile: [[140.0,0.0215,3.4146],[161.0,-1.8785,3.0],[189.0,-1.8785,3.0],[210.0,0.0215,3.4146]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W2R_s3
+      - {section: duct12, profile: [[140.0,-0.4285,-3.3164],[158.0,-2.0085,-2.9716],[192.0,-2.0085,-2.9716],[210.0,-0.4285,-3.3164]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W3L_s3
+      - {section: duct12, profile: [[140.0,-0.4285,3.3164],[158.0,-2.0085,2.9716],[192.0,-2.0085,2.9716],[210.0,-0.4285,3.3164]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W3R_s3
+      - {section: duct27, profile: [[140.0,-0.9285,-3.2073],[154.0,-2.1285,-2.9454],[196.0,-2.1285,-2.9454],[210.0,-0.9285,-3.2073]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W4L_s3
+      - {section: duct27, profile: [[140.0,-0.9285,3.2073],[154.0,-2.1285,2.9454],[196.0,-2.1285,2.9454],[210.0,-0.9285,3.2073]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W4R_s3
+      - {section: duct27, profile: [[140.0,-1.4285,-3.0982],[152.0,-2.1285,-2.9454],[198.0,-2.1285,-2.9454],[210.0,-1.4285,-3.0982]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W5L_s3
+      - {section: duct27, profile: [[140.0,-1.4285,3.0982],[152.0,-2.1285,2.9454],[198.0,-2.1285,2.9454],[210.0,-1.4285,3.0982]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # W5R_s3
+      - {section: duct19, profile: [[140.0,-2.3585,-2.5],[210.0,-2.3585,-2.5]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B19_2.5L_s3
+      - {section: duct19, profile: [[140.0,-2.3585,2.5],[210.0,-2.3585,2.5]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B19_2.5R_s3
+      - {section: duct19, profile: [[140.0,-2.3585,-2.2],[210.0,-2.3585,-2.2]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B19_2.2L_s3
+      - {section: duct19, profile: [[140.0,-2.3585,2.2],[210.0,-2.3585,2.2]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B19_2.2R_s3
+      - {section: duct19, profile: [[140.0,-2.3585,-1.9],[210.0,-2.3585,-1.9]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B19_1.9L_s3
+      - {section: duct19, profile: [[140.0,-2.3585,1.9],[210.0,-2.3585,1.9]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B19_1.9R_s3
+      - {section: duct12, profile: [[140.0,-2.3585,-1.5],[210.0,-2.3585,-1.5]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B12_1.5L_s3
+      - {section: duct12, profile: [[140.0,-2.3585,1.5],[210.0,-2.3585,1.5]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B12_1.5R_s3
+      - {section: duct12, profile: [[140.0,-2.3585,-1.0],[210.0,-2.3585,-1.0]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B12_1L_s3
+      - {section: duct12, profile: [[140.0,-2.3585,1.0],[210.0,-2.3585,1.0]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B12_1R_s3
+      - {section: duct12, profile: [[140.0,-2.3585,-0.5],[210.0,-2.3585,-0.5]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B12_0.5L_s3
+      - {section: duct12, profile: [[140.0,-2.3585,0.5],[210.0,-2.3585,0.5]], extent: [140.0, 210.0], jack: 1.256e+09, friction: *fr}   # B12_0.5R_s3
+      - {section: duct12, profile: [[38.0,1.3915,-5.16],[102.0,1.3915,-5.16]], extent: [38.0, 102.0], prestress: 1.207e+09}   # T5.16L_p1
+      - {section: duct12, profile: [[38.0,1.3915,5.16],[102.0,1.3915,5.16]], extent: [38.0, 102.0], prestress: 1.207e+09}   # T5.16R_p1
+      - {section: duct12, profile: [[38.0,1.3915,-4.88],[102.0,1.3915,-4.88]], extent: [38.0, 102.0], prestress: 1.207e+09}   # T4.88L_p1
+      - {section: duct12, profile: [[38.0,1.3915,4.88],[102.0,1.3915,4.88]], extent: [38.0, 102.0], prestress: 1.207e+09}   # T4.88R_p1
+      - {section: duct12, profile: [[48.0,1.3915,-4.6],[92.0,1.3915,-4.6]], extent: [48.0, 92.0], prestress: 1.208e+09}   # T4.6L_p1
+      - {section: duct12, profile: [[48.0,1.3915,4.6],[92.0,1.3915,4.6]], extent: [48.0, 92.0], prestress: 1.208e+09}   # T4.6R_p1
+      - {section: duct12, profile: [[48.0,1.3915,-4.35],[92.0,1.3915,-4.35]], extent: [48.0, 92.0], prestress: 1.208e+09}   # T4.35L_p1
+      - {section: duct12, profile: [[48.0,1.3915,4.35],[92.0,1.3915,4.35]], extent: [48.0, 92.0], prestress: 1.208e+09}   # T4.35R_p1
+      - {section: duct12, profile: [[48.0,1.3915,-4.07],[92.0,1.3915,-4.07]], extent: [48.0, 92.0], prestress: 1.208e+09}   # T4.07L_p1
+      - {section: duct12, profile: [[48.0,1.3915,4.07],[92.0,1.3915,4.07]], extent: [48.0, 92.0], prestress: 1.208e+09}   # T4.07R_p1
+      - {section: duct12, profile: [[55.0,1.3915,-3.67],[85.0,1.3915,-3.67]], extent: [55.0, 85.0], prestress: 1.202e+09}   # T3.67L_p1
+      - {section: duct12, profile: [[55.0,1.3915,3.67],[85.0,1.3915,3.67]], extent: [55.0, 85.0], prestress: 1.202e+09}   # T3.67R_p1
+      - {section: duct12, profile: [[55.0,1.3915,-3.43],[85.0,1.3915,-3.43]], extent: [55.0, 85.0], prestress: 1.202e+09}   # T3.43L_p1
+      - {section: duct12, profile: [[55.0,1.3915,3.43],[85.0,1.3915,3.43]], extent: [55.0, 85.0], prestress: 1.202e+09}   # T3.43R_p1
+      - {section: duct12, profile: [[55.0,1.3915,-3.19],[85.0,1.3915,-3.19]], extent: [55.0, 85.0], prestress: 1.202e+09}   # T3.19L_p1
+      - {section: duct12, profile: [[55.0,1.3915,3.19],[85.0,1.3915,3.19]], extent: [55.0, 85.0], prestress: 1.202e+09}   # T3.19R_p1
+      - {section: duct12, profile: [[61.0,1.3915,-2.9],[79.0,1.3915,-2.9]], extent: [61.0, 79.0], prestress: 1.182e+09}   # T2.9L_p1
+      - {section: duct12, profile: [[61.0,1.3915,2.9],[79.0,1.3915,2.9]], extent: [61.0, 79.0], prestress: 1.182e+09}   # T2.9R_p1
+      - {section: duct12, profile: [[61.0,1.3915,-2.62],[79.0,1.3915,-2.62]], extent: [61.0, 79.0], prestress: 1.182e+09}   # T2.62L_p1
+      - {section: duct12, profile: [[61.0,1.3915,2.62],[79.0,1.3915,2.62]], extent: [61.0, 79.0], prestress: 1.182e+09}   # T2.62R_p1
+      - {section: duct12, profile: [[61.0,1.3915,-2.38],[79.0,1.3915,-2.38]], extent: [61.0, 79.0], prestress: 1.182e+09}   # T2.38L_p1
+      - {section: duct12, profile: [[61.0,1.3915,2.38],[79.0,1.3915,2.38]], extent: [61.0, 79.0], prestress: 1.182e+09}   # T2.38R_p1
+      - {section: duct12, profile: [[108.0,1.3915,-5.16],[172.0,1.3915,-5.16]], extent: [108.0, 172.0], prestress: 1.207e+09}   # T5.16L_p2
+      - {section: duct12, profile: [[108.0,1.3915,5.16],[172.0,1.3915,5.16]], extent: [108.0, 172.0], prestress: 1.207e+09}   # T5.16R_p2
+      - {section: duct12, profile: [[108.0,1.3915,-4.88],[172.0,1.3915,-4.88]], extent: [108.0, 172.0], prestress: 1.207e+09}   # T4.88L_p2
+      - {section: duct12, profile: [[108.0,1.3915,4.88],[172.0,1.3915,4.88]], extent: [108.0, 172.0], prestress: 1.207e+09}   # T4.88R_p2
+      - {section: duct12, profile: [[118.0,1.3915,-4.6],[162.0,1.3915,-4.6]], extent: [118.0, 162.0], prestress: 1.208e+09}   # T4.6L_p2
+      - {section: duct12, profile: [[118.0,1.3915,4.6],[162.0,1.3915,4.6]], extent: [118.0, 162.0], prestress: 1.208e+09}   # T4.6R_p2
+      - {section: duct12, profile: [[118.0,1.3915,-4.35],[162.0,1.3915,-4.35]], extent: [118.0, 162.0], prestress: 1.208e+09}   # T4.35L_p2
+      - {section: duct12, profile: [[118.0,1.3915,4.35],[162.0,1.3915,4.35]], extent: [118.0, 162.0], prestress: 1.208e+09}   # T4.35R_p2
+      - {section: duct12, profile: [[118.0,1.3915,-4.07],[162.0,1.3915,-4.07]], extent: [118.0, 162.0], prestress: 1.208e+09}   # T4.07L_p2
+      - {section: duct12, profile: [[118.0,1.3915,4.07],[162.0,1.3915,4.07]], extent: [118.0, 162.0], prestress: 1.208e+09}   # T4.07R_p2
+      - {section: duct12, profile: [[125.0,1.3915,-3.67],[155.0,1.3915,-3.67]], extent: [125.0, 155.0], prestress: 1.202e+09}   # T3.67L_p2
+      - {section: duct12, profile: [[125.0,1.3915,3.67],[155.0,1.3915,3.67]], extent: [125.0, 155.0], prestress: 1.202e+09}   # T3.67R_p2
+      - {section: duct12, profile: [[125.0,1.3915,-3.43],[155.0,1.3915,-3.43]], extent: [125.0, 155.0], prestress: 1.202e+09}   # T3.43L_p2
+      - {section: duct12, profile: [[125.0,1.3915,3.43],[155.0,1.3915,3.43]], extent: [125.0, 155.0], prestress: 1.202e+09}   # T3.43R_p2
+      - {section: duct12, profile: [[125.0,1.3915,-3.19],[155.0,1.3915,-3.19]], extent: [125.0, 155.0], prestress: 1.202e+09}   # T3.19L_p2
+      - {section: duct12, profile: [[125.0,1.3915,3.19],[155.0,1.3915,3.19]], extent: [125.0, 155.0], prestress: 1.202e+09}   # T3.19R_p2
+      - {section: duct12, profile: [[131.0,1.3915,-2.9],[149.0,1.3915,-2.9]], extent: [131.0, 149.0], prestress: 1.182e+09}   # T2.9L_p2
+      - {section: duct12, profile: [[131.0,1.3915,2.9],[149.0,1.3915,2.9]], extent: [131.0, 149.0], prestress: 1.182e+09}   # T2.9R_p2
+      - {section: duct12, profile: [[131.0,1.3915,-2.62],[149.0,1.3915,-2.62]], extent: [131.0, 149.0], prestress: 1.182e+09}   # T2.62L_p2
+      - {section: duct12, profile: [[131.0,1.3915,2.62],[149.0,1.3915,2.62]], extent: [131.0, 149.0], prestress: 1.182e+09}   # T2.62R_p2
+      - {section: duct12, profile: [[131.0,1.3915,-2.38],[149.0,1.3915,-2.38]], extent: [131.0, 149.0], prestress: 1.182e+09}   # T2.38L_p2
+      - {section: duct12, profile: [[131.0,1.3915,2.38],[149.0,1.3915,2.38]], extent: [131.0, 149.0], prestress: 1.182e+09}   # T2.38R_p2
+  # [ux, uy, uz, rx, ry, rz] in the LOCAL frame of the link, whose x runs from
+  # the girder node DOWN to the pier top. `orientation: [1, 0, 0]` puts local
+  # y along the bridge, so ux is the bearing's VERTICAL stiffness, uy its
+  # longitudinal one and rz the rotation about the transverse axis -- the one
+  # a pot releases. The numbers are case_24e's, and case_24e's header says
+  # where they came from and what they are worth.
+  fixed_pot:
+    type: connector
+    material: concrete
+    stiffness: [5.0e+10, 1.0e+9, 1.0e+10, 1.0e+10, 1.0e+10, 1.0e+7]
+  sliding_pot:
+    type: connector
+    material: concrete
+    stiffness: [5.0e+10, 7.1e+7, 1.0e+10, 1.0e+10, 1.0e+10, 1.0e+7]
+
+assign:
+  - {region: girder, section: girder, orientation: [0, 0, 1]}
+  # the shaft's local y is the LONGITUDINAL direction, so the section's
+  # 2.60-4.00 m depth is the one that bends in the plane of the frame
+  - {region: pier1_seg1, section: pier1, orientation: [1, 0, 0]}
+  - {region: pier2_seg1, section: pier1, orientation: [1, 0, 0]}
+  - {region: pier1_seg2, section: pier2, orientation: [1, 0, 0]}
+  - {region: pier2_seg2, section: pier2, orientation: [1, 0, 0]}
+  - {region: pier1_seg3, section: pier3, orientation: [1, 0, 0]}
+  - {region: pier2_seg3, section: pier3, orientation: [1, 0, 0]}
+  - {region: pier1_seg4, section: pier4, orientation: [1, 0, 0]}
+  - {region: pier2_seg4, section: pier4, orientation: [1, 0, 0]}
+  - {region: pier1_seg5, section: pier5, orientation: [1, 0, 0]}
+  - {region: pier2_seg5, section: pier5, orientation: [1, 0, 0]}
+  - {region: pier1_seg6, section: pier6, orientation: [1, 0, 0]}
+  - {region: pier2_seg6, section: pier6, orientation: [1, 0, 0]}
+  - {region: bearing_1, section: fixed_pot, orientation: [1, 0, 0], coordinate_system: local}
+  - {region: bearing_2, section: sliding_pot, orientation: [1, 0, 0], coordinate_system: local}
+
+regions:
+  # each box owns exactly one complete Line2: the bearing link, 0.5 m tall
+  # directly under a pier node. The first pier-shaft element starts at -0.5
+  # and runs to -2.42, so the z band excludes it.
+  bearing_1: {box: [69.0, 71.0, -1.0, 1.0, -0.6, 0.1]}
+  bearing_2: {box: [139.0, 141.0, -1.0, 1.0, -0.6, 0.1]}
+  # the z band is tight so that no PIER element's midpoint falls in it
+  middle_span: {box: [69.99, 140.01, -1.0, 1.0, -0.4, 0.4]}
+  piers: {union: [pier_1, pier_2]}
+  # ONE BOX PER PIER PER ELEMENT, generated from THIS case's own mesh.
+  # The x window is +-1 m of the pier line, because a band that spanned the
+  # deck would own the GIRDER elements at z = 0 wherever the pier top IS a
+  # girder node (case_24d). Each box holds two consecutive pier nodes.
+  pier1_seg1: {box: [69.0, 71.0, -1.0, 1.0, -2.4467, -0.4700]}
+  pier2_seg1: {box: [139.0, 141.0, -1.0, 1.0, -2.4467, -0.4700]}
+  pier1_seg2: {box: [69.0, 71.0, -1.0, 1.0, -4.3633, -2.3867]}
+  pier2_seg2: {box: [139.0, 141.0, -1.0, 1.0, -4.3633, -2.3867]}
+  pier1_seg3: {box: [69.0, 71.0, -1.0, 1.0, -6.2800, -4.3033]}
+  pier2_seg3: {box: [139.0, 141.0, -1.0, 1.0, -6.2800, -4.3033]}
+  pier1_seg4: {box: [69.0, 71.0, -1.0, 1.0, -8.1967, -6.2200]}
+  pier2_seg4: {box: [139.0, 141.0, -1.0, 1.0, -8.1967, -6.2200]}
+  pier1_seg5: {box: [69.0, 71.0, -1.0, 1.0, -10.1133, -8.1367]}
+  pier2_seg5: {box: [139.0, 141.0, -1.0, 1.0, -10.1133, -8.1367]}
+  pier1_seg6: {box: [69.0, 71.0, -1.0, 1.0, -12.0300, -10.0533]}
+  pier2_seg6: {box: [139.0, 141.0, -1.0, 1.0, -12.0300, -10.0533]}
+constraints:
+  - {region: all, dofs: [0, 1, 0, 1, 0, 1]}         # a plane frame
+  # THE PIERS NOW CARRY THE UNIT. Both abutments are rollers -- the pin moved
+  # to the piers, which is where a real unit is fixed, except that here BOTH
+  # of them are fixed because there is no sliding bearing (see the header).
+  - {region: left, dofs: [0, 1, 1, 1, 0, 1]}
+  - {region: right, dofs: [0, 1, 1, 1, 0, 1]}
+  - {region: pier_base, dofs: [1, 1, 1, 1, 1, 1]}   # the cap on 9 phi 1.5 piles
+loads:
+  # `hold` = full value from t = 0. WITHOUT IT the default ramps the dead
+  # load from zero over the earthquake, on top of a restart that already
+  # carries its deflection -- the girder would rise and then be loaded again.
+  - {region: girder, line_load: [0.0, 0.0, -3.58e+5], amplitude: hold}   # q_d1 + q_d2
+  # LONGITUDINAL shaking: the direction the fixed pier has to take.
+  # Add a second entry with direction [0, 0, 1] for the vertical component.
+  # EL CENTRO 1940 NS -- it was already in this repo (`case_05` uses it):
+  # 1560 samples, dt 0.02 s, 31.18 s, PGA 0.3188 g at t = 2.02 s.
+  # THE FILE IS IN UNITS OF g, so `scale: 9.80665` is what converts it to
+  # m/s^2 -- leave it out and the unit is shaken at a tenth of gravity's
+  # share and everything looks reassuringly small.
+  - {region: all, ground_motion: {path: ../benchmarks/assets/elcentro_1940_ns_g.dat,
+                                  direction: [1, 0, 0], scale: 9.80665}}
+steps:
+- {name: quake}
+
+solver:
+  backend: numpy          # promoted to the numba fused kernel automatically
+  mode: dynamic
+  # the dead + prestress state case_24f leaves, at rest (relative to this file)
+  initial_state: ../results/case_24f_hzb_girder_bearings.h5
+  # dt = 4.2060e-5 s, 741 323 steps (literature pier; the solid
+  # shaft's was 1.1833e-4 and 263 507). The bound is `ux` at the pier-top
+  # node, half a pier element on a 4.4x stiffer shaft. The two bearing
+  # connectors' finite-difference Jacobian was 80% of each step until
+  # v0.4 stacked its 25 evaluations into one call: 12.6 -> 3.3 ms a step,
+  # the fibre kernel is now 62% of it and the connectors 24%.
+  total_time: 31.18
+  # alpha * M * v only. 0.30 1/s is ~2.4% of critical at 1 Hz; set it from the
+  # first period this unit actually has (`python -m vfife modal ...`), do not
+  # copy this number.
+  damping: {type: rayleigh, alpha: 0.30}
+output:
+  path: results/_hzb_seismic.h5
+  # OUTPUT IS THE COST HERE, NOT THE SOLVE. `every` governs the field frames
+  # AND the monitor samples together (one `_record`), and `fiber_stress` +
+  # `fiber_damage` are 56 x 324 x 3 doubles each -- 0.87 MB a frame against
+  # about 0.01 MB for everything else. At `every: 40` that is 6588 frames and
+  # ~5.9 GB, which is what killed the first attempt at this run.
+  #   every: 200  -> 1318 frames, monitors at 42 Hz, on the solid shaft's step;
+  #                  on the literature pier's 4.21e-5 s it is 3707 records at 119 Hz (this)
+  #   every:  40  -> drop fiber_stress/fiber_damage and it is ~70 MB total,
+  #                  monitors at 340 Hz, but `vfife sweep` has nothing to paint
+  every: 200
+  fields: [displacement, rotation, reaction_force, end_actions, fiber_stress, fiber_damage,
+           connector_flag, connector_force_x, connector_force_y,
+           connector_deformation_ux, connector_deformation_uy, connector_deformation_rz]
+  monitors:
+    w_mid_middle: {kind: displacement, region: mid_middle, dof: z}
+    w_mid_side: {kind: displacement, region: mid_side, dof: z}
+    w_40m: {kind: displacement, region: side_40m, dof: z}
+    R_pier_1: {kind: reaction, region: pier_1, dof: z}
+    N_pier_base: {kind: reaction, region: pier_base, dof: z}
+    H_pier_base: {kind: reaction, region: pier_base, dof: x}
+    u_pier_top: {kind: displacement, region: pier_1, dof: x}
+    R_left: {kind: reaction, region: left, dof: z}
+    # Fig. 6.29: the extreme-fibre strains, top (deck) and bottom (soffit)
+    eps_side_top: {kind: fiber, region: mid_side, field: strain, at: [1.5215, 0.0]}
+    eps_side_bot: {kind: fiber, region: mid_side, field: strain, at: [-2.4785, 0.0]}
+    eps_mid_top: {kind: fiber, region: mid_middle, field: strain, at: [1.5215, 0.0]}
+    eps_mid_bot: {kind: fiber, region: mid_middle, field: strain, at: [-2.4785, 0.0]}
+    eps_pier_top: {kind: fiber, region: pier_1, field: strain, at: [1.5215, 0.0]}
+    eps_pier_bot: {kind: fiber, region: pier_1, field: strain, at: [-2.4785, 0.0]}
+    sig_mid_bot: {kind: fiber, region: mid_middle, field: stress, at: [-2.4785, 0.0]}

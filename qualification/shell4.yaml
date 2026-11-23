@@ -1,0 +1,13 @@
+version: 1
+kind: element
+name: shell4
+target_level: verified
+evidence:
+  - category: rigid_body
+    reference: tests/test_shell4.py::test_finite_rigid_translation_and_rotation_produce_no_internal_force
+  - category: fundamental_response
+    reference: tests/test_shell4.py::test_clamped_thin_square_plate_converges_to_classical_solution_without_locking
+  - category: equilibrium
+    reference: verification/case_10_clamped_square_shell.yaml
+  - category: mixed_assembly
+    reference: tests/test_shell4.py::test_shell_beam_shared_dof_assembly_adds_both_physical_blocks

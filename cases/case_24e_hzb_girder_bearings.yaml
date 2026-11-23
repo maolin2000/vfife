@@ -1,0 +1,173 @@
+# What a bearing is worth: the Hangzhou Bay 3 x 70 m unit with pot bearings
+# instead of a monolithic pier-girder joint.
+#
+# THE NUMBER THIS CASE EXISTS TO PRODUCE. Version 0.4 built `case_24d` --
+# the same unit with real piers -- and measured a cost nobody had asked for:
+# the girder shortens under prestress, the piers are rigidly attached and are
+# dragged with it, they lean, and the moment they hand back DOUBLES the
+# middle-span dead-load deflection (-9.11 mm on rollers, -18.99 mm monolithic)
+# while inventing 11.4 mm of pier-top sway. A real 70 m unit does not do that,
+# because it sits on POT BEARINGS: one pier fixed, the rest sliding, and the
+# shortening goes into the bearing instead of into the pier.
+#
+# `case_24d` could not have bearings. A bearing is a `connector2` between two
+# nodes, and the fibre-beam solver cannot host one. So this case is the
+# ELASTIC TWIN -- same geometry, same section properties, same dead load, on
+# the `mixed_line` solver, which has hosted `beam2` and `connector2` together
+# since case_03 -- and its job is to PRICE the bearing before the fibre solver
+# is taught to hold one. The rule it follows is v0.4's own: build a cheap control
+# first, so that the argument for the next step is a number and not a
+# sentence.
+#
+# WHAT IS ELASTIC AND WHAT THAT COSTS. The girder and piers are `beam2`
+# members carrying the FIBRE sections' own A, Iy, Iz and J, read straight out
+# of `case_24d`'s assembled model (A = 9.8715 m2, Iz = 22.2393 m4 for the
+# girder; 11.3175 and 3.0536 for the pier), and E is concrete02's initial
+# tangent 2 fpc / epsc0 = 34.105 GPa. So the two models have the same
+# stiffness at the dead-load state, which is where this comparison is made.
+# They part company as soon as anything cracks -- this case must never be
+# read as a collapse model, and it carries no live load for that reason.
+#
+# THE PRESTRESS IS A FREE STRAIN, NOT A TENDON. `beam2` has no tendons, and it
+# does not need them here: the mechanism being priced is the girder's axial
+# SHORTENING meeting something that resists it. So the tendons are replaced by
+# their own axial free strain, read off `case_24d`'s prestrain array element by
+# element and length-averaged: -2.5152e-4, i.e. 52.8 mm of free shortening over
+# the 210 m unit. `thermal_expansion: 1.0` on the concrete so the `uniform`
+# number IS that strain and nothing has to be divided by an alpha.
+#
+# AND THE ANSWER IS READ AS A DIFFERENCE, which is what makes the missing
+# tendon eccentricity harmless. Step 1 is the dead load alone; step 2 adds the
+# shortening. The bearing's worth is `w(step 2) - w(step 1)` -- the deflection
+# the shortening CAUSES -- and every part of the prestress this model leaves
+# out (the eccentricity, the drape, the hogging over the piers) is in both
+# frames and cancels.
+#
+# THE BEARING NUMBERS ARE ASSUMED, and are the only assumed numbers here:
+#
+#   vertical      5.0e10 N/m    a large pot under a 26 MN reaction; THE
+#                               sensitive one -- see the sweep in --check
+#   longitudinal  1.0e9  N/m    FIXED bearing: the pot wall and its guide
+#                 7.1e7  N/m    SLIDING: PTFE friction as a secant,
+#                               mu N / slip = 0.03 x 26 MN / 11 mm
+#   rotation      1.0e7  N.m/rad   a pot rotates nearly freely; that is what
+#                                  it is for
+#
+# No source states any of them for these piers. They are swept in
+# tests/test_hzb_bearings.py and the sweep is the honest reading of this case:
+# what matters is not their values but that ONE pier is fixed and the other
+# slides.
+#
+# WHY ONE FIXED AND ONE SLIDING, and it is not a detail. Both abutments are
+# longitudinal rollers (as in case_24d). If BOTH bearings slid freely the
+# girder would have no longitudinal restraint at all -- a rigid-body mode, and
+# the solver would say so. A real unit fixes exactly one pier for exactly this
+# reason, and that is why the answer below is not simply "the bearing removes
+# the penalty".
+#
+#   python benchmarks/generate_hzb_girder.py
+
+version: 1
+name: case_24e_hzb_girder_bearings
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/hzb_girder_3span_14_bearings.msh}
+
+materials:
+  # E = 2 fpc / epsc0 of case_24d's concrete02, i.e. its initial tangent.
+  # alpha = 1.0 is bookkeeping, not physics: it makes a `uniform` temperature
+  # the free axial strain itself (see the header).
+  concrete: {type: linear_elastic, E: 3.4105e+10, nu: 0.2, rho: 2500.0,
+             thermal_expansion: 1.0}
+
+sections:
+  # A, Iy, Iz, J read out of case_24d's own assembled fibre model, so the two
+  # are the same beam at the dead-load state.
+  girder: {type: beam, material: concrete, shape: general,
+           area: 9.8715, iz: 22.2393, iy: 128.8304, j: 29.5100}
+  # HOLLOW AND TAPERED, 6.25 m across the bridge x 2.60 -> 4.00 along it,
+  # walls 0.50. This twin is prismatic, so it
+  # takes the section at mid-height. v0.4's back-calculated solid
+  # 6.25 x 1.80 read iz = 3.0536 -- 4.4x too soft ALONG the bridge, and
+  # right to 8% across it.
+  pier:   {type: beam, material: concrete, shape: general,
+           area: 8.5500, iz: 13.3941, iy: 39.4039, j: 30.3170}
+  # [ux, uy, uz, rx, ry, rz] in the LOCAL frame of the link, whose x runs from
+  # the girder node DOWN to the pier top. So local x is vertical and local y/z
+  # are horizontal: `orientation: [1, 0, 0]` puts local y along the bridge.
+  # Hence ux = the bearing's VERTICAL stiffness and uy = its longitudinal one,
+  # and rz is the rotation about the transverse axis -- the one a pot releases.
+  fixed_pot:
+    type: connector
+    material: concrete
+    stiffness: [5.0e+10, 1.0e+9, 1.0e+10, 1.0e+10, 1.0e+10, 1.0e+7]
+  sliding_pot:
+    type: connector
+    material: concrete
+    stiffness: [5.0e+10, 7.1e+7, 1.0e+10, 1.0e+10, 1.0e+10, 1.0e+7]
+
+assign:
+- {region: girder, section: girder, orientation: [0, 0, 1]}
+- {region: pier_shafts, section: pier, orientation: [1, 0, 0]}
+- {region: bearing_1, section: fixed_pot, orientation: [1, 0, 0], coordinate_system: local}
+- {region: bearing_2, section: sliding_pot, orientation: [1, 0, 0], coordinate_system: local}
+
+regions:
+  # the two bearing links, each 0.5 m tall directly under a pier node. The z
+  # band stops above the first pier-shaft element (which starts at -0.5 and
+  # runs to -2.42), and the x band is narrower than a girder element, so each
+  # box owns exactly one complete Line2.
+  bearing_1: {box: [69.0, 71.0, -1.0, 1.0, -0.6, 0.1]}
+  bearing_2: {box: [139.0, 141.0, -1.0, 1.0, -0.6, 0.1]}
+
+constraints:
+- {region: all, dofs: [0, 1, 0, 1, 0, 1]}         # a plane frame, as case_24d
+- {region: left, dofs: [0, 1, 1, 1, 0, 1]}        # both abutments are rollers
+- {region: right, dofs: [0, 1, 1, 1, 0, 1]}
+- {region: pier_base, dofs: [1, 1, 1, 1, 1, 1]}   # the cap on 9 phi 1.5 piles
+
+loads:
+- {region: girder, line_load: [0.0, 0.0, -3.58e+5]}      # q_d1 + q_d2, as case_24d
+
+steps:
+# ONE load stage each, so that the record is exactly two frames and the
+# contract can read `reduction: delta` -- which IS the number this case exists
+# to produce: what the prestress shortening costs the middle span. Step 1 is
+# the dead load alone; step 2 adds the shortening. Every part of the prestress
+# this model leaves out (the eccentricity, the drape, the hogging over the
+# piers) is in BOTH frames and cancels out of the difference.
+- {name: dead, load_steps: 1, max_steps_per_load: 40000}
+- name: shortening
+  loads:
+  - {region: girder, temperature: {uniform: -2.5152e-4}}
+  load_steps: 1
+  max_steps_per_load: 40000
+
+solver:
+  mode: relaxation
+  backend: numpy
+  n_steps: 500000
+  damping: {type: kinetic}
+  tolerance: 1.0e-5
+  kinetic_tolerance: 1.0e-9
+  # EXPLICIT, and this case is why. The default stage ramp is
+  # `max_steps_per_load // 5`, and a stage cannot converge before it -- so
+  # RAISING the iteration budget makes a case slower, not faster. This one was
+  # sitting at a residual of 1e-9 against a tolerance of 1e-5 for forty
+  # thousand iterations because the budget had been raised to 200 000. Nothing
+  # here is path dependent, so the ramp only has to be long enough not to
+  # shock the explicit integrator.
+  stage_ramp_iterations: 500
+
+output:
+  path: results/case_24e_hzb_girder_bearings.h5
+  every: 1
+  fields: [displacement, rotation, reaction_force, end_actions,
+           connector_deformation_ux, connector_deformation_uy]
+  monitors:
+    w_mid_middle: {kind: displacement, region: mid_middle, dof: z}
+    w_mid_side: {kind: displacement, region: mid_side, dof: z}
+    u_pier_1: {kind: displacement, region: pier_1, dof: x}
+    u_pier_2: {kind: displacement, region: pier_2, dof: x}
+    N_pier_base: {kind: reaction, region: pier_base, dof: z}
+    H_pier_base: {kind: reaction, region: pier_base, dof: x}
+    R_left: {kind: reaction, region: left, dof: z}

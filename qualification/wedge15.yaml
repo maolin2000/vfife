@@ -1,0 +1,11 @@
+version: 1
+kind: element
+name: wedge15
+target_level: verified
+evidence:
+  - category: rigid_body
+    reference: tests/test_wedge15.py::test_wedge15_shape_partition_and_corner
+  - category: fundamental_response
+    reference: tests/test_wedge15.py::test_wedge15_quadrature_volume
+  - category: equilibrium
+    reference: tests/test_wedge15.py::test_wedge15_uniaxial_tension_via_nodal_forces

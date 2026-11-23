@@ -1,0 +1,199 @@
+version: 1
+case: case_28d_confederation_sdl
+classification: independent_reference
+reference: >-
+  Ghali, A., Elbadry, M. & Megally, S. (2000), "Two-year deflections of the
+  Confederation Bridge", Can. J. Civ. Eng. 27: 1139-1149, p. 1147: the
+  superimposed dead load of 54 kN/m placed in April 1997 produces, in the
+  authors' own program CPF, "about 70 mm instantaneous deflection at mid span
+  and 80 mm at cantilever tips". Digitised figures and the full caveats are in
+  verification/Ghali2000_confederation_longterm.txt. The numeric targets below
+  are the independent plane frame in benchmarks/generate_confederation.py,
+  because "about 70" cannot carry a tolerance; the published pair is what says
+  the plane frame is solving the right problem.
+
+# --------------------------------------------------------------------------- #
+#  THE ONE INCREMENT OF A TWO-YEAR RECORD THAT IS FULLY SPECIFIED
+# --------------------------------------------------------------------------- #
+#  Ghali's Fig. 20 is 669 days of deflection against three analyses. None of
+#  the three is reproducible: they carry the erection sequence, the external
+#  tendons and their friction losses, and steel relaxation, and this paper
+#  publishes neither the dates nor the forces. What it does publish is one
+#  load -- 54 kN/m, placed about 40 days after the reference reading -- and
+#  what its own analysis makes of it. That is this case.
+#
+#                          Ghali's analysis   plane frame   this model
+#     midspan                   ~70 mm          65.8 mm      66.2 mm
+#     cantilever tips           ~80             89.0 / 89.9  89.3 / 90.3
+#
+#  Six percent low at midspan and twelve percent high at the tips, against a
+#  number the paper writes as "about". The two disagreements have opposite
+#  sign, so this is a shape difference of about 18% between two idealisations
+#  of the same frame, not a scale error: Ghali puts the girder nodes on a
+#  straight axis 1.52 m below the deck with explicit centroid offsets, and a
+#  beam element without offsets can only sit on one line or the other. Put the
+#  nodes on his line instead (`axis="reference"`, which drops the offsets) and
+#  the pair becomes 72.9 / 81.8 -- both within 4% -- while case_28's trucks go
+#  from 16.9 mm to 22.4 against 17.1 measured. Neither idealisation wins both,
+#  they bracket, and this case keeps the SAME choice case_28 made so that the
+#  two are comparable.
+#
+#  WHAT THE TIPS ARE ACTUALLY TESTING is whether the drop-in beam reaction is
+#  there at all. Each overhang tip carries V = 1620 kN from half a simply
+#  supported 60 m drop-in beam under the same 54 kN/m -- the V of Ghali's own
+#  Fig. 9. Without it the tips take 28 mm and midspan 104, which reproduces
+#  neither number and would not be caught by a midspan-only contract.
+#
+# --------------------------------------------------------------------------- #
+#  AND THEN THE HALF THAT IS EXACT
+# --------------------------------------------------------------------------- #
+#  One load, one material, supports that do not move: the whole local
+#  stiffness is scaled by one scalar at every station, so the answer is not
+#  approximately but EXACTLY
+#
+#       every displacement x (1 + phi Ec(t0)/Ec28)    every internal force unchanged
+#
+#  phi(1030, 400) = 0.53305 comes from `core.creep.mc90` with the case's own
+#  parameters, and MC90 references it to the 28-DAY modulus:
+#  J(t, t0) = 1/Ec(t0) + phi/Ec28. With E = Ec(400) = 46.51 GPa declared and
+#  E28 = 38.7 GPa the factor is 1 + 0.53305 x 46.51/38.7 = 1.64063. Until
+#  v1.0 it was 1 + phi = 1.53305 -- phi taken against the modulus at
+#  loading, the creep part 17% low.
+#
+#  This is the same statement case_29 makes on a bar, moved onto a structure
+#  that is three times redundant. The move matters: a bar cannot redistribute
+#  even if the implementation is wrong, so case_29 cannot fail the way a
+#  frame can. Here the displacement monitors grow by 1.6418 (midspan),
+#  1.6399 / 1.6397 (tips), 1.6424 and 1.6393 (quarter points) against
+#  1.64063, and the largest bending moment anywhere in the model sits at
+#  397.8 MN m from the instant the load arrives to 630 days later.
+#
+#  REFINING THE TIME AXIS DOES NOT MAKE IT WORSE, which is the whole point of
+#  the implicit station step: with 1 + phi, 6, 12 and 24
+#  stations gave 1.53400, 1.53396 and 1.53394 -- moving TOWARDS the exact
+#  1.53305. The 0.06-0.1% that remains is the time discretisation plus the
+#  1e-4 relaxation tolerance.
+#
+#  There is no shrinkage in the case, deliberately: it belongs to the bridge's
+#  clock rather than to this load, and it is the one thing that would break
+#  both exact statements. case_29c is where it is checked instead.
+
+metrics:
+  - id: the_superimposed_dead_load_at_midspan
+    description: >-
+      65.8 mm from the plane frame, 66.2 from the solver, against Ghali's
+      "about 70". A stated load on a published geometry with no calibrated
+      quantity anywhere in it -- E is the measured Ec(28) aged by the s = 0.25
+      Ghali fitted to his own moduli.
+    source: monitor
+    name: w_mid
+    reduction: first
+    expect: {target: -0.0658, rtol: 0.04}
+
+  - id: and_at_the_west_cantilever_tip
+    description: >-
+      89.0 mm from the plane frame, against Ghali's "about 80". The tip is the
+      monitor that knows whether the 1620 kN drop-in beam reaction was applied:
+      without it this reads 28 mm.
+    source: monitor
+    name: w_tip_west
+    reduction: first
+    expect: {target: -0.0890, rtol: 0.04}
+
+  - id: the_east_tip_is_one_percent_softer
+    description: >-
+      89.9 mm. The same load and the same overhang, on a pier 7.6 m taller --
+      which is worth 1%, where under a uniform temperature rise (case_28c) the
+      same pier difference is worth 12%. This load barely bends the piers.
+    source: monitor
+    name: w_tip_east
+    reduction: first
+    expect: {target: -0.0899, rtol: 0.04}
+
+  - id: the_load_that_was_applied_is_the_load_that_arrives_at_the_ground
+    description: >-
+      54 kN/m over 440 m plus 2 x 1620 kN = 27.00 MN, against 27.05 summed
+      over both pier bases. The line load and the two point loads are entered
+      separately and by different mechanisms, so this is the metric that
+      catches one of them being dropped.
+    source: monitor
+    name: R_total
+    reduction: first
+    expect: {target: 2.700e+7, rtol: 0.01}
+
+  - id: midspan_creeps_by_exactly_one_plus_phi
+    description: >-
+      65.8 x 1.64063 = 108.0 mm at 630 days (108.7 from the solver). Not a
+      fitted growth: phi(1030, 400) = 0.53305 is MC90 evaluated at the case's
+      own notional size, humidity and fcm, referenced to Ec28 as MC90 defines
+      it -- 1 + phi Ec(400)/Ec28 = 1 + 0.53305 x 46.51/38.7 -- and on a
+      structure with one material and fixed supports the amplification is
+      exact. Was 65.8 x (1 + phi) = 100.9 until v1.0, phi against
+      the modulus at loading.
+    source: monitor
+    name: w_mid
+    reduction: final
+    expect: {target: -0.1080, rtol: 0.02}
+
+  - id: and_so_does_the_cantilever_tip
+    description: >-
+      89.0 x 1.64063 = 146.0 mm (136.4 with 1 + phi before v1.0).
+      THE POINT IS THAT IT IS THE SAME FACTOR: the
+      deflected shape is preserved, which is what says the creep history is
+      kept per member and applied as a free strain. A creep strain applied as
+      a load would change the shape of a redundant frame, and midspan alone
+      could not tell.
+    source: monitor
+    name: w_tip_west
+    reduction: final
+    expect: {target: -0.1460, rtol: 0.02}
+
+  - id: and_the_pier_top_moves_by_it_too
+    description: >-
+      2.63 mm at the instant of loading, 4.29 at 630 days -- a factor of
+      1.632 against 1.641. A horizontal displacement, driven by a vertical
+      load through the frame's redundancy, growing by the same scalar as the
+      vertical ones (4.01 with 1 + phi before v1.0).
+    source: monitor
+    name: ux_p31
+    reduction: final
+    expect: {target: 0.00429, rtol: 0.03}
+
+  - id: the_shape_of_the_creep_curve_not_only_its_end
+    description: >-
+      65.8 x (1 + phi(687, 400) x 46.51/38.7) = 65.8 x 1.53339 = 100.9 mm
+      at a concrete age of 687 days, which is 327 days after the reference
+      reading -- the date of Ghali's Fig. 18. Twelve log-spaced stations can
+      land on the right endpoint by luck; reading the curve in the middle is
+      what says the superposition was integrated and not accumulated. (95.0
+      with 1 + phi before v1.0.)
+    source: monitor
+    name: w_mid
+    reduction: at
+    against: age
+    value: 687.0
+    expect: {target: -0.1009, rtol: 0.03}
+
+  - id: no_internal_force_moves_in_six_hundred_and_thirty_days
+    description: >-
+      397.7 MN m over the pier from the plane frame; the model sits at 397.8
+      in the last frame. On a determinate member this is trivial (case_29);
+      on a frame that is three times redundant it is the statement that creep
+      is a free strain and not a load. `peak_abs`: it is a HOGGING moment,
+      negative since the member forces are signed, and `max`
+      of the signed field read the largest sagging moment, 46.0 MN m.
+    source: field
+    name: bending_z
+    reduction: peak_abs
+    expect: {target: 3.977e+8, rtol: 0.01}
+
+  - id: and_it_did_not_move_at_any_station_on_the_way
+    description: >-
+      the same 397.7 MN m as the maximum over ALL thirteen frames, so it is
+      not merely equal at the two ends of the analysis. An implementation that
+      redistributed and came back would pass the metric above and fail this.
+    source: field
+    name: bending_z
+    frame: all
+    reduction: peak_abs
+    expect: {target: 3.977e+8, rtol: 0.01}

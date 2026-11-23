@@ -1,0 +1,110 @@
+version: 1
+classification: analytical
+case: case_14_draped_tendon_balance
+reference: >-
+  Lin's load balancing (1963): a parabolic tendon of force P and sag a in a
+  span L applies an upward uniform load w = 8 P a / L^2, so a downward uniform
+  load of the same size leaves the member with no bending at all. Camber at
+  transfer against 5 w L^4 / (384 EI) on the gross section.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CONTRACT ASSERTS, AND WHY IT IS THE TEST FOR A CURVED TENDON
+# --------------------------------------------------------------------------- #
+#  8.0 x 0.30 x 0.60 m simply supported, four strands on a parabola from the
+#  centroid at each end to 0.20 m below it at midspan, effective 1000 MPa.
+#
+#      midspan at transfer                    +3.1947 mm
+#      midspan under w = 8 P a / L^2          +0.0080 mm     0.25% of it
+#      5 w L^4 / (384 EI), gross section       3.3918 mm
+#      tendon after transfer                 973.0 MPa, 467.1 kN, 2.7% loss
+#
+#  THE UPLIFT IS THE PROFILE. A prestressed bar exerts a transverse force only
+#  where it changes direction, so this deflection is produced entirely by the
+#  angle between consecutive bar segments -- the control points, the arc-length
+#  sampling that places the nodes, and the direction each segment's force acts
+#  in. A straight tendon cannot fail this test because it has no curvature to
+#  get wrong. That is why `path` is verified here and not by
+#  checking coordinates.
+#
+#  AND THE BALANCE IS TWENTY TIMES BETTER THAN EITHER DEFLECTION. The camber is
+#  5.8% below beam theory: six b-bar hexahedra through the depth, which
+#  v0.1 measured at -4.4% on a constant-moment beam, plus this one's
+#  shear. Both the camber and the load's deflection carry that same error and
+#  it cancels in the difference, so `balanced_midspan` below is held to a
+#  fraction of the camber rather than to an absolute number -- it is the
+#  quantity the mesh does not pollute.
+#
+#  THE LOAD IS A BODY FORCE, deliberately. The same total on the top face as
+#  nodal `vector` forces is spread equally over the face's nodes, which gives
+#  the two end columns a full share where a consistent lumping gives them half
+#  and sends about 3% of the bending straight into the supports. Measured, that
+#  left 0.124 mm of camber instead of 0.008 -- a fifteenfold difference in what
+#  this case is measuring, produced entirely by how the load was written.
+
+metrics:
+  - id: camber_at_transfer
+    description: >-
+      Midspan camber after transfer, against 5 w L^4/(384 EI) = 3.39 mm with
+      w = 8 P a / L^2 from the tendon force the solver leaves after elastic
+      shortening
+    source: monitor
+    name: mid
+    reduction: max
+    expect: {target: 3.1947e-3, rtol: 0.02}
+
+  - id: balanced_midspan
+    description: >-
+      Midspan under the balancing load. Held to +/-5% of the camber: this is
+      the load-balancing statement, and anything much larger means the tendon's
+      transverse force is not coming from its curvature.
+    source: monitor
+    name: mid
+    reduction: final
+    expect: {upper: 1.6e-4, lower: -1.6e-4}
+
+  - id: effective_prestress
+    description: >-
+      The tendon force, which is what this whole case is about and was only
+      ever checked through the deflection it produces.
+
+      IT CLOSES THE LOOP ON `balanced_midspan`. The balancing load written into
+      the case, 64878 N/m3 over 0.18 m2 = 11.678 kN/m, was computed from a
+      tendon stress hand-read out of the rebar sidecar when the case was
+      written (973.0 MPa median). The monitor now states it: 972.17 MPa mean
+      over 480 mm2 is 466.64 kN, and 8 P a / L^2 with a = 0.20 m and L = 8.0 m
+      is 11.666 kN/m -- 0.1% from the load actually applied. So the beam going
+      flat is not a load tuned until it did; the strand really carries the
+      force that load was derived from, and if the prestress primitive ever
+      changed, this metric would fail before `balanced_midspan` did.
+    source: monitor
+    name: sigma_p
+    reduction: min
+    expect: {target: 972.17e+6, rtol: 0.01}
+
+  - id: support_reaction
+    description: >-
+      Half of w L. The body force has to total the uniform load the balance
+      was computed from, or the balance would be an accident.
+    source: monitor
+    name: R_L
+    reduction: peak_abs
+    expect: {target: 46.71e+3, rtol: 0.01}
+
+  - id: midspan_at_half_the_balancing_load
+    description: >-
+      Half way along the load path the camber should be half gone: the whole
+      problem is linear, so a curve that arrives at the right end point by the
+      wrong route would be a defect.
+    source: monitor
+    name: mid
+    reduction: at
+    against: R_L
+    value: 23.356e+3
+    expect: {target: 1.6016e-3, rtol: 0.03}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-3}

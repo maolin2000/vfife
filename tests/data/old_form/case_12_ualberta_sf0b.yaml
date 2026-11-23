@@ -1,0 +1,77 @@
+# University of Alberta SF-0B: 2000 x 200 x 300 mm RC beam in four-point bending,
+# solid elements, perfectly bonded bars. Contract: verification/case_12_ualberta_sf0b.yaml
+name: case_12_ualberta_sf0b
+units: {length: m, force: N, stress: Pa}
+mesh: {dimensions: [2.0, 0.2, 0.3], divisions: [24, 4, 8]}
+element: {formulation: b-bar}
+
+material:
+  type: cdp
+  E: 2.985e10                      # 4500 sqrt(f'c)
+  nu: 0.2
+  rho: 2400
+  viscosity: 1.0                   # pseudo-time under relaxation
+  crack_band: both
+  l_ref: auto
+  damage_max: 0.80                 # stiffness floor standing in for aggregate interlock; see contract
+  compression: {source: gb50010, fc: 44.0e6}
+  tension: {source: fracture_energy, ft: 3.42e6, Gf: 140}
+
+reinforcement:
+  - name: tension                  # five 15M in two layers; fy 449, E 192 GPa, no yield plateau
+    area: 200.0e-6
+    diameter: 0.016
+    material: {type: rebar, E: 192.0e9, rho: 7850, yield_strength: 449.0e6, hardening: 8.0e9}
+    lines:
+      - {start: [0, 0.0443, 0.0443], end: [2.0, 0.0443, 0.0443], segment_length: 0.025}
+      - {start: [0, 0.1000, 0.0443], end: [2.0, 0.1000, 0.0443], segment_length: 0.025}
+      - {start: [0, 0.1557, 0.0443], end: [2.0, 0.1557, 0.0443], segment_length: 0.025}
+      - {start: [0, 0.0443, 0.0853], end: [2.0, 0.0443, 0.0853], segment_length: 0.025}
+      - {start: [0, 0.1557, 0.0853], end: [2.0, 0.1557, 0.0853], segment_length: 0.025}
+  - name: hangers                  # two 10M
+    area: 100.0e-6
+    material: &m10 {type: rebar, E: 195.0e9, rho: 7850, yield_strength: 404.0e6, hardening: 7.0e9}
+    lines:
+      - {start: [0, 0.0443, 0.258], end: [2.0, 0.0443, 0.258], segment_length: 0.025}
+      - {start: [0, 0.1557, 0.258], end: [2.0, 0.1557, 0.258], segment_length: 0.025}
+  - name: stirrups                 # 10M at 75 mm, two legs, 26 along the beam
+    area: 100.0e-6
+    material: *m10
+    lines:
+      - {start: [0.05, 0.0443, 0.0443], end: [0.05, 0.0443, 0.258], divisions: 8, repeat: {count: 25, offset: [0.075, 0, 0]}}
+      - {start: [0.05, 0.1557, 0.0443], end: [0.05, 0.1557, 0.258], divisions: 8, repeat: {count: 25, offset: [0.075, 0, 0]}}
+
+regions:                           # a bare number pins that axis: two axes make a line, three a point;
+  sup_L:    {where: {x: 0.10, z: 0}}          # a coordinate between node lines snaps to the nearest one
+  sup_R:    {where: {x: 1.90, z: 0}}          # (0.0833 here; the preflight report says so)
+  pin:      {where: {x: 0.10, y: 0.1, z: 0}}  # holds translation x, y
+  pin_R:    {where: {x: 1.90, y: 0.1, z: 0}}  # holds rotation about z
+  load_L:   {where: {x: 0.65, z: 0.3}}        # load lines 550 mm inside the supports
+  load_R:   {where: {x: 1.35, z: 0.3}}
+  mid_bot:  {where: {x: 1.0, z: 0}}
+
+constraints:
+  - {region: sup_L, dofs: [0, 0, 1]}
+  - {region: sup_R, dofs: [0, 0, 1]}
+  - {region: pin,   dofs: [1, 1, 0]}
+  - {region: pin_R, dofs: [0, 1, 0]}
+
+steps:
+  - name: push                     # 0.8 mm per level to 11.2 mm: through yield, over the peak, one step down
+    constraints:
+      - {region: load_L, dofs: [0, 0, 1], value: -0.0112}
+      - {region: load_R, dofs: [0, 0, 1], value: -0.0112}
+    load_steps: 14
+    max_steps_per_load: 8000
+    tolerance: 1.0e-3
+
+solver: {backend: numba, mode: relaxation, mass: underwood, tolerance: 1.0e-3,
+         relaxation_safety: 0.3, damping: {type: kinetic}}
+
+output:
+  path: results/case_12_ualberta_sf0b.h5
+  every: 500
+  monitors:
+    P_L: {kind: reaction, region: sup_L, dof: z}
+    P_R: {kind: reaction, region: sup_R, dof: z}
+    mid: {kind: displacement, region: mid_bot, dof: z}

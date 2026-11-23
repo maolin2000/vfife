@@ -1,0 +1,71 @@
+# A constant force crossing a simply supported beam, against Fryba's series.
+# The first moving-load problem there is: 100 kN at 40 m/s
+# over 20 m of beam with f1 = 2.0 Hz, so the speed parameter
+# alpha = Omega_1/omega_1 = c/(2 f1 L) is 0.50 -- fast enough that what the
+# beam does is not the influence line. The load's own half-wave sweep and the
+# beam's free vibration beat against each other; midspan peaks at 1.70 times
+# the static P L^3 / 48 EI, and the peak arrives AFTER the load has passed
+# midspan (t = 0.333 s against 0.250).
+#
+# WHY THIS IS A BENCHMARK AND NOT A DEMO: the modal solution is exact for
+# this beam (benchmarks/generate_moving_load_beam.fryba, checked against an
+# RK4 integration of the same modal equations to 13 digits), so every
+# millimetre of difference is the model's -- the discretised path, the lumped
+# mass, the rotary inertia the analytic beam does not have.
+#
+#   python benchmarks/generate_moving_load_beam.py --check
+#   python benchmarks/plot_moving_load.py
+
+version: 1
+name: case_26_moving_load_beam
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/moving_load_beam_20.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 7850.0}
+sections:
+  deck:
+    type: beam
+    material: steel
+    shape: general
+    area: 0.10            # mu = rho A = 785 kg/m
+    iy: 9.70e-4           # bending in the vertical plane: EI = 2.037e8 N m2
+    iz: 9.70e-4
+    j: 1.94e-3
+assign:
+- {region: all, section: deck, orientation: [0, 1, 0]}
+
+constraints:
+# simply supported: both ends held vertically and laterally, one end also
+# axially, torsion locked. The two bending rotations stay free, which is what
+# makes the mode shapes sin(j pi x / L) the analytic solution assumes.
+- {region: left, dofs: [1, 1, 1, 1, 0, 0]}
+- {region: right, dofs: [0, 1, 1, 1, 0, 0]}
+
+loads:
+# One axle, entering the left end at t = 0 and leaving at t = L/c = 0.5 s.
+# `speed` makes this a crossing in physical time; `axles` are
+# [offset along the path, force], and the default direction is straight down.
+- region: deck
+  moving_load:
+    axles: [[0.0, 1.0e+5]]
+    start: 0.0
+    speed: 40.0
+
+solver:
+  mode: dynamic
+  backend: numpy
+  total_time: 0.5         # exactly one crossing
+  # UNDAMPED, as the closed form is. A real deck's 1-2% would cut the free
+  # vibration that makes this problem interesting, and there would be nothing
+  # left to compare.
+  tolerance: 1.0e-10
+
+output:
+  path: results/case_26_moving_load_beam.h5
+  every: 40
+  fields: [displacement, bending_y]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    w_quarter: {kind: displacement, region: quarter, dof: z}
+    R_left: {kind: reaction, region: left, dof: z}
+    R_right: {kind: reaction, region: right, dof: z}

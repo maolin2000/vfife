@@ -1,0 +1,100 @@
+version: 1
+case: case_29f_tendon_relaxation
+classification: analytical
+reference: >-
+  The definition of relaxation. A tendon whose STRAIN is held loses
+  `r(t) = rho_1000 (t/1000 h)^k` of its stress, and with both ends of the
+  member held the section strain is zero, so the concrete carries nothing and
+  the support reaction IS the tendon force: `A_p sigma_pi [1 - r(t)]`,
+  208.320 kN falling to 197.846 kN at 10 000 hours. The coefficients
+  rho_1000 = 0.031 and k = 0.21 are fitted to the CEB-FIP MC90 low-relaxation
+  curve that Ghali, Elbadry & Megally (2000) Fig. 7 plots for the
+  Confederation Bridge's own strand at 0.8 f_pu -- see
+  verification/Ghali2000_confederation_longterm.txt.
+  benchmarks/generate_creep_bar.py --check prints the table.
+
+# --------------------------------------------------------------------------- #
+#  THE THIRD FREE STRAIN, AND THE ONE THAT IS NOT CONCRETE'S
+# --------------------------------------------------------------------------- #
+#  Creep and shrinkage belong to the concrete and arrive as a strain.
+#  Relaxation belongs to the steel and arrives as a LOSS OF PRESTRAIN, which
+#  is the same statement in the units a tendon is described in:
+#
+#      sigma_p = E_p (eps_section + eps_pre)
+#
+#  so a stress loss at held section strain IS eps_pre falling. It rides the
+#  imposed-strain slot a tendon already uses, and nothing else in the solver
+#  had to learn a new kind of quantity.
+#
+#  This case is the law on its own definition, with the structure removed:
+#  both ends held, centroidal tendon, zero section strain. case_29g is the
+#  same tendon in a member that can shorten, where the answer stops being the
+#  law and becomes a structural problem.
+#
+#  THE 0.23% AND WHY IT IS NOT A TOLERANCE FUDGE. The model reads 207.840 kN
+#  at transfer against the exact 208.320, and 197.366 against 197.846 -- the
+#  SAME 0.23% at every one of the thirteen stations. It is not the relaxation:
+#  the RATIO sigma_p(t)/sigma_p(0) tracks `1 - r(t)` to 1.2e-4 across the
+#  whole decay (tests/test_fiber_creep.py asserts it). It is `steel02`: the
+#  Menegotto-Pinto curve is smooth, so at 0.8 f_pu -- which is 0.89 of this
+#  strand's yield strain -- it has already begun to soften. The tolerances
+#  below are 0.4% so that the targets can stay the ALGEBRA rather than being
+#  quietly moved onto the model's own answer. The same curve is what
+#  v0.4 measured overshooting its hardening asymptote by 3.45%, and
+#  it is the same deliberate non-fix.
+
+metrics:
+  - id: at_the_instant_of_stressing_nothing_has_relaxed
+    description: >-
+      A_p sigma_pi = 208.320 kN, times 0.99553: since v1.0 steel02 is
+      OpenSees' Steel02, whose first branch is the Menegotto-Pinto curve from
+      the origin, b + (1-b)/(1 + r^R0)^(1/R0) at r = sigma_pi/Fy = 0.889,
+      R0 = 20 -- 0.45% under E eps (0.23% with the law before it). So
+      207.388 kN. The first station of an analysis has no interval behind
+      it, so `relaxation_loss` returns zero there by construction -- the same
+      property that makes creep's first station exact.
+    source: monitor
+    name: N_left
+    reduction: first
+    expect: {target: -2.07388e+5, rtol: 0.004}
+
+  - id: and_at_ten_thousand_hours_it_has_lost_exactly_r
+    description: >-
+      208.320 x (1 - 0.05028) = 197.846 kN, with r = 0.031 x 10^0.21 from the
+      case's own coefficients, times the 0.99553 of the first station and a
+      further 2.3e-4 (the loss is taken on a curve whose tangent there is
+      0.91 E, not on a line): 196.914 kN.
+    source: monitor
+    name: N_left
+    reduction: final
+    expect: {target: -1.96914e+5, rtol: 0.004}
+
+  - id: the_far_end_carries_the_same
+    description: >-
+      +196.914 kN against the fixed end's -196.914. A member held at both ends
+      is in equilibrium at every station or the station did not converge.
+    source: monitor
+    name: N_right
+    reduction: final
+    expect: {target: 1.96914e+5, rtol: 0.004}
+
+  - id: it_never_carried_more_than_it_started_with
+    description: >-
+      the peak of the whole record is the transfer value. Relaxation is
+      monotone, and a scheme that overshot and came back would pass the two
+      endpoint metrics above and fail this one.
+    source: monitor
+    name: N_left
+    reduction: peak_abs
+    expect: {target: 2.07388e+5, rtol: 0.004}
+
+  - id: and_nothing_moved
+    description: >-
+      the midspan displacement is zero to machine precision for the whole
+      thousand days. That is what makes this relaxation and not prestress
+      loss: THE STRAIN IS HELD. case_29g releases one end and the number stops
+      being zero and starts being a structural answer.
+    source: monitor
+    name: u_mid
+    reduction: peak_abs
+    expect: {target: 0.0, atol: 1.0e-9}

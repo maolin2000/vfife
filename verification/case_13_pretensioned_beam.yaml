@@ -1,0 +1,145 @@
+version: 1
+case: case_13_pretensioned_beam
+classification: analytical
+reference: >-
+  Elastic beam theory for a pretensioned simply supported member: camber
+  P e L^2/(8 E I) at transfer, third-point deflection
+  P1 a (3 L^2 - 4 a^2)/(24 E I) under load, both on the transformed section,
+  with the effective prestress taken after the elastic-shortening loss the
+  solver computes by equilibrating.
+
+# --------------------------------------------------------------------------- #
+#  WHAT THIS CONTRACT ASSERTS
+# --------------------------------------------------------------------------- #
+#  6.0 x 0.25 x 0.50 m, four 150 mm2 strands at e = 0.15 m, effective 1000 MPa,
+#  then two 40 kN loads at the third points. Linear elastic concrete, so every
+#  number below has a hand calculation beside it and there is no material
+#  calibration anywhere in the case.
+#
+#      quantity                       hand      model     ratio
+#      tendon force after transfer    561 kN    --        (see below)
+#      camber at transfer            4.71 mm   4.558 mm   0.968
+#      deflection under 80 kN        3.93 mm   3.640 mm   0.926
+#      net midspan at full load      0.92 mm   0.918 mm   0.998
+#
+#  THE 3% ON CAMBER IS THE MESH, AND IT IS MEASURED. tests/test_prestress.py
+#  runs the same closed form at three discretisations: 6 layers through the
+#  depth gives -4.40%, 12 layers -1.30%, and doubling the span at 6 layers
+#  leaves it at -3.97%. The error halves with depth refinement and does not
+#  move with span, so it is the bending stiffness of b-bar hexahedra through
+#  the depth and not the tendon. This case runs 10 layers and lands where that
+#  study says it should.
+#
+#  THE ELASTIC-SHORTENING LOSS IS NOT ASSERTED HERE, and that is deliberate.
+#  Camber is proportional to P, so the first metric already pins the tendon
+#  force to the accuracy of beam theory -- about 3% -- while
+#  tests/test_prestress.py pins it against its own closed form to 2e-4 on a
+#  prism with no bending in it at all. A metric here would be the weaker of
+#  the two measurements of the same thing.
+#
+#  WHAT THE CASE DEMONSTRATES BEYOND THE NUMBERS: the beam is still 0.92 mm UP
+#  under 80 kN, and its soffit is at -5.2 MPa rather than the +7.7 MPa the
+#  same section would carry unprestressed. `midspan_never_sags` is that
+#  statement as an assertion.
+
+metrics:
+  - id: camber_at_transfer
+    description: Midspan camber after transfer, against P e L^2/(8 EI) = 4.71 mm
+    source: monitor
+    name: mid
+    reduction: max
+    expect: {target: 4.5579e-3, rtol: 0.02}
+
+  - id: midspan_at_full_load
+    description: Net midspan displacement under both 40 kN loads, still upward
+    source: monitor
+    name: mid
+    reduction: final
+    expect: {target: 9.181e-4, rtol: 0.03}
+
+  - id: midspan_never_sags
+    description: >-
+      The member stays cambered through the whole load history: 80 kN at the
+      third points does not take a 0.5 m beam back through zero.
+    source: monitor
+    name: mid
+    reduction: min
+    expect: {lower: 0.0}
+
+  - id: midspan_at_half_load
+    description: >-
+      Midspan at 20 kN of reaction, half way along the load path. Beam theory
+      says the path is a straight line from the camber, so this is the shape
+      of the load-deflection record and not a third reading of its ends.
+    source: monitor
+    name: mid
+    reduction: at
+    against: R_L
+    value: 20.0e+3
+    expect: {target: 2.7384e-3, rtol: 0.03}
+
+  - id: work_along_the_load_path
+    description: Area under the midspan-vs-reaction record, from the origin
+    source: monitor
+    name: mid
+    reduction: energy
+    against: R_L
+    expect: {target: 109.5, rtol: 0.03}
+
+  - id: effective_prestress
+    description: >-
+      What the tendon actually carries after transfer -- 1000 MPa jacked, less
+      the elastic shortening the solver produces by equilibrating. Nothing in
+      this contract used to state it: the camber and the three deflections are
+      all consequences of it, so a prestrain applied wrongly would have had to
+      be found through them, and a 2% error in the force hides inside a 2%
+      tolerance on the camber.
+
+      CHECKED, NOT CALIBRATED. On the transformed section (n = 6.5, A = 0.12890
+      m2, z_c = 0.24546 m, I = 2.6893e-3 m4, e = 0.14546 m) the concrete stress
+      at the tendon is -9.375 MPa, so the loss is 195/30 x 9.375 = 60.9 MPa and
+      the strand should hold 939.1. It holds 936.8, 0.25% lower -- the closed
+      form smears 600 mm2 at one depth where the model has four discrete
+      strands in a 3-D block.
+    source: monitor
+    name: sigma_p
+    reduction: min
+    expect: {target: 936.76e+6, rtol: 0.01}
+
+  - id: precompression_at_midspan
+    description: >-
+      And what that force does to the concrete: mean sigma_xx over the bottom
+      layer of elements at midspan after transfer, which is the whole purpose
+      of prestressing the beam. The same transformed section puts the layer
+      centroid (z = 0.025 m) at -11.09 MPa against the model's -11.41, 3%
+      apart for the same reason. `min` over the record is the transfer
+      instant: the applied load unloads it from there to -5.22 MPa.
+    source: monitor
+    name: sigma_bot
+    reduction: min
+    expect: {target: -11.411e+6, rtol: 0.02}
+
+  - id: the_tendon_has_not_yielded
+    description: >-
+      At full load the strand carries 954 MPa, 0.60 of its 1580 MPa yield.
+      A pretensioned beam whose strand yielded would have a different
+      load-deflection curve for a different reason, and the four deflection
+      metrics above cannot tell the two apart.
+    source: monitor
+    name: sigma_p
+    reduction: max
+    expect: {upper: 1580.0e+6}
+
+  - id: support_reaction
+    description: Left support carries half the applied load
+    source: monitor
+    name: R_L
+    reduction: peak_abs
+    expect: {target: 40.0e+3, rtol: 1.0e-3}
+
+  - id: residual
+    description: Final equilibrium residual after staged relaxation
+    source: diagnostic
+    name: residual
+    reduction: final
+    expect: {upper: 1.0e-3}

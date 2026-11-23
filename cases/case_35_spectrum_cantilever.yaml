@@ -1,0 +1,44 @@
+# case_35 -- response spectrum on a uniform cantilever.
+#
+# A 10 m steel column, 0.2 m square, fixed at its foot, shaken along x by a
+# flat spectrum S_a = 2 m/s^2. The continuous cantilever has the closed-form
+# modes beta_n L = 1.8751, 4.6941, 7.8548, 10.9955; effective masses
+# 61.31%, 18.83%, 6.47%, 3.31% of m L; and the modal peaks
+#     u_n(L) = Gamma_n psi_n(L) S_a / omega_n^2,
+#     V_n    = m_eff,n S_a,
+#     M_n    = m L^2 Gamma_n int_0^1 psi_n xi dxi S_a,
+# combined by SRSS over the four modes kept. Twenty lumped-mass beam
+# elements stand for the continuum; the contract holds the lowest mode to
+# 0.5% and the fourth, where the lumping shows, to a few percent.
+version: 1
+name: case_35_spectrum_cantilever
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/spectrum_cantilever_20.msh}
+materials:
+  steel: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 7850.0}
+sections:
+  col: {type: beam, material: steel, shape: rect, width: 0.2, height: 0.2}
+assign:
+  - {region: column, section: col, orientation: [1, 0, 0]}
+constraints:
+  - {region: base, dofs: [1, 1, 1, 1, 1, 1]}
+  # in the x-z plane only: a square column's x and y modes are a degenerate
+  # pair, which SRSS cannot combine (the eigensolver mixes them at will);
+  # CQC can, but the closed form here is the planar one
+  - {region: all, dofs: [0, 1, 0, 1, 0, 1]}
+loads: []
+solver:
+  backend: numpy
+  mode: relaxation
+  n_steps: 20
+  tolerance: 1.0e-8
+response_spectrum:
+  spectra:
+    - direction: [1, 0, 0]
+      table: [[0.0, 2.0], [10.0, 2.0]]
+  combination: srss
+  modes: 4
+output:
+  path: results/case_35_spectrum_cantilever.h5
+  fields: [displacement]
+  every: 10

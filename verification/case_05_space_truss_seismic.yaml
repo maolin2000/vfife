@@ -1,0 +1,19 @@
+version: 1
+case: case_05_space_truss_seismic
+classification: independent_reference
+reference: Independent linear Newmark-beta average-acceleration integration of the same public El Centro record
+metrics:
+  - id: peak_apex_ux
+    description: Peak relative apex response over the complete record
+    source: field
+    name: displacement
+    frame: all
+    location: {nearest: [5.0, 5.0, 8.0]}
+    component: x
+    reduction: peak_abs
+    expect: {target: 9.5202808817e-4, rtol: 0.025, atol: 1.0e-8}
+  - id: finite_final_response
+    source: monitor
+    name: apex_ux
+    reduction: final
+    expect: {finite: true}

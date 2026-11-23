@@ -1,0 +1,53 @@
+# case_37 -- a pier in water under a response spectrum.
+#
+# A 20 m circular RC pier, D = 2 m, clamped at the sea bed and standing in
+# 20 m of water, carries 500 t of deck at its top. The water adds its Morison
+# mass C_a rho_w pi D^2 / 4 = 3220 kg/m across the pier (`hydrodynamic_mass`)
+# -- not along it, and weighing nothing. Shaken along x by a flat spectrum
+# S_a = 2 m/s^2, SRSS over four modes (three bending, and the axial one, which
+# carries no x mass).
+#
+# The closed form is the cantilever with a uniform mass m = rho A + C_a rho_w A
+# = 11074 kg/m and a tip mass M: the roots of
+#     1 + cos l cosh l + (M / m L) l (cos l sinh l - sin l cosh l) = 0,
+# the modes cosh - cos - s (sinh - sin), s = (cosh l + cos l)/(sinh l + sin l),
+# and their participation with the tip mass in it (quadrature to 1e-13).
+#
+# What the water changes, against the same pier dry: the first period by
+# +1.4% (the deck dominates), the second by +18%, the base shear by +6%.
+# The dead-load reaction does not change: the water weighs nothing.
+version: 1
+name: case_37_pier_in_water
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/pier_in_water_20.msh}
+materials:
+  concrete: {type: linear_elastic, E: 3.45e+10, nu: 0.2, rho: 2500.0}
+sections:
+  pier: {type: beam, material: concrete, shape: circle, diameter: 2.0}
+assign:
+  - {region: pier, section: pier, orientation: [1, 0, 0]}
+nodal_masses:
+  - {region: top, mass: 5.0e+5}
+hydrodynamic_mass:
+  - {region: pier, diameter: 2.0, coefficient: 1.0, density: 1025.0, water_level: 20.0}
+constraints:
+  - {region: base, dofs: [1, 1, 1, 1, 1, 1]}
+  # in the x-z plane: a round pier's x and y modes are a degenerate pair
+  # (see case_35); the closed form is the planar one
+  - {region: all, dofs: [0, 1, 0, 1, 0, 1]}
+loads: []
+solver:
+  backend: numpy
+  mode: relaxation
+  n_steps: 20
+  tolerance: 1.0e-8
+response_spectrum:
+  spectra:
+    - direction: [1, 0, 0]
+      table: [[0.0, 2.0], [10.0, 2.0]]
+  combination: srss
+  modes: 4
+output:
+  path: results/case_37_pier_in_water.h5
+  fields: [displacement]
+  every: 10

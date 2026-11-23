@@ -1,0 +1,51 @@
+# A pier on a pile in soil, pushed sideways at its top (`vfife new pier_on_piles`).
+# A 12 m concrete pier on one 25 m bored pile (a group is several `lines`
+# under a cap), p-y springs from the ground down
+# (user manual, Section 11.13): the curves are yours to work out from the
+# soil layers -- these are placeholders.
+#
+#   vfife info      @FILE@
+#   vfife run       @FILE@               # the push, static
+#   vfife summary   results/@NAME@.h5    # the soil's reaction against the push
+#   vfife buckling  @FILE@               # the pier's buckling under its own weight and the deck's
+version: 1
+name: @NAME@
+units: {length: m, force: N, stress: Pa}
+mesh:
+  type: lines
+  points:
+    top: [0.0, 0.0, 12.0]
+    ground: [0.0, 0.0, 0.0]
+    tip: [0.0, 0.0, -25.0]
+  lines:
+    pier: {through: [ground, top], size: 1.0}
+    pile: {through: [tip, ground], size: 1.0}
+materials:
+  concrete: {type: linear_elastic, E: 3.25e+10, nu: 0.2, rho: 2500.0}
+sections:
+  pier_section: {type: beam, material: concrete, shape: general, area: 3.14, iy: 0.785, iz: 0.785, j: 1.57}   # 2 m round
+  pile_section: {type: beam, material: concrete, shape: general, area: 1.77, iy: 0.249, iz: 0.249, j: 0.497}  # 1.5 m round
+assign:
+  - {region: pier, section: pier_section, orientation: [1, 0, 0]}
+  - {region: pile, section: pile_section, orientation: [1, 0, 0]}
+constraints:
+  - {region: tip, dofs: [0, 0, 1, 0, 0, 1]}    # the tip bears vertically; the soil holds it sideways
+soil_springs:
+  - region: pile
+    ground: 0.0
+    curves:                                     # p (N/m of pile) against y (m), by depth (m)
+      - {depth: 0.0,  p_y: [[0, 0], [0.005, 6.0e+4], [0.02, 1.5e+5], [0.06, 2.0e+5]]}
+      - {depth: 10.0, p_y: [[0, 0], [0.005, 3.0e+5], [0.02, 7.5e+5], [0.06, 1.0e+6]]}
+      - {depth: 25.0, p_y: [[0, 0], [0.005, 6.0e+5], [0.02, 1.5e+6], [0.06, 2.0e+6]]}
+loads:
+  - {region: all, gravity: [0.0, 0.0, -9.80665]}
+  - {region: top, vector: [0.0, 0.0, -8.0e+6]}     # the deck's reaction on the pier
+  - {region: top, vector: [5.0e+5, 0.0, 0.0]}      # a 500 kN push at the top (braking, a ship, an earthquake's equivalent)
+solver:
+  mode: static
+  backend: numpy
+output:
+  path: results/@NAME@.h5
+  monitors:
+    u_top: {kind: displacement, region: top, dof: x}
+    u_ground: {kind: displacement, region: ground, dof: x}

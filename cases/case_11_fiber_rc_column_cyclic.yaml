@@ -1,0 +1,190 @@
+# Fiber RC column, cyclic — Tanaka & Park (1990) specimen No. 1
+#
+# Replaces a self-assembled reference (1.5 m, 0.25x0.35, 4Φ16, C35) whose
+# contract said in as many words: "Upgrade it only against a number someone
+# else published." This is that number. Every quantity below comes from the
+# PEER Structural Performance Database sheet for this specimen; the measured
+# hysteresis is verification/Tanaka_90_specimen_1.txt (593 points, mm and kN).
+#
+#   Tanaka, H.; and Park, R., "Effect of Lateral Confining Reinforcement on the
+#   Ductile Behavior of Reinforced Concrete Columns", Report 90-2, Department of
+#   Civil Engineering, University of Canterbury, June 1990.
+#
+# SPECIMEN
+#   section     400 x 400 mm, clear cover 40 mm
+#   length      1600 mm to the point of inflection (the test was double ended,
+#               so this models one half of it as a cantilever)
+#   concrete    f'c = 25.6 MPa
+#   longitudinal 8 no. 20 mm (4 corner + 1 per face), fy = 474, fu = 721 MPa
+#               As = 8 x 314 = 2513 mm^2, ratio 0.0157 -- matches the PEER sheet
+#   transverse  12 mm rectangular hoops with J-hooks, 3 legs, spacing 80 mm,
+#               volumetric ratio 0.025
+#   axial       819 kN = 0.2 f'c Ag, held constant throughout
+#   failure     flexural; crushing at 20 mm, spalling at 40 mm, bar buckling at
+#               120 mm tip displacement
+#
+# HAND CHECK of the lateral capacity, before trusting anything the solver says
+#   bar centroid  40 (cover) + 12 (hoop) + 10 (bar radius) = 62 mm from the
+#                 face, so y,z = +-0.138 m
+#   tension steel 3 bars on the tension face = 942 mm^2 at fy -> T = 446 kN
+#   compression   3 bars likewise -> C_s = 446 kN; the 2 side bars sit at
+#                 mid-depth and carry almost no moment
+#   concrete      C_c = N + T - C_s = 819 kN, so a = 819e3/(0.85*25.6*400)
+#                 = 94 mm, acting 47 mm from the compression face
+#   moment        819*0.153 + 446*0.138 + 446*0.138 = 248 kN.m
+#   shear         V = 248/1.6 = 155 kN
+#   measured      167 kN peak. The 7% shortfall is strain hardening (fu/fy =
+#                 1.52) and confinement, neither of which the hand check has.
+#   -> the model should land between these, nearer 167. If it comes out at 60
+#      or at 400, something is wrong with the input, not with the concrete.
+#
+# WHY b = 0.005 AND NOT fu/fy
+#   b is the hardening ratio E_h/E0. The obvious reading of the PEER sheet is
+#   to fit it to fu/fy = 721/474 = 1.52 over a 10% strain range, which gives
+#   b ~ 0.012, and that is what this case used at first.
+#
+#   It is wrong under cyclic loading, and monotonic checks cannot see why.
+#   A moment-curvature of this section, driven monotonically, is almost
+#   indifferent to b: 0.012 -> 0 moves the capacity 1%. Driven through the
+#   same cyclic curvature history it is not, because the Giuffre-Menegotto-
+#   Pinto asymptote is re-anchored at every reversal and the offsets
+#   accumulate. Measured on this section: monotonic peak steel stress 610 MPa,
+#   cyclic 709 MPa -- the bars are pushed to within 2% of their measured
+#   ultimate 721 MPa at only +-3.5% drift, which is not physical.
+#
+#   b = 0.005 puts the cyclic peak at 593 MPa and costs 3% of lateral
+#   capacity. The reason to prefer it is the stress level, NOT the 3%: fitting
+#   b to close the gap against the measured peak force would be tuning one
+#   parameter to hide two missing mechanisms (cover spalling and bond slip).
+#   Those are still missing, and the model is still ~10% strong because of it.
+#
+# WHY 4 ELEMENTS AND NOT 8
+#   Measured, not chosen for elegance. At 8 elements of 200 mm the staged
+#   relaxation stalls in the first cyclic stage: the residual sits at 1.5e-02
+#   after 3000 iterations having been 1.8e-02 after 600, with ~1500 kinetic
+#   resets, and the diagnostics put the worst residual on the LATERAL DOF of a
+#   mid-height node (node 4, dof 2, 9.7 kN) -- interior lateral equilibrium the
+#   solver cannot reach, not an axial or material problem. 6 elements of 267 mm
+#   converge but cost ~9 s per load stage; 4 elements of 400 mm converge at
+#   ~3 s. The fictitious mass for relaxation is row-sum(K)/safety^2, and
+#   shortening the elements of a section this stiff raises that row sum
+#   steeply, so the lateral modes get heavy and stop making progress.
+#   The price is a 400 mm element against a 400 mm section depth -- one h,
+#   where the plastic hinge is about 0.5h. lobatto3 puts an integration point
+#   exactly at the fixed end so base yielding is still captured, but hinge
+#   SPREAD is resolved by a single element and the curvature there is an
+#   average. Treat the post-yield stiffness as indicative.
+#
+# WHY ny=16 AND nz=8
+#   Under Euler-Bernoulli kinematics with the load along one axis only, fibre
+#   STRAIN varies with one section coordinate and is constant along the other,
+#   so for strain alone nz=2 would do and this case used it. Cover and core
+#   changed that: the MATERIAL now varies with z as well, and nz=2 cannot see
+#   it -- every fibre spans half the depth and is part cover, part core. At
+#   nz=2 the cover comes out 25% of the section against a true 45%.
+#   nz=8 gives 43.8%, and nz=16 gives the same 43.8%, so 8 is where it
+#   converges. The cost is 128 concrete fibres against 32, which the fused
+#   kernel absorbs.
+#
+#   THE AXIS IS STILL EASY TO GET BACKWARDS. The head is pushed along global z
+#   and the obvious reading is that strain varies with the section's z; the
+#   element's local y is global z here, so bending uses the fibre y coordinate.
+#   An early version had ny=2, nz=16 -- two fibre layers through the depth --
+#   which inflated the section capacity 9%. Verify, do not assume: run the case
+#   and check that `bending_y` is ~1e-11 while `bending_z` carries the moment.
+#   `vfife info` prints Iy and Iz; confirming the wrong one against a hand
+#   calculation proves nothing, and that also happened here.
+#
+# WHAT IS STILL MISSING
+#   Bond slip and bar buckling. The bars are strain-compatible with the
+#   concrete at every section, so the fixed-end rotation from bar pullout is
+#   absent, and nothing stops a bar in compression -- the test lost capacity to
+#   buckling past 120 mm and this model will not follow it down.
+
+version: 1
+name: case_11_fiber_rc_column_cyclic
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/fiber_rc_column_tanaka_4elem.msh}
+materials:
+  concrete:
+    type: concrete02
+    fpc: 2.56e+7
+    epsc0: 0.002
+    fcu: 100000.0
+    epscu: 0.005
+    ft: 3.1e+6
+    Ets: 1.2e+9
+    rat: 0.1
+    rho: 2400
+  core:
+    type: concrete02
+    fpc: 4.206e+7
+    epsc0: 0.0084
+    fcu: 8.4e+6
+    epscu: 0.0345
+    ft: 3.1e+6
+    Ets: 1.2e+9
+    rat: 0.1
+    rho: 2400
+  steel: {type: steel02, E: 2.0e+11, Fy: 4.74e+8, b: 0.005, R0: 20.0, rho: 7850}
+sections:
+  bar_1: {type: bar, material: steel, shape: general, area: 0.00031416}
+  rc:
+    type: fiber
+    material: concrete
+    shape: rect
+    width: 0.4
+    height: 0.4
+    ny: 16
+    nz: 8
+    cover: 0.052
+    core_material: core
+    integration: lobatto3
+    bars:
+    - {y: 0.138, z: 0.138, section: bar_1}
+    - {y: -0.138, z: 0.138, section: bar_1}
+    - {y: 0.138, z: -0.138, section: bar_1}
+    - {y: -0.138, z: -0.138, section: bar_1}
+    - {y: 0.0, z: 0.138, section: bar_1}
+    - {y: 0.0, z: -0.138, section: bar_1}
+    - {y: 0.138, z: 0.0, section: bar_1}
+    - {y: -0.138, z: 0.0, section: bar_1}
+assign:
+- region: all
+  section: rc
+  anchorage: {region: base, bar_diameter: 0.02}
+regions:
+  base: {box: [-0.01, 0.01, -0.01, 0.01, -0.01, 0.01]}
+  head: {box: [1.59, 1.61, -0.01, 0.01, -0.01, 0.01]}
+constraints:
+- {region: base, dofs: [1, 1, 1, 1, 1, 1]}
+loads:
+- {region: head, vector: [-819000.0, 0.0, 0.0]}
+amplitudes:
+  drift:
+    cyclic: {peaks: [0.008, 0.021, 0.042, 0.064, 0.086], repeats: 2}
+steps:
+- {name: axial, load_steps: 12, max_steps_per_load: 8000}
+- name: cyclic
+  constraints:
+  - {region: head, dofs: [0, 0, 1, 0, 0, 0], value: 1.0, amplitude: drift}
+- name: push
+  constraints:
+  - {region: head, dofs: [0, 0, 1, 0, 0, 0], value: 0.1295}
+  load_steps: 40
+solver:
+  backend: numpy
+  load_steps: 480
+  max_steps_per_load: 3000
+  mode: relaxation
+  tolerance: 0.0005
+  kinetic_tolerance: 1.0e-6
+  n_steps: 100
+output:
+  path: results/case_11_fiber_rc_column_cyclic.h5
+  every: 1
+  fields: [displacement, rotation, reaction_force, reaction_moment, axial_force, bending_y, bending_z,
+           fiber_stress, fiber_damage]   # what `vfife sweep` paints the column with
+  monitors:
+    tip_disp: {kind: displacement, region: head, dof: z}
+    base_shear: {kind: reaction, region: base, dof: z}

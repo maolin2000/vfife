@@ -1,0 +1,52 @@
+# case_34 -- a cantilever loaded until its root breaks: the
+# elastic-brittle criterion of v0.4 on a single-section beam2 model,
+# where `failure` on the one assignment makes every member breakable.
+#
+# A 2 m steel cantilever (A = 0.01 m^2, I = 1e-5 m^4, f_y = 300 MPa, c = 0.1 m,
+# so M_cap = f_y I / c = 30 kN m) carries a tip load that grows from 0 to
+# 2 M_cap / L = 30 kN over 4 s, heavily damped so each instant is the static
+# state. The root member sees the largest moment, P L, and reaches its
+# capacity at P = M_cap / L = 15 kN, t = 2 s: it is removed, the root then
+# carries nothing, and the rest of the beam is a free body driven by the tip
+# load. The root reaction R_z = P until that instant is the record of it:
+# its maximum is P at the break, 15 kN, and its final value is zero.
+version: 1
+name: case_34_brittle_cantilever
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/brittle_cantilever_4.msh}
+
+materials:
+  steel: {type: linear_elastic, E: 2.0e+11, nu: 0.3, rho: 7850.0}
+
+sections:
+  beam: {type: beam, material: steel, shape: general, area: 0.01, iy: 1.0e-5, iz: 1.0e-5, j: 2.0e-5}
+
+assign:
+  # one section on the whole mesh: a beam2 model, and `failure` is the
+  # capacity of every one of its members
+  - {region: all, section: beam, orientation: [0, 0, 1],
+     failure: {yield_strength: 3.0e+8, extreme_fibre: [0.1, 0.1]}}
+
+constraints:
+  - {region: root, dofs: [1, 1, 1, 1, 1, 1]}
+
+amplitudes:
+  grow: [[0.0, 0.0], [1.0, 2.0]]
+
+loads:
+  # 0 -> 2 P_break over the run: the break is at half time
+  - {region: tip, vector: [0, 0, -1.5e+4], amplitude: grow}
+
+solver:
+  mode: dynamic
+  backend: numpy
+  total_time: 4.0
+  damping: {type: viscous, coeff: 50.0}
+
+output:
+  path: results/case_34_brittle_cantilever.h5
+  every: 200
+  fields: [displacement, member_failed, capacity_ratio]
+  monitors:
+    w_tip: {kind: displacement, region: tip, dof: z}
+    R_root: {kind: reaction, region: root, dof: z}

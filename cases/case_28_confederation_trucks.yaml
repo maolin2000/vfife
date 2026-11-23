@@ -1,0 +1,202 @@
+# Confederation Bridge, truck-loading test: a real 250 m portal frame with a
+# measured deflection profile.
+#
+# Ghali, Elbadry & Megally (2000), Can. J. Civ. Eng. 27: 1139-1149 report the
+# load test run shortly before the bridge opened: two trucks side by side --
+# blue 379 kN, grey 346 kN -- parked so that the resultants of their axle loads
+# sit in the same cross section, and the deflection of the girder measured at
+# 20 points for three positions of the pair. This case walks that pair the
+# whole length of the 440 m girder in 22 quasi-static stations and reads the
+# influence line for every monitored station at once.
+#
+# WHAT IS BEING CHECKED. Nothing here is calibrated on a deflection. The
+# section is reconstructed from Dilger & Langohr's Fig. 9 with two thicknesses
+# fitted on Butcher's published gross-section table (which then predicts area,
+# centroid and I within 4%); the haunch exponent 1.380 comes from two published
+# depths; E is the measured Ec(28) = 38.7 GPa; the geometry is Ghali's Fig. 9.
+# With that, the trucks at midspan give
+#
+#              measured   Ghali's analysis   this model
+#   midspan      17.1 mm       13.7 mm         17.0 mm
+#   x = -60 m     6.5           8.5             7.2
+#   x = +60 m     6.8           7.0             6.9
+#   x = -180 m   -3.2 (up)     -3.0            -3.4
+#   tip, west    -5.4          -4.0            -5.8
+#   tip, east    -7.6          -3.5            -5.1
+#
+# WHY THE GIRDER IS `general` AND NOT A FIBRE SECTION. Not because it could not
+# be built -- benchmarks/generate_confederation.py has the whole outline. Three
+# reasons, in order of weight. (1) Neither load leaves the elastic range: 725 kN
+# of trucks on an 8000 t bridge, and a temperature profile. A fibre section
+# integrates the same A and the same I and returns the same answer. (2) 15% of
+# the erection weight -- diaphragms, anchor blocks, tendons -- has nowhere to go
+# in a fibre section, where AREA IS BOTH STIFFNESS AND MASS; here rho carries it
+# and A and I are untouched. (3) Eleven bands would each need their own box
+# patch layout, haunch and all. Cost is the WEAKEST of the three: measured on
+# this mesh with A and Iz matched band by band, a fibre section costs 4.2x
+# (numpy, lobatto3) -- 4 min for this case becomes about 17, which is not what
+# decided it. The measurement is in v0.4.
+#
+# THE ONE ASSUMED NUMBER is the pier wall: the shaft is an 8 m octagonal hollow
+# unit on a base flaring to 22 m (Lin et al. 2010) but no source states the wall
+# thickness, and 0.6 m is an engineer's guess. Halving it takes midspan to
+# 21.1 mm and doubling it to 14.7, so this case is a check on the GIRDER to
+# within about 25%, not a check on the pier. That is stated rather than hidden,
+# and benchmarks/generate_confederation.py --check prints the sweep. case_28c's
+# load does not have that weakness: a uniform rise moves 4% over the same
+# fourfold change, because E and the pier both nearly cancel out of it.
+#
+# The model is constrained to the vertical plane, as Ghali's frame is. The
+# girder nodes sit on the section CENTROID, which dips 4.3 m from midspan to
+# the pier -- that is the axis a beam element is derived for, and the resulting
+# shallow arch is real. Ghali instead used a straight reference axis 1.52 m
+# below the deck with explicit centroid offsets; a straight axis with no
+# offsets (the other thing a plain beam element can do) gives 22.4 mm, so the
+# two idealisations bracket both the measurement and his analysis.
+#
+# Nothing in the sweep is dynamic: `stop` walks the pair from station to
+# station and each one is relaxed to equilibrium, so what comes out is the
+# influence line and not a vehicle crossing (case_26 is that).
+#
+#   python benchmarks/generate_confederation.py            # mesh + sections
+#   python benchmarks/generate_confederation.py --check
+
+version: 1
+name: case_28_confederation_trucks
+units: {length: m, force: N, stress: Pa}
+mesh: {type: gmsh, path: ../benchmarks/assets/confederation_frame.msh}
+
+materials:
+  # Ec(28) = 38.7 GPa is the modulus Ghali measured on the bridge's own
+  # concrete (design strength 55 MPa, achieved 63 at 28 days). The age-adjusted
+  # value at the time of the test would be near 46 GPa, which makes the model
+  # 17% stiffer and moves it AWAY from the measurement -- said out loud in
+  # v0.4 rather than quietly chosen.
+  # rho 2879 = 2450 x 1.175: the box outline holds only 85% of the 8000 t Ghali
+  # gives for a 192.5 m double cantilever, the rest being the pier diaphragm,
+  # the deviator and anchor blocks and the tendons. A beam model carries those
+  # as mass, not as area -- putting them into the area would get I wrong too.
+  # The line solvers carry ONE material, so the piers are 17.5% heavy as well;
+  # that shows only in the frequencies (tests/test_confederation.py), and only
+  # in the mode where the piers sway.
+  concrete: {type: linear_elastic, E: 3.87e+10, nu: 0.2, rho: 2879.0}
+
+sections:
+  # Girder bands, by distance u from the pier centre. Written by
+  # `python benchmarks/generate_confederation.py`; iy (bending in plan) and j
+  # are carried for completeness and are not exercised by a plane model.
+  b00: {type: beam, material: concrete, shape: general, area: 21.8219, iz: 601.4, iy: 155.9, j: 281.3}
+  b01: {type: beam, material: concrete, shape: general, area: 20.7004, iz: 549.7, iy: 150.3, j: 265.9}
+  b02: {type: beam, material: concrete, shape: general, area: 18.8354, iz: 461.2, iy: 141.0, j: 239.2}
+  b03: {type: beam, material: concrete, shape: general, area: 18.0227, iz: 398.9, iy: 137.3, j: 224.6}
+  b04: {type: beam, material: concrete, shape: general, area: 16.9962, iz: 321.0, iy: 132.4, j: 204.4}
+  b05: {type: beam, material: concrete, shape: general, area: 15.6566, iz: 235.0, iy: 125.8, j: 177.0}
+  b06: {type: beam, material: concrete, shape: general, area: 14.0536, iz: 155.0, iy: 117.2, j: 143.0}
+  b07: {type: beam, material: concrete, shape: general, area: 12.2723, iz: 89.32, iy: 107.0, j: 104.5}
+  b08: {type: beam, material: concrete, shape: general, area: 10.7346, iz: 49.77, iy: 97.54, j: 71.69}
+  b09: {type: beam, material: concrete, shape: general, area: 9.7490, iz: 31.38, iy: 91.18, j: 51.69}
+  bmid: {type: beam, material: concrete, shape: general, area: 9.4534, iz: 26.85, iy: 89.22, j: 45.94}
+  # Pier: hollow shaft 8 m across above the ice shield, base flaring to 22 m.
+  pshaft: {type: beam, material: concrete, shape: general, area: 13.9487, iz: 96.11, iy: 96.11, j: 192.2}
+  pbase1: {type: beam, material: concrete, shape: general, area: 20.5460, iz: 306.1, iy: 306.1, j: 612.1}
+  pbase0: {type: beam, material: concrete, shape: general, area: 33.7407, iz: 1353.0, iy: 1353.0, j: 2706.0}
+
+assign:
+- {region: b00, section: b00, orientation: [0, 0, 1]}
+- {region: b01, section: b01, orientation: [0, 0, 1]}
+- {region: b02, section: b02, orientation: [0, 0, 1]}
+- {region: b03, section: b03, orientation: [0, 0, 1]}
+- {region: b04, section: b04, orientation: [0, 0, 1]}
+- {region: b05, section: b05, orientation: [0, 0, 1]}
+- {region: b06, section: b06, orientation: [0, 0, 1]}
+- {region: b07, section: b07, orientation: [0, 0, 1]}
+- {region: b08, section: b08, orientation: [0, 0, 1]}
+- {region: b09, section: b09, orientation: [0, 0, 1]}
+- {region: bmid, section: bmid, orientation: [0, 0, 1]}
+- {region: pshaft, section: pshaft, orientation: [1, 0, 0]}
+- {region: pbase1, section: pbase1, orientation: [1, 0, 0]}
+- {region: pbase0, section: pbase0, orientation: [1, 0, 0]}
+
+regions:
+  girder: {union: [b00, b01, b02, b03, b04, b05, b06, b07, b08, b09, bmid]}
+
+constraints:
+# A plane frame in x-z, as Ghali's is: no out-of-plane displacement, no
+# torsion, no bending in plan.
+- {region: all, dofs: [0, 1, 0, 1, 0, 1]}
+- {region: base32, dofs: [1, 1, 1, 1, 1, 1]}
+- {region: base31, dofs: [1, 1, 1, 1, 1, 1]}
+
+steps:
+# Step 1 walks the pair the length of the girder; step 2 parks it at
+# midspan so the contract can read the whole deflection PROFILE at one
+# published truck position with `final`, while the sweep's own min and
+# max stay the influence line.
+- name: sweep
+  loads:
+  # The two trucks, side by side, walked from x = -200 m to x = +220 m in 22
+  # stations 20 m apart. `s` runs from the west tip, so s = x + 220 and the
+  # station list hits midspan (s = 220) exactly. Axle offsets are measured from
+  # each truck's OWN resultant, so both groups share `start` and `stop` and the
+  # two resultants stay in the same cross section, which is how the paper
+  # defines a truck position.
+  #
+  # Blue: 88.4 + 88.4 (rear tandem) + 77.9 + 77.9 (drive tandem) + 46.4 = 379 kN,
+  # tandem centres 8.30 m apart and the steering axle 5.00 m ahead.
+  - region: girder
+    moving_load:
+      axles: [[-5.790, 8.84e+4], [-4.290, 8.84e+4], [2.510, 7.79e+4],
+              [4.010, 7.79e+4], [8.260, 4.64e+4]]
+      start: 0.0
+      stop: 440.0
+  # Grey: 88 + 88 + 63.3 + 63.3 + 43.4 = 346 kN, 8.70 m and 4.70 m.
+  - region: girder
+    moving_load:
+      axles: [[-5.614, 8.80e+4], [-4.114, 8.80e+4], [3.086, 6.33e+4],
+              [4.586, 6.33e+4], [8.536, 4.34e+4]]
+      start: 0.0
+      stop: 440.0
+
+  load_steps: 22
+- name: midspan
+  loads:
+  - region: girder
+    moving_load:
+      axles: [[-5.790, 8.84e+4], [-4.290, 8.84e+4], [2.510, 7.79e+4],
+              [4.010, 7.79e+4], [8.260, 4.64e+4]]
+      start: 220.0
+      stop: 220.0
+  - region: girder
+    moving_load:
+      axles: [[-5.614, 8.80e+4], [-4.114, 8.80e+4], [3.086, 6.33e+4],
+              [4.586, 6.33e+4], [8.536, 4.34e+4]]
+      start: 220.0
+      stop: 220.0
+
+  load_steps: 1
+
+solver:
+  # mode: static since 1.7: 23 Newton increments in two
+  # seconds where the relaxation took 22 stations x 30000 iterations (it ran
+  # at relaxation_safety 0.9 to converge inside that budget)
+  mode: static
+  backend: numpy
+  tolerance: 1.0e-4
+
+output:
+  path: results/case_28_confederation_trucks.h5
+  every: 1
+  # bending_z is max(|M_i|, |M_j|) -- a magnitude, so a cantilever support
+  # moment is not halved by averaging. For a moment DIAGRAM the signed end
+  # actions are what to plot, so both ends are written too.
+  fields: [displacement, bending_z, bending_z_i, bending_z_j, axial_force, axial_force_i, axial_force_j, shear_y]
+  monitors:
+    w_mid: {kind: displacement, region: mid, dof: z}
+    w_q_west: {kind: displacement, region: q_west, dof: z}
+    w_q_east: {kind: displacement, region: q_east, dof: z}
+    w_o_west: {kind: displacement, region: o_west, dof: z}
+    w_o_east: {kind: displacement, region: o_east, dof: z}
+    w_tip_west: {kind: displacement, region: tip_west, dof: z}
+    w_tip_east: {kind: displacement, region: tip_east, dof: z}
+    R_base32: {kind: reaction, region: base32, dof: z}
+    R_base31: {kind: reaction, region: base31, dof: z}

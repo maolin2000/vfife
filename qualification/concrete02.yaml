@@ -1,0 +1,17 @@
+version: 1
+kind: material
+name: concrete02
+target_level: verified
+evidence:
+  - category: monotonic
+    reference: tests/test_concrete02.py::test_concrete02_envelope
+  - category: step_convergence
+    reference: tests/test_concrete02.py::test_concrete02_step_convergence
+  - category: energy
+    reference: tests/test_concrete02.py::test_concrete02_unload_reload
+  - category: unload_reverse
+    reference: tests/test_concrete02.py::test_concrete02_tension_softening
+  # The compiled point loop that update() now dispatches to, pinned against the
+  # Python reference the file keeps as the definition of the law.
+  - category: backend_parity
+    reference: tests/test_uniaxial_numba.py::test_concrete02_compiled_loop_matches_its_reference

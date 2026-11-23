@@ -1,0 +1,64 @@
+version: 1
+case: case_37_pier_in_water
+classification: analytical
+reference: >-
+  Closed form. A cantilever pier, L = 20 m, EI = 3.45e10 x pi D^4/64 (D = 2
+  m), with a uniform mass across it of m = rho A + C_a rho_w A = 7854.0 +
+  3220.1 = 11074.1 kg/m (the Morison added mass of 20 m of water, C_a = 1)
+  and a 5e5 kg deck at the top, under a flat spectrum S_a = 2 m/s^2 along x.
+  Bending modes from 1 + cos l cosh l + (M / m L) l (cos l sinh l - sin l cosh
+  l) = 0: periods 1.464930, 0.101606, 0.031883 s; with the tip mass in the
+  participation, effective masses 616024 and 55745 kg; SRSS over the three:
+  deck 114.799 mm, base shear 1.237578 MN, base moment 23.70614 MN m.
+  Along the pier the water adds nothing: the axial mode is the bar with a tip
+  mass, b tan b = rho A L / M, T = 2 pi L / (b sqrt(E / rho)) = 0.0634924 s,
+  what the dry pier has. Twenty lumped-mass elements stand for the continuum.
+
+metrics:
+  - id: period_1
+    description: first bending period with the water, 1.46493 s (dry 1.44457)
+    source: spectrum
+    name: period
+    location: {index: 0}
+    expect: {target: 1.464930, rtol: 2.0e-3}
+  - id: period_2
+    description: second bending period with the water, 0.101606 s (dry 0.086168)
+    source: spectrum
+    name: period
+    location: {index: 1}
+    expect: {target: 0.101606, rtol: 5.0e-3}
+  - id: axial_period
+    description: the axial mode does not see the water, 0.0634924 s
+    source: spectrum
+    name: period
+    location: {index: 2}
+    expect: {target: 0.0634924, rtol: 1.0e-3}
+  - id: modal_mass_1
+    description: effective mass of mode 1, 616024 kg of 721482 (water included)
+    source: spectrum
+    name: modal_mass
+    location: {index: 0}
+    reduction: max
+    expect: {target: 616024.0, rtol: 3.0e-3}
+  - id: deck_displacement
+    description: SRSS deck displacement along x, 114.799 mm
+    source: spectrum
+    name: displacement
+    location: {nearest: [0.0, 0.0, 20.0]}
+    component: x
+    reduction: max
+    expect: {target: 0.1147993, rtol: 3.0e-3}
+  - id: base_shear
+    description: SRSS base shear, 1.237578 MN (dry 1.166754)
+    source: spectrum
+    name: base_force
+    location: {index: 0}
+    reduction: max
+    expect: {target: 1.237578e+6, rtol: 3.0e-3}
+  - id: base_moment
+    description: SRSS base moment from the modal end actions, 23.70614 MN m
+    source: spectrum
+    name: bending_z
+    location: {index: 0}
+    reduction: max
+    expect: {target: 2.370614e+7, rtol: 3.0e-3}

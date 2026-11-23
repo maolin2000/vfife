@@ -1,0 +1,100 @@
+version: 1
+case: case_29b_relaxation
+classification: analytical
+reference: >-
+  Closed form. The creep function of case_29 is a standard linear solid, and
+  a standard linear solid's relaxation modulus is exact algebra:
+  R(d)/E = [1 + phi_inf exp(-d (1 + phi_inf)/tau)] / (1 + phi_inf). With
+  phi_inf = 2 and tau = 40 d the force left in a bar stretched 10 mm at age
+  28 and held is 300 kN x R, which is 195.9 kN at 38 days, 109.3 at 69 and
+  100.0 -- exactly a third -- once phi has saturated. core.creep.relaxation
+  solves the same superposition integral numerically and reproduces the
+  algebra to 1e-4; benchmarks/generate_creep_bar.py --check prints both.
+
+# --------------------------------------------------------------------------- #
+#  R IS NOT 1 / (1 + phi)
+# --------------------------------------------------------------------------- #
+#  The effective-modulus guess, 1/(1 + phi), is the answer only once phi has
+#  stopped moving. On the way it is wrong by a third: at 38 days phi = 0.44,
+#  1/(1 + phi) = 0.69 and the true R is 0.65; at 69 days 0.42 against 0.36.
+#  The age-adjusted form 1 - phi/(1 + chi phi) is the same guess with chi
+#  fitted to this integral afterwards. What the solver does instead is the
+#  integral itself, one increment per time station, which is why this case
+#  can be checked against algebra rather than against another approximation.
+#
+#  WHAT THE TIME AXIS IS WORTH. Twelve log-spaced stations land on 100.000 kN
+#  at 1028 days and stay within 1 kN of the fine-grid solution of the same
+#  curve on the way. That is not free: the station must solve WITH the creep
+#  of its own increment in the equation (core/beam_solver._age_stiffness),
+#  because the explicit form -- the increment dated to the end of its
+#  interval, so that it has not crept when its own station is solved -- is
+#  marginally unstable here. It wobbled 0.332, 0.336, 0.329, 0.341 of the
+#  initial force and landed on 0.317 where the answer is 1/3, and twenty-four
+#  stations were worse rather than better (0.360). The story is in
+#  v0.4.
+#
+#  THE RESIDUAL 1 kN is the case's own 27-point creep curve, not the scheme:
+#  solving that curve on 2000 stations gives 195.0 kN at 38 days where the
+#  Zener algebra gives 195.9. The metrics below are written against the curve
+#  the case actually declares, with the algebra quoted beside them.
+
+metrics:
+  - id: the_elastic_force_when_the_strain_arrives
+    description: E A u / L = 3e10 x 0.01 x 0.01 / 10 = 300.0 kN at age 28
+    source: monitor
+    name: N_left
+    reduction: first
+    expect: {target: -3.0e+5, rtol: 0.002}
+
+  - id: a_third_of_it_is_left_after_a_thousand_days
+    description: >-
+      300 x R(1028, 28) = 100.0 kN. Exact to six figures on twelve stations,
+      and unchanged on six or twenty-four -- the check that the step-by-step
+      scheme has converged in the time step and not merely landed somewhere.
+    source: monitor
+    name: N_left
+    reduction: final
+    expect: {target: -1.0e+5, rtol: 0.01}
+
+  - id: the_decay_at_thirty_eight_days
+    description: >-
+      195.0 kN on the case's curve (195.9 from the Zener algebra, 0.5% away).
+      This is the metric the effective-modulus guess misses: it says 208.
+    source: monitor
+    name: N_left
+    reduction: at
+    against: age
+    value: 37.81
+    expect: {target: -1.945e+5, rtol: 0.02}
+
+  - id: the_decay_at_sixty_nine_days
+    description: >-
+      109.6 kN on the case's curve (109.3 from the algebra). Two thirds of
+      the force is gone while phi is still only 1.5.
+    source: monitor
+    name: N_left
+    reduction: at
+    against: age
+    value: 68.92
+    expect: {target: -1.085e+5, rtol: 0.02}
+
+  - id: nothing_overshoots
+    description: >-
+      the force never exceeds the 300 kN it started with. An unstable
+      step-by-step recursion announces itself exactly here -- the first
+      attempt at this scheme reached 332 kN, above the elastic value, which
+      is not something relaxation can do.
+    source: monitor
+    name: N_left
+    reduction: peak_abs
+    expect: {target: 3.0e+5, rtol: 0.002}
+
+  - id: the_strain_really_was_held
+    description: >-
+      10.000 mm at the far end from the first station to the last. If the
+      prescribed displacement slipped, the decay below it would be free
+      shortening and not relaxation.
+    source: monitor
+    name: u_right
+    reduction: final
+    expect: {target: 0.010, rtol: 0.001}

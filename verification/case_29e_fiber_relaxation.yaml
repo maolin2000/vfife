@@ -1,0 +1,108 @@
+version: 1
+case: case_29e_fiber_relaxation
+classification: analytical
+reference: >-
+  Closed form. A bar held at the strain it took at age t0 keeps
+  R(t, t0) / Ec(t0) of its force, and R is the solution of the superposition
+  integral -- NOT `1 / (1 + phi)`, which is 6% high in the middle of the
+  decay. The creep function here is a standard linear solid, whose relaxation
+  modulus is exact algebra,
+  R(d)/E = [1 + phi_inf exp(-d (1 + phi_inf) / tau)] / (1 + phi_inf),
+  so 300 kN at 28 days becomes 100.000 kN at 1028 whatever the time axis is.
+  core.creep.relaxation solves the same integral numerically and
+  tests/test_fiber_creep.py checks the whole decay against it, station by
+  station, at 6, 12 and 24 stations.
+
+# --------------------------------------------------------------------------- #
+#  WHERE THE TIME AXIS HAS TO EARN ITS KEEP
+# --------------------------------------------------------------------------- #
+#  case_29d is the boring half: a determinate bar under a held LOAD, where the
+#  free strain meets no resistance and there is nothing for the discretisation
+#  to get wrong. Here the strain is held, so every station has to solve for
+#  the increment that is arriving in it AT THE SAME TIME as the increment
+#  itself -- and v0.4 measured what happens if it does not. The explicit
+#  scheme is not merely first order on this problem, it is marginally
+#  UNSTABLE: twelve stations wobbled and landed on 0.317 of the initial force
+#  where the answer is 1/3, and twenty-four were worse.
+#
+#  So the number that matters is not the endpoint but the middle of the decay,
+#  and how it moves when the axis is refined:
+#
+#      stations    worst error against the integral
+#         6              2.79%
+#        12              0.98%
+#        24              0.44%
+#
+#  Monotone, halving, towards the algebra. That is the implicit step working,
+#  on a mechanism -- a scale on a nonlinear law's own input -- that did not
+#  exist when v0.4 measured the beam path.
+#
+#  AND THE TWO PATHS AGREE. case_29b is this same problem on the beam path:
+#  a linear-elastic member law with a factor on the member stiffness, against
+#  sixteen concrete02 fibres with a scale on the law's input. At every one of
+#  the thirteen stations the two records agree to 1e-6 of the force -- see
+#  tests/test_fiber_creep.py, which asserts it. Nothing but `core.creep` is
+#  shared between them.
+
+metrics:
+  - id: the_elastic_step_is_still_exact
+    description: >-
+      300.0 kN at age 28: E A x 10 mm / 10 m. The station a deformation
+      arrives at carries no creep.
+    source: monitor
+    name: N_left
+    reduction: first
+    expect: {target: -3.0e+5, rtol: 0.002}
+
+  - id: the_held_bar_relaxes_to_the_algebraic_answer
+    description: >-
+      100.000 kN = 300 x R(1028, 28) for the standard linear solid, exactly.
+      This is a check against algebra and not against another numerical
+      method; `1/(1 + phi)` would give the same 100 kN at the asymptote, which
+      is why the shape of the decay is checked in tests/test_fiber_creep.py
+      and not only here.
+    source: monitor
+    name: N_right
+    reduction: final
+    expect: {target: 1.0e+5, rtol: 0.003}
+
+  - id: and_the_two_ends_carry_it_equally
+    description: >-
+      -100.000 kN at the fixed end against +100.000 at the stretched one. A
+      bar held at both ends is in equilibrium at every station or the station
+      did not converge.
+    source: monitor
+    name: N_left
+    reduction: final
+    expect: {target: -1.0e+5, rtol: 0.003}
+
+  - id: it_never_carried_more_than_it_started_with
+    description: >-
+      the largest force in the whole record is the initial 300.0 kN. The
+      explicit scheme's failure mode is an OVERSHOOT -- the station over-
+      relaxes and comes back -- so a record whose peak is the first frame is
+      the compact statement that it did not (v0.4 kept the same
+      regression on the beam path).
+    source: monitor
+    name: N_left
+    reduction: peak_abs
+    expect: {target: 3.0e+5, rtol: 0.002}
+
+  - id: the_strain_really_was_held
+    description: >-
+      10.000 mm at the far end at 1028 days. A relaxation case that quietly
+      let the end move would decay for the wrong reason.
+    source: monitor
+    name: u_right
+    reduction: final
+    expect: {target: 0.010, rtol: 0.001}
+
+  - id: and_the_fibre_stress_fell_with_it
+    description: >-
+      10.000 MPa at the centroid, a third of the 30.0 it started at. The
+      monitor reads the MATERIAL's stress, so it is the fibre law itself that
+      has relaxed and not an average taken over the section.
+    source: monitor
+    name: sig_fibre
+    reduction: final
+    expect: {target: 1.0e+7, rtol: 0.003}
