@@ -340,7 +340,7 @@ def generate(root: pathlib.Path = ROOT) -> str:
     out += ["## 三 材料", "",
             "`materials.<名>: {type: <材料名>, <参数>...}`。参数没有默认值表的，看 `docs/` 里同名文档或算例。"
             "带单位的默认值（`rho`、`concrete01/02` 的 `fpc`、`steel02` 的 `E`/`Fy`、`steel_cyclic` 的 `E` 与牌号的 `fy`/`fu`、`bond_ceb` 与 `bond_cyclic` 的 `tau_max`/`s1..s3`）按 SI 给出，声明了非 SI 的 `units` 时换算到声明的单位。"
-            "同一参数的别名（`concrete01/02` 的 `fc`=`fpc`、`eps_c0`=`epsc0`、`eps_cu`=`epscu`，`concrete02` 的 `fpcu`/`fcu2`=`fcu`、`concrete01` 的 `fcu`=`fpcu`，`steel02` 的 `E0`=`E`、`yield_strength`=`Fy`）与正名同时给出且不等时拒绝（`MATERIAL_ALIAS_CONFLICT`）。", ""]
+            "同一参数的别名（`concrete01/02` 的 `fc`=`fpc`、`eps_c0`=`epsc0`、`eps_cu`=`epscu`，`concrete02` 的 `fpcu`/`fcu2`=`fcu`、`concrete01` 的 `fcu`=`fpcu`，`steel02` 的 `E0`=`E`、`yield_strength`=`fy`=`Fy`，`rebar`、`j2`、`chaboche` 的 `fy`=`yield_strength`）与正名同时给出且不等时拒绝（`MATERIAL_ALIAS_CONFLICT`）。", ""]
     for name, m in sorted(lib["materials"].items()):
         used = _cases(hits, f"material:{name}")
         if used == "—":

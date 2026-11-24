@@ -1,4 +1,4 @@
-"""Concrete01 faithful OpenSees Kent-Scott-Park (no tension)."""
+"""Concrete01: Kent-Scott-Park with Karsan-Jirsa unloading (no tension)."""
 import numpy as np
 import pytest
 from vfife.materials.base import create, definition

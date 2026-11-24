@@ -3,7 +3,7 @@
 # vfife Vector Form Intrinsic Finite Element Structural Analysis Software — User Manual
 
 **Software name**: vfife Vector Form Intrinsic Finite Element structural analysis software (vfife for short)
-**Version**: 1.20.0
+**Version**: 1.20.1
 **Runtime environment**: Python 3.10 or later; Windows, Linux, macOS; the GPU backend requires NVIDIA CUDA
 **License**: MIT
 
@@ -627,8 +627,8 @@ The compression and tension curves of `cdp` can be generated from codes (e.g. `c
 | type | Use | Main parameters |
 |---|---|---|
 | `concrete01` | Kent–Park concrete, tension ignored | `fpc, epsc0, fpcu, epscu` |
-| `concrete02` | Concrete with tension softening (OpenSees Concrete02) | `fpc, epsc0, fcu, epscu, rat, ft, Ets` |
-| `steel02` | Giuffré–Menegotto–Pinto steel (OpenSees Steel02), optional rupture strain | `E, Fy, b, R0, cR1, cR2, a1..a4, rupture_strain` |
+| `concrete02` | Yassin's concrete with tension softening (the law of OpenSees' Concrete02) | `fpc, epsc0, fcu, epscu, rat, ft, Ets` |
+| `steel02` | Menegotto–Pinto steel with Filippou et al.'s isotropic hardening (the law of OpenSees' Steel02), optional rupture strain | `E, Fy, b, R0, cR1, cR2, a1..a4, rupture_strain` |
 | `steel_cyclic` | Cyclic steel with a low-cycle fatigue fracture criterion | `grade, fy, fu, ...` |
 | `rebar` | Bilinear reinforcing steel, isotropic/kinematic hardening | `E, yield_strength, hardening, kinematic_fraction, rupture_strain` |
 | `piecewise_uniaxial` | Piecewise-linear tension–compression curve | `tension, compression, hardening_mode` |
@@ -2392,6 +2392,8 @@ result the case's `output.path` names; `--every` must be at least 1.
 
 ### 12.5 3D playback web page: `vfife view`
 
+Meshes are made in Gmsh and large-scale post-processing is done in ParaView (1.3, 12.2, 12.4). The two pages here are read-only. The model page shows what only vfife knows: supports, connectors, tendons and analysis steps. The result page replays a run with members at their section size, breaks and monitors, in one file that opens in a browser. They do not edit a model and are not meant to grow into a pre- or post-processor.
+
 ```bash
 python -m vfife view results/case_33_falling_beam.h5            # -> results/case_33_falling_beam.html
 python -m vfife view results/case_23_suspension_bridge.h5 --case cases/case_23_suspension_bridge.yaml
@@ -2446,8 +2448,6 @@ three.js r128's `three.min.js` and `OrbitControls.js` (as in the npm package `th
 or both directly in the folder), and the page then needs no network (1.16; a page made by an earlier version without real section
 outlines stopped on its first frame, black, whatever the network -- v1.16). Modal files from `vfife modal` are not run results and are explicitly rejected.
 
-This is a tool for looking at results, not for modelling: the model is still defined by YAML (Chapter 3).
-
 **The model before it is run**: given a case file (`.yaml`), `vfife view` writes the model page:
 
 ```bash
@@ -2457,10 +2457,10 @@ python -m vfife view bridge.yaml --scripts three_r128 -o model.html
 
 * The page shows the model as the solver reads it: the high-level blocks (11.14–11.16) expanded, with the tendon nodes, bars and arms `tendons:` adds, and the regions resolved as the solver resolves them. Nothing is run and no solver is built.
 * It goes step by step. The slider at the bottom picks the step, and the page draws the members standing in it. Members not built yet (or removed) are faint, or hidden; those the step builds are magenta.
-* Members are thin lines of a fixed width on the screen (`--thickness`: the beams' width in pixels, 2 by default), the nodes of beams, bars and connectors small dots; a tendon's own nodes are not drawn. Colour by member kind (beam, cable or bar, tendon, rigid arm in red, connector), section, build step or region. Rigid arms can be hidden (what stands on them stays). The region list (the regions `assign` names) shows one region's members, the rest faint -- or hidden, with the faint members off.
+* Members are thin lines of a fixed width on the screen (`--thickness`: the beams' width in pixels, 2 by default), every member's nodes small dots, those only the rigid arms reach included; a tendon's own nodes are not drawn. Colour by member kind (beam, cable or bar, tendon, rigid arm in red, connector), section, build step or region. Rigid arms can be hidden (what stands on them stays). The region list (the regions `assign` names) shows one region's members, the rest faint -- or hidden, with the faint members off.
 * Supports, connectors and soil springs are drawn the way the usual programs draw them -- one symbol each, what each degree of freedom or component is in a short code beside it -- and each kind has its own switch (v1.20):
   * a support: a triangle under the node, filled where a translation is held, open where only rotations are, with a bar under it where a rotation is held. Its code is the six dofs ux uy uz rx ry rz, `1` held and `0` free (`111000`), a held translation red and a held rotation magenta; a dof that moves is cyan, and so is the triangle (a nonzero `value` for it, a `motion` other than displacement, or the translations a `record` drives). The model's constraints, the step's own and those kept from earlier steps count; those `release`d do not.
-  * a connector: a square at its first node, a triangle at its second, its axes as a small triad at its middle (x red, y green, z blue: x along it; y the `orientation` made normal to it, or the global axis most nearly normal to it; z = x × y; the global axes with `coordinate_system: global`). Its code is the six components: `K` a stiffness, `N` a `curves` table or a `bilinear` law, `G` a `gap` law, `F` a `friction` or `pendulum` law, `D` a damper alone, `0` free; a component with a `connector_damping` or a `damper` law beside it is blue (`KK0000`). A friction, pendulum or bilinear law the same on uy and uz -- one law in the y–z plane -- is in lower case (`Kff000`); a trailing `*` marks a coupled 6×6 stiffness or damping.
+  * a connector: an open square at its first node, an open triangle at its second (the nodes' dots show through), its axes as a small triad at its middle (x red, y green, z blue: x along it; y the `orientation` made normal to it, or the global axis most nearly normal to it; z = x × y; the global axes with `coordinate_system: global`). Its code is the six components: `K` a stiffness, `N` a `curves` table or a `bilinear` law, `G` a `gap` law, `F` a `friction` or `pendulum` law, `D` a damper alone, `0` free; a component with a `connector_damping` or a `damper` law beside it is blue (`KK0000`). A friction, pendulum or bilinear law the same on uy and uz -- one law in the y–z plane -- is in lower case (`Kff000`); a trailing `*` marks a coupled 6×6 stiffness or damping.
   * soil springs (`soil_springs`): a short spring to the ground at each node they act on.
   * The symbols keep their size on the screen; the size slider scales the symbols and codes (not the clicked one's full drawing). The supports' codes are placed before the connectors'. A code that would overlap one already written is left out (its symbol is still drawn); zoom in, or turn the codes off.
   * Click a support or connector to see it in full: each held dof as a bar along its axis (a ring about the axis for a rotation), each component on its axis -- a spring, a yellow spring, two plates (gap), a block on a track (friction, pendulum), a spiral (rotation), a dashpot beside it; `direction: horizontal` soil springs as one radial spring on the two horizontal axes, tied by a dashed arc; a friction or pendulum law the same on uy and uz as one law in the y–z plane, its two symbols tied the same way.

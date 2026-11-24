@@ -7,6 +7,59 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.20.1] — 2026-11-24
+
+A maintenance release on the frozen 1.0 formats, so that the repository
+holds no third-party code: the three laws that were ports of OpenSees are
+rewritten from their papers. No new solver features; one new spelling
+(`fy`). Results of cases that use these laws change at round-off. One case
+loaded to collapse (`case_24d_hzb_girder_piers`) agrees with 1.20.0 to
+1e-11 up to the collapse at t = 54 s and departs from it after that, as any
+post-collapse motion does under a change of round-off (about 1% in the
+midspan deflection at the end of the run).
+
+### Added
+
+- **`fy` is the yield strength in every law that has one**: `steel02`,
+  `rebar`, `j2` and `chaboche` take it beside their own name (`Fy`,
+  `yield_strength`), as `steel_cyclic` already did. Giving both with
+  different values is refused (`MATERIAL_ALIAS_CONFLICT`).
+
+### Changed
+
+- **`steel02`, `concrete01` and `concrete02` are written from their papers.**
+  They were ports of the OpenSees source, whose licence does not allow its
+  code in an MIT repository. Now: Menegotto-Pinto with Filippou, Popov &
+  Bertero's isotropic hardening (UCB/EERC-83/19, Eqs. 3.4-3.8); Kent-Scott-
+  Park with Karsan-Jirsa unloading; Yassin's concrete with tension softening.
+  Where a paper leaves a detail open it was fixed against the OpenSees
+  program as a black box. Names, parameters and state layout are unchanged,
+  so cases and checkpoints carry over; results differ only at round-off
+  (the laws give OpenSees' curves to 1e-14 of the strength over random
+  strain histories). A relaxation can therefore come to rest at a slightly
+  different residual: a concrete02 fibre where its tension branch meets the
+  compression lines makes a small hysteresis loop, and one staged fibre-beam
+  test now rests at 4.4e-5 instead of below 1e-5. `tools/opensees_reference.py`
+  writes the reference curves, `tests/test_opensees_reference.py` checks
+  against them, and the test's own transcription of the OpenSees routine is
+  gone.
+- The repository is public at https://github.com/maolin2000/vfife
+  (CITATION.cff follows). It no longer ships `results/` or `docs/archive/`,
+  and earlier entries name versions instead of internal development stages.
+- README and both manuals state the division of labour: meshes come from
+  the case file, Gmsh or the Midas converter, heavy post-processing is left
+  to ParaView, and `vfife view` stays two read-only pages.
+
+### Fixed
+
+- `vfife view case.yaml` draws a dot at every member's nodes: a node only
+  rigid arms reach (an offset arm's drawing node, a cap beam's end) had none,
+  and a connector's filled square and triangle covered its ends' dots; they
+  are open now. A tendon's own nodes are still not drawn.
+- tests/test_backends.py skipped the whole file without warp-lang, so its
+  numba checks never ran on CI; only the tests that need warp are skipped
+  now, and the cross-element comparisons run numba alone.
+
 ## [1.20.0] — 2026-11-23
 
 ### Added (cases people can write and read)

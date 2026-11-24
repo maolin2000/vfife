@@ -1,10 +1,9 @@
-"""Concrete02 -- faithful port of OpenSees Concrete02.cpp (Yassin 1993).
+"""Concrete02 -- Yassin's concrete with linear tension softening (the law
+OpenSees users know by this name and parameters).
 
-Based on FEDEAS Concr2.f, Mohd Yassin 1993, Sze & Filippou 1994.
-Parameters: fpc, epsc0, fcu, epscu, rat, ft, Ets
-History: ecminP, deptP, epsP, sigP, eP (n_state=5)
-
-Reference: OpenSees SRC/material/uniaxial/Concrete02.cpp rev 1.3
+Written from the description of the model (Mohd Yassin 1994; Sze & Filippou
+1994); see `_point_py`. Parameters: fpc, epsc0, fcu, epscu, rat, ft, Ets.
+History (n_state = 5): ecminP, deptP, epsP, sigP, eP.
 """
 from __future__ import annotations
 import math
@@ -26,8 +25,114 @@ _KERNEL = None
 _COMPILED = False
 
 
+def _point_py(eps_section, st, p):
+    """One point of Yassin's concrete with tension softening, committed at
+    every call. Compression negative.
+
+    Written from the description of the model (Yassin 1994; Sze & Filippou):
+
+      * compression envelope: fc (2 r - r^2), r = eps/epsc0, to epsc0; a
+        straight line to (epscu, fcu); fcu beyond;
+      * the unloading lines all aim at one point R, where the initial
+        elastic line meets the line through (epscu, fcu) of slope rat Ec0:
+            eps_R = (fcu - rat Ec0 epscu) / (Ec0 (1 - rat)),  sig_R = Ec0 eps_R;
+        from the furthest point (eps_min, sig_min) the reloading line runs
+        with slope Er = (sig_min - sig_R)/(eps_min - eps_R) to zero stress at
+        eps_0 = eps_min - sig_min/Er, the unloading line through eps_0 has
+        half that slope, and between them the point moves elastically with
+        Ec0 = 2 fc/epsc0 -- so a small cycle inside them is elastic;
+      * tension: from eps_0, elastic with Ec0 to ft, then softening with
+        slope Ets to zero; unloading and reloading in tension go along the
+        secant to eps_0 from the furthest tensile point.
+
+    Which of the two lines bounds which way, and the origin of the tension
+    branch, were fixed by comparison with the OpenSees program of the same
+    name (tests/test_opensees_reference.py).
+
+    State: [eps_min, tensile excursion, eps, sig, tangent].
+    `p` = [fc, epsc0, fcu, epscu, ft, Ets, rat, strain_scale].
+    """
+    fc, epsc0, fcu, epscu, ft, Ets, rat = p[0], p[1], p[2], p[3], p[4], p[5], p[6]
+    eps = eps_section * p[7]
+    if eps == st[2]:                                  # nothing moved: stress and tangent stay
+        return st[3]
+    Ec0 = 2.0 * fc / epsc0
+    if eps < st[0]:                                   # past the furthest point: the envelope
+        st[0] = eps
+        if eps >= epsc0:
+            r = eps / epsc0
+            sig = fc * r * (2.0 - r)
+            tan = Ec0 * (1.0 - r)
+        elif eps > epscu:
+            tan = (fcu - fc) / (epscu - epsc0)
+            sig = fc + tan * (eps - epsc0)
+        else:
+            sig = fcu
+            tan = 1.0e-10
+    else:
+        em = st[0]
+        if em < 0.0:
+            if em >= epsc0:
+                r = em / epsc0
+                sm = fc * r * (2.0 - r)
+            elif em > epscu:
+                sm = fc + (fcu - fc) * (em - epsc0) / (epscu - epsc0)
+            else:
+                sm = fcu
+            eps_R = (fcu - rat * Ec0 * epscu) / (Ec0 * (1.0 - rat))
+            Er = (sm - Ec0 * eps_R) / (em - eps_R)
+            eps_0 = em - sm / Er if Er > 1.0e-12 * Ec0 else 0.0
+        else:
+            Er = Ec0
+            eps_0 = 0.0
+        if Er <= 1.0e-12 * Ec0:
+            # rat = 0 and crushed: the lines are flat, the point carries nothing
+            sig = 0.0
+            tan = 1.0e-10
+        elif eps <= eps_0:                              # between the reloading and unloading lines
+            sig = st[3] + Ec0 * (eps - st[2])
+            tan = Ec0
+            lo = Er * (eps - eps_0)
+            hi = 0.5 * Er * (eps - eps_0)
+            if sig < lo:
+                sig = lo
+                tan = Er
+            if sig > hi:
+                sig = hi
+                tan = 0.5 * Er
+        else:                                         # tension, from eps_0
+            et = eps - eps_0
+            e1 = ft / Ec0
+            if et > st[1]:
+                st[1] = et
+                if et <= e1:
+                    sig = Ec0 * et
+                    tan = Ec0
+                else:
+                    sig = ft - Ets * (et - e1)
+                    tan = -Ets
+                    if sig <= 0.0:
+                        sig = 0.0
+                        tan = 1.0e-10
+            else:
+                d = st[1]
+                if d <= e1:
+                    sd = Ec0 * d
+                else:
+                    sd = ft - Ets * (d - e1)
+                    if sd < 0.0:
+                        sd = 0.0
+                tan = sd / d if d > 0.0 else Ec0
+                sig = tan * et
+    st[2] = eps
+    st[3] = sig
+    st[4] = tan
+    return sig
+
+
 def _compile():
-    """Scalar point law + the batch loop that calls it. See steel02.py."""
+    """The same function, compiled: one definition of the law, used by the
+    reference loop (as Python), the batch loop and the fused fibre kernel."""
     global _POINT, _KERNEL, _COMPILED
     if _COMPILED:
         return
@@ -36,100 +141,7 @@ def _compile():
         from numba import njit
     except Exception:
         return
-
-    @njit(cache=True, inline="always")
-    def _tens(epsc, fc, epsc0, ft, Ets):
-        Ec0 = 2.0 * fc / epsc0
-        eps0 = ft / Ec0
-        epsu = ft * (1.0 / Ets + 1.0 / Ec0)
-        if epsc <= eps0:
-            return epsc * Ec0, Ec0
-        if epsc <= epsu:
-            return ft - Ets * (epsc - eps0), -Ets
-        return 0.0, 1.0e-10
-
-    @njit(cache=True, inline="always")
-    def _compr(epsc, fc, epsc0, fcu, epscu):
-        Ec0 = 2.0 * fc / epsc0
-        r = epsc / epsc0
-        if epsc >= epsc0:
-            return fc * r * (2.0 - r), Ec0 * (1.0 - r)
-        if epsc > epscu:
-            return ((fcu - fc) * (epsc - epsc0) / (epscu - epsc0) + fc,
-                    (fcu - fc) / (epscu - epsc0))
-        return fcu, 1.0e-10
-
-    @njit(cache=True, inline="always")
-    def point(eps_section, st, p):
-        fc, epsc0, fcu, epscu, ft, Ets, rat = p[0], p[1], p[2], p[3], p[4], p[5], p[6]
-        # The fibre's OWN (instantaneous) strain, after the free strains have
-        # been taken out of the section's. `p[7]` is 1 for a fibre with no
-        # time dependence, which is every fibre in every case before v0.4.
-        eps_trial = eps_section * p[7]
-        Ec0 = 2.0 * fc / epsc0
-        ecminP = st[0]
-        deptP = st[1]
-        epsP = st[2]
-        sigP = st[3]
-        eP = st[4]
-        if (abs(eP) < 1e-12 and abs(ecminP) < 1e-12 and abs(deptP) < 1e-12
-                and abs(epsP) < 1e-12 and abs(sigP) < 1e-12):
-            ecminP = 0.0
-            deptP = 0.0
-
-        deps = eps_trial - epsP
-        if abs(deps) < _EPS:
-            return sigP
-
-        eps = eps_trial
-        ecmin = ecminP
-        dept = deptP
-
-        if eps < ecmin:
-            sig, e = _compr(eps, fc, epsc0, fcu, epscu)
-            ecmin = eps
-        else:
-            epsr = (fcu - rat * Ec0 * epscu) / (Ec0 * (1.0 - rat))
-            sigmr = Ec0 * epsr
-            sigmm, _unused = _compr(ecmin, fc, epsc0, fcu, epscu)
-            if abs(ecmin - epsr) > 1e-12:
-                er = (sigmm - sigmr) / (ecmin - epsr)
-            else:
-                er = Ec0
-            if abs(er) > 1e-12:
-                ept = ecmin - sigmm / er
-            else:
-                ept = ecmin
-            if eps <= ept:
-                sigmin = sigmm + er * (eps - ecmin)
-                sigmax = er * 0.5 * (eps - ept)
-                sig = sigP + Ec0 * deps
-                e = Ec0
-                if sig <= sigmin:
-                    sig = sigmin
-                    e = er
-                if sig >= sigmax:
-                    sig = sigmax
-                    e = 0.5 * er
-            else:
-                epn = ept + dept
-                if eps <= epn:
-                    sicn, _u2 = _tens(dept, fc, epsc0, ft, Ets)
-                    if dept != 0.0:
-                        e = sicn / dept
-                    else:
-                        e = Ec0
-                    sig = e * (eps - ept)
-                else:
-                    sig, e = _tens(eps - ept, fc, epsc0, ft, Ets)
-                    dept = eps - ept
-
-        st[0] = ecmin
-        st[1] = dept
-        st[2] = eps
-        st[3] = sig
-        st[4] = e
-        return sig
+    point = njit(cache=True, inline="always")(_point_py)
 
     @njit(cache=True)
     def _point_loop(strain, state, out, p):
@@ -153,7 +165,7 @@ def _kernel():
     verification="constitutive_path",
     output_fields=("axial_stress", "axial_strain"),
     nonlinear=True,
-    caveat="OpenSees Concrete02 Yassin damage with tension, faithful port.",
+    caveat="Yassin concrete with linear tension softening.",
 )
 class Concrete02(Material):
     n_state = 5
@@ -220,7 +232,7 @@ class Concrete02(Material):
         self.fcu = float(fcu)
         self.epscu = float(epscu)
 
-        # defaults as in C++ second constructor
+        # defaults: rat 0.1, ft = fc/10, Ets = (fc/epsc0)/10
         if self.rat_input is None:
             self.rat = 0.1
         else:
@@ -261,37 +273,6 @@ class Concrete02(Material):
     def describe(self) -> str:
         return f"    Concrete02 fpc={self.fc/1e6:.1f}MPa epsc0={self.epsc0:.4f} fcu={self.fcu/1e6:.1f}MPa epscu={self.epscu:.4f} rat={self.rat:.3g} ft={self.ft/1e6:.1f}MPa Ets={self.Ets/1e9:.2f}GPa"
 
-    def _Tens_Envlp(self, epsc):
-        Ec0 = 2.0 * self.fc / self.epsc0
-        eps0 = self.ft / Ec0
-        epsu = self.ft * (1.0 / self.Ets + 1.0 / Ec0)
-        if epsc <= eps0:
-            sigc = epsc * Ec0
-            Ect = Ec0
-        else:
-            if epsc <= epsu:
-                Ect = -self.Ets
-                sigc = self.ft - self.Ets * (epsc - eps0)
-            else:
-                Ect = 1.0e-10
-                sigc = 0.0
-        return sigc, Ect
-
-    def _Compr_Envlp(self, epsc):
-        Ec0 = 2.0 * self.fc / self.epsc0
-        ratLocal = epsc / self.epsc0
-        if epsc >= self.epsc0:
-            sigc = self.fc * ratLocal * (2.0 - ratLocal)
-            Ect = Ec0 * (1.0 - ratLocal)
-        else:
-            if epsc > self.epscu:
-                sigc = (self.fcu - self.fc) * (epsc - self.epsc0) / (self.epscu - self.epsc0) + self.fc
-                Ect = (self.fcu - self.fc) / (self.epscu - self.epsc0)
-            else:
-                sigc = self.fcu
-                Ect = 1.0e-10
-        return sigc, Ect
-
     def update(self, strain, state, dt):
         out = np.zeros_like(strain)
         fn = _kernel()
@@ -323,78 +304,11 @@ class Concrete02(Material):
         return _POINT
 
     def _update_reference(self, strain, state, out):
-        """Readable definition of the law; the compiled kernel mirrors it."""
-        Ec0 = 2.0 * self.fc / self.epsc0
-        for i, eps_section in enumerate(strain[:, 0]):
-            eps_trial = float(eps_section) * self.strain_scale
-            ecminP = float(state[i, 0])
-            deptP = float(state[i, 1])
-            epsP = float(state[i, 2])
-            sigP = float(state[i, 3])
-            eP = float(state[i, 4])
-            # if uninitialized, set defaults
-            if abs(eP) < 1e-12 and abs(ecminP) < 1e-12 and abs(deptP) < 1e-12 and abs(epsP) < 1e-12 and abs(sigP) < 1e-12:
-                eP = Ec0
-                ecminP = 0.0
-                deptP = 0.0
-
-            deps = eps_trial - epsP
-            if abs(deps) < np.finfo(float).eps:
-                out[i, 0] = sigP
-                continue
-
-            eps = eps_trial
-            # retrieve history
-            ecmin = ecminP
-            dept = deptP
-
-            if eps < ecmin:
-                sig, e = self._Compr_Envlp(eps)
-                ecmin = eps
-            else:
-                epsr = (self.fcu - self.rat * Ec0 * self.epscu) / (Ec0 * (1.0 - self.rat))
-                sigmr = Ec0 * epsr
-                # previous minimum stress
-                sigmm, _ = self._Compr_Envlp(ecmin)
-                er = (sigmm - sigmr) / (ecmin - epsr) if abs(ecmin - epsr) > 1e-12 else Ec0
-                ept = ecmin - sigmm / er if abs(er) > 1e-12 else ecmin
-                if eps <= ept:
-                    sigmin = sigmm + er * (eps - ecmin)
-                    sigmax = er * 0.5 * (eps - ept)
-                    sig_trial = sigP + Ec0 * deps
-                    e_trial = Ec0
-                    sig = sig_trial
-                    e = e_trial
-                    if sig <= sigmin:
-                        sig = sigmin
-                        e = er
-                    if sig >= sigmax:
-                        sig = sigmax
-                        e = 0.5 * er
-                else:
-                    epn = ept + dept
-                    if eps <= epn:
-                        # tension reloading branch
-                        sicn, _ = self._Tens_Envlp(dept)
-                        if dept != 0.0:
-                            e = sicn / dept
-                        else:
-                            e = Ec0
-                        sig = e * (eps - ept)
-                    else:
-                        epstmp = eps - ept
-                        sig, e = self._Tens_Envlp(epstmp)
-                        dept = eps - ept
-
-            # commit immediately (fiber direct)
-            state[i, 0] = ecmin
-            state[i, 1] = dept
-            state[i, 2] = eps
-            state[i, 3] = sig
-            state[i, 4] = e
-            out[i, 0] = sig
+        """The law run as plain Python: the same function the kernel compiles."""
+        p = self.numba_params()
+        for i in range(strain.shape[0]):
+            out[i, 0] = _point_py(float(strain[i, 0]), state[i], p)
         return out
-
     def output_fields(self, state):
         return {}
 

@@ -86,7 +86,7 @@ RETIRED = {
     "rebar_gmp": (
         "removed in v0.1: it was the same Giuffre-Menegotto-Pinto law as "
         "`steel02` then (0.42% of the peak stress over 18 parameter sets; "
-        "since v1.0 `steel02` follows OpenSees Steel02, whose envelope stays "
+        "since v1.0 `steel02` is Filippou et al.'s form, whose envelope stays "
         "under its hardening asymptote), runs 30x faster (147 ns a point against 4.5 us) "
         "and is the one with a compiled scalar twin -- without which a fibre "
         "section drops off the fused kernel. Change `type: rebar_gmp` to "
@@ -107,6 +107,8 @@ def accepted_parameters(name: str) -> set:
         names |= {p.name for p in inspect.signature(init).parameters.values()
                   if p.name != "self" and p.kind not in (inspect.Parameter.VAR_POSITIONAL,
                                                          inspect.Parameter.VAR_KEYWORD)}
+    for aliases in ALIASES.get(name, {}).values():
+        names |= set(aliases)
     return names
 
 
@@ -138,8 +140,25 @@ ALIASES = {
     "concrete01": {"fpc": ("fc",), "epsc0": ("eps_c0",), "fpcu": ("fcu",), "epscu": ("eps_cu",)},
     "concrete02": {"fpc": ("fc",), "epsc0": ("eps_c0",), "fcu": ("fpcu", "fcu2"),
                    "epscu": ("eps_cu",)},
-    "steel02": {"E": ("E0",), "Fy": ("yield_strength",)},
+    "steel02": {"E": ("E0",), "Fy": ("yield_strength", "fy")},
+    # `fy` is the yield strength in every law that has one (steel_cyclic's own name)
+    "rebar": {"yield_strength": ("fy",)},
+    "j2": {"yield_strength": ("fy",)},
+    "chaboche": {"yield_strength": ("fy",)},
 }
+
+
+def _fold_aliases(name, kwargs):
+    """An alias the law's constructor does not read itself is passed on
+    under the canonical name (a conflict between the two is refused before)."""
+    import inspect
+    own = set(inspect.signature(_REGISTRY[name].__init__).parameters)
+    for canonical, aliases in ALIASES.get(name, {}).items():
+        for alias in aliases:
+            if alias in kwargs and alias not in own:
+                value = kwargs.pop(alias)
+                if kwargs.get(canonical) is None:
+                    kwargs[canonical] = value
 
 
 def _refuse_alias_conflicts(name, kwargs):
@@ -193,6 +212,7 @@ def create(name: str, **kwargs) -> "Material":
     slow = {k: kwargs.pop(k, None)
             for k in ("creep", "shrinkage", "ageing", "relaxation")}
     _refuse_unknown_parameters(name, kwargs)
+    _fold_aliases(name, kwargs)
     _check_slow(name, slow)
     material = _REGISTRY[name](**kwargs)
     if thermal is not None:

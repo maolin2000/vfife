@@ -43,7 +43,7 @@ MATERIAL_DEFAULTS = {
     "concrete01": [("rho", 2400.0, "density", ()), ("fpc", 30.0e6, "stress", ("fc",))],
     "concrete02": [("rho", 2400.0, "density", ()), ("fpc", 30.0e6, "stress", ("fc",))],
     "steel02": [("rho", 7850.0, "density", ()), ("E", 200.0e9, "stress", ("E0",)),
-                ("Fy", 400.0e6, "stress", ("yield_strength",))],
+                ("Fy", 400.0e6, "stress", ("yield_strength", "fy"))],
     "steel_cyclic": [("rho", 7850.0, "density", ()), ("E", 206.0e9, "stress", ())],
     "bond_ceb": [("rho", 7850.0, "density", ())],
     # the same MC2010 envelope with cyclic degradation (BondCyclic inherits

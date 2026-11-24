@@ -1,4 +1,4 @@
-"""Concrete02 faithful Yassin (tension + compression)."""
+"""Concrete02: Yassin (tension + compression)."""
 import numpy as np
 import pytest
 from vfife.materials.base import create

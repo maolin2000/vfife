@@ -237,7 +237,18 @@ def test_inverse_connectivity_covers_every_slot():
 #  without one is throughput.
 # --------------------------------------------------------------------------- #
 
-warp = pytest.importorskip("warp", reason="warp-lang not installed")
+#: Only the tests that need warp are skipped without it. This used to be a
+#: module-level `importorskip`, which skipped the whole file -- the numba
+#: checks above included -- wherever warp-lang is not installed, CI among them.
+try:
+    import warp
+    HAVE_WARP = True
+except ImportError:
+    warp = None
+    HAVE_WARP = False
+needs_warp = pytest.mark.skipif(not HAVE_WARP, reason="warp-lang not installed")
+#: the backends the cross-element comparisons below run besides numpy
+COMPARED = ("numba", "warp") if HAVE_WARP else ("numba",)
 #: The device every Warp comparison runs on. It is "cpu" by default so the
 #: suite is reproducible on a machine with no GPU -- but that means nothing in
 #: this file has ever exercised CUDA, while `cases/case_06` ships asking for it.
@@ -284,7 +295,8 @@ def _require_warp_device(name):
         )
 
 
-_require_warp_device(WARP_DEVICE)
+if HAVE_WARP:
+    _require_warp_device(WARP_DEVICE)
 WARP_CPU = dict(device=WARP_DEVICE, precision="fp64")
 
 
@@ -299,6 +311,7 @@ def run_warp(mesh, mat, pre, x0e, path, **kw):
     return f.assemble(f_e), np.array(sig), state, quat
 
 
+@needs_warp
 @pytest.mark.parametrize("name,formulation", [
     ("linear_elastic", "full"),
     ("linear_elastic", "reduced"),
@@ -338,6 +351,7 @@ def test_warp_fp64_matches_numpy(name, formulation):
         assert rel(st_a, st_b) < tol, f"state {rel(st_a, st_b):.2e}"
 
 
+@needs_warp
 @pytest.mark.parametrize("name", ["linear_elastic", "cdp"])
 def test_warp_mixed_precision_stays_within_fp32(name):
     """fp32 elements must cost single-precision accuracy, not correctness.
@@ -361,6 +375,7 @@ def test_warp_mixed_precision_stays_within_fp32(name):
         assert rel < 1e-3, f"{nm}: {rel:.2e}"
 
 
+@needs_warp
 @pytest.mark.parametrize("with_prescribed", [False, True])
 def test_warp_device_loop_matches_cpu_loop(with_prescribed):
     """The whole time loop on the device must give the CPU loop's answer.
@@ -412,6 +427,7 @@ def test_warp_device_loop_matches_cpu_loop(with_prescribed):
     assert np.abs(a[0] - b[0]).max() / np.abs(a[0]).max() < 1e-10
 
 
+@needs_warp
 @pytest.mark.parametrize("name,formulation,limit_gb", [
     ("cdp", "reduced", 1.0),
     ("cdp", "b-bar", 3.0),
@@ -436,6 +452,7 @@ def test_device_memory_fits_a_million_elements(name, formulation, limit_gb):
     )
 
 
+@needs_warp
 def test_warp_rejects_bad_precision():
     mesh = box_mesh((1.0, 0.5, 0.5), (2, 1, 1))
     mat = materials()["linear_elastic"]
@@ -448,6 +465,7 @@ def test_warp_rejects_bad_precision():
                            device="cpu", precision="fp16")
 
 
+@needs_warp
 def test_warp_truss_matches_numpy_through_yield_and_reversal():
     """Embedded reinforcement on the device must track the reference exactly.
 
@@ -524,7 +542,7 @@ def test_all_elements_agree_across_backends(element, formulation, name):
     The element library is data -- dN/dxi, quadrature, node count -- so adding a
     topology must not need a new kernel.  This is the test that says so: the
     same fused Numba and Warp kernels compile for 4, 6, 8 and 10 nodes and land
-    on the NumPy reference.
+    on the NumPy reference. Without warp-lang only Numba is compared.
     """
     def mat():
         if name == "j2":
@@ -546,6 +564,8 @@ def test_all_elements_agree_across_backends(element, formulation, name):
 
     out = {}
     for backend, kw in (("numpy", {}), ("numba", {}), ("warp", WARP_CPU)):
+        if backend not in ("numpy",) + COMPARED:
+            continue
         m = mat()
         pre = continuum.precompute(mesh.nodes, mesh.elements, element=element,
                                    formulation=formulation, material=m)
@@ -554,7 +574,7 @@ def test_all_elements_agree_across_backends(element, formulation, name):
         out[backend] = run(f, mesh, m, pre, path)
 
     ref = out["numpy"]
-    for backend in ("numba", "warp"):
+    for backend in COMPARED:
         got = out[backend]
         for k, label in enumerate(("force", "stress", "state")):
             a, b = ref[k], got[k]
@@ -641,6 +661,8 @@ def test_the_remaining_elements_also_agree_across_backends(element, name):
 
     out = {}
     for backend, kw in (("numpy", {}), ("numba", {}), ("warp", WARP_CPU)):
+        if backend not in ("numpy",) + COMPARED:
+            continue
         m = mat()
         pre = continuum.precompute(mesh.nodes, mesh.elements, element=element,
                                    formulation="full", material=m)
@@ -649,7 +671,7 @@ def test_the_remaining_elements_also_agree_across_backends(element, name):
         out[backend] = run(f, mesh, m, pre, path)
 
     ref = out["numpy"]
-    for backend in ("numba", "warp"):
+    for backend in COMPARED:
         for k, label in enumerate(("force", "stress", "state")):
             a, b = ref[k], out[backend][k]
             if a is None or not np.size(a):

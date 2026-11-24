@@ -191,8 +191,9 @@ PAGE = r'''<!doctype html>
     U.uWpp.value = wpp0;
   }
 
-  // ---- nodes: dots of a fixed size, those of the beams, bars and connectors
-  // standing in the step (a tendon's own nodes are not drawn)
+  // ---- nodes: dots of a fixed size, at the ends of every member standing in
+  // the step but a tendon's bars and arms (a tendon's own nodes are not drawn;
+  // the node its arm hangs from is a girder node, dotted by the girder)
   const dotTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 32;
     const x = c.getContext("2d"); x.fillStyle = "#fff"; x.beginPath(); x.arc(16, 16, 12, 0, 2 * Math.PI); x.fill();
     return new THREE.CanvasTexture(c); })();
@@ -202,6 +203,7 @@ PAGE = r'''<!doctype html>
     transparent: true, alphaTest: 0.5, color: 0xffffff, depthTest: false }));
   scene.add(dots);
   const standing = new Uint8Array(nn), dotted = new Uint8Array(nn);
+  const tendonArm = e => A.reg[e] >= 0 && M.tendon_of_region[A.reg[e]] !== undefined;
 
   // ---- colours
   function hsl(i, out) { return (out || new THREE.Color()).setHSL(((i * 0.618034) % 1), 0.55, 0.58); }
@@ -441,9 +443,10 @@ PAGE = r'''<!doctype html>
     const e = A.cn_ids[c], i = A.conn[2 * e], j = A.conn[2 * e + 1];
     const sa = scr(A.nodes[3 * i], A.nodes[3 * i + 1], A.nodes[3 * i + 2]), sb = scr(A.nodes[3 * j], A.nodes[3 * j + 1], A.nodes[3 * j + 2]);
     const r = 3 * z;
-    g.setLineDash([]); g.fillStyle = C.spring; g.strokeStyle = C.spring; g.lineWidth = 1.2;
-    g.fillRect(sa[0] - r, sa[1] - r, 2 * r, 2 * r);                         // its first node: a square
-    g.beginPath(); g.moveTo(sb[0], sb[1] - r * 1.2); g.lineTo(sb[0] - r, sb[1] + r); g.lineTo(sb[0] + r, sb[1] + r); g.closePath(); g.fill();  // its second: a triangle
+    g.setLineDash([]); g.strokeStyle = C.spring; g.lineWidth = 1.2;
+    // its first node a square, its second a triangle, both open so the node's dot shows through
+    g.strokeRect(sa[0] - r, sa[1] - r, 2 * r, 2 * r);
+    g.beginPath(); g.moveTo(sb[0], sb[1] - r * 1.2); g.lineTo(sb[0] - r, sb[1] + r); g.lineTo(sb[0] + r, sb[1] + r); g.closePath(); g.stroke();
     const R = connAxes(c);
     ["#ff6b6b", "#5fd68a", "#5aa9ff"].forEach((col, k) => {             // its axes: x red, y green, z blue
       const v = axv(Pm, R[k]); seg(g, Pm.s, [Pm.s[0] + v[0] * 14 * z, Pm.s[1] + v[1] * 14 * z], col, 1.4); });
@@ -524,8 +527,8 @@ PAGE = r'''<!doctype html>
     tri(12, y, C.fix, true); text("支承：约束了平动", 44, y + 4);
     tri(190, y, C.rotfix, false); seg(c, [183, y + 6], [197, y + 6], C.rotfix, 2); text("只约束转动", 216, y + 4);
     y += 24; codeAt(supportCode(0b111011, 0b000001), 4, y + 4); text("1 约束 0 自由；红平动、紫转动、青给定运动", 52, y + 4);
-    y += 24; c.fillStyle = C.spring; c.fillRect(4, y - 3, 6, 6); seg(c, [10, y], [30, y], C.conn, 1);
-    c.beginPath(); c.moveTo(34, y - 4); c.lineTo(30, y + 3); c.lineTo(38, y + 3); c.closePath(); c.fill();
+    y += 24; c.setLineDash([]); c.strokeStyle = C.spring; c.lineWidth = 1.2; c.strokeRect(4, y - 3, 6, 6); seg(c, [10, y], [30, y], C.conn, 1);
+    c.strokeStyle = C.spring; c.lineWidth = 1.2; c.beginPath(); c.moveTo(34, y - 4);   // (seg changed the stroke) c.lineTo(30, y + 3); c.lineTo(38, y + 3); c.closePath(); c.stroke();
     seg(c, [20, y], [28, y - 7], "#ff6b6b", 1.4); seg(c, [20, y], [14, y - 8], "#5fd68a", 1.4); seg(c, [20, y], [20, y - 10], "#5aa9ff", 1.4);
     text("连接器：方块首节点，三角末节点，局部轴 x y z", 44, y + 4);
     y += 24; codeAt([["K", C.spring], ["K", C.damper], ["N", C.curve], ["G", C.contact], ["F", C.contact], ["D", C.damper]], 4, y + 4);
@@ -570,7 +573,7 @@ PAGE = r'''<!doctype html>
       if (built && inside) {                         // (the arms switch hides arms only, not what stands on them)
         const a = A.conn[2 * e], b = A.conn[2 * e + 1], k = A.kind[e];
         standing[a] = standing[b] = 1;
-        if (k === 0 || k === 1 || k === 4) dotted[a] = dotted[b] = 1;
+        if (!hidden && k !== 2 && !(k === 3 && tendonArm(e))) dotted[a] = dotted[b] = 1;   // (no dot left floating at a hidden arm's end)
       }
       solid.setColorAt(e, mode !== "step" && isNew(e, step) ? NEW : colourOf(mode, e));
     }
@@ -720,7 +723,8 @@ PAGE = r'''<!doctype html>
   const look = (i, dist) => { const p = node(i); controls.target.copy(p);
     camera.position.set(p.x + 0.6 * dist, p.y - 1.2 * dist, p.z + 0.7 * dist); controls.update(); render(); };
   const pick = p => { picked = p; showPick(p); render(); };
-  window.__vfife_model = { ready: true, steps: ns, members: ne, at: at2, node_at: nodeAt, look, pick, glyphs: () => counts };
+  window.__vfife_model = { ready: true, steps: ns, members: ne, at: at2, node_at: nodeAt, look, pick, glyphs: () => counts,
+    dots: () => dotGeo.drawRange.count };
 })();
 </script>
 </body>

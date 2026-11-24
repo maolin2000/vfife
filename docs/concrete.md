@@ -1,11 +1,11 @@
 # Concrete01 / Concrete02 一维混凝土
 
-两者均为 `OpenSees` 忠实移植，仅用于 `beam2_fiber` 纤维（`uniaxial`），不可赋给连续体单元。
+两者沿用 OpenSees 同名材料的名字和参数，按原论文实现（`concrete01`：Kent–Scott–Park 包络线加 Karsan–Jirsa 卸载；`concrete02`：Yassin 模型），与 OpenSees 程序的输出在舍入误差内一致（`tests/test_opensees_reference.py`）；仅用于 `beam2_fiber` 纤维（`uniaxial`），不可赋给连续体单元。
 
 | 模型 | 来源 | 受拉 | 关键参数 | 状态 |
 |---|---|---|---|---|
-| `concrete01` | Kent-Scott-Park (`Concrete01.cpp`) | 无（`>epsc0` 后拉应力恒 0） | `fpc/epsc0/fcu/epscu`（`fpc<0, epsc0<0` 为压） | `n_state=5` |
-| `concrete02` | Yassin (`Concrete02.cpp`, `Concr2.f`) | 有（`ft/Ets` 线性软化） | `fpc/epsc0/fcu/epscu/rat/ft/Ets` | `n_state=5` |
+| `concrete01` | Kent-Scott-Park 包络线，Karsan-Jirsa 卸载 | 无（`>epsc0` 后拉应力恒 0） | `fpc/epsc0/fcu/epscu`（`fpc<0, epsc0<0` 为压） | `n_state=5` |
+| `concrete02` | Yassin（1994），Sze & Filippou | 有（`ft/Ets` 线性软化） | `fpc/epsc0/fcu/epscu/rat/ft/Ets` | `n_state=5` |
 
 ## 输入
 

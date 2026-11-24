@@ -1,4 +1,4 @@
-# vfife YAML 参考（自动生成，1.20.0）
+# vfife YAML 参考（自动生成，1.20.1）
 
 > 由 `python -m vfife reference` 从 `vfife/io/model.py`、`vfife/io/schema.py` 和材料/单元目录生成；`tests/test_reference.py` 保证它与代码一致。**不要手改**——改字段的 `#:` 注释，再重新生成。
 > 说明列是字段上方 `#:` 注释的中文第一行，英文原注是其余行。概念、建模方法和完整例子见 `docs/用户手册.md`；每个字段最后一列是
@@ -846,7 +846,7 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 
 ## 三 材料
 
-`materials.<名>: {type: <材料名>, <参数>...}`。参数没有默认值表的，看 `docs/` 里同名文档或算例。带单位的默认值（`rho`、`concrete01/02` 的 `fpc`、`steel02` 的 `E`/`Fy`、`steel_cyclic` 的 `E` 与牌号的 `fy`/`fu`、`bond_ceb` 与 `bond_cyclic` 的 `tau_max`/`s1..s3`）按 SI 给出，声明了非 SI 的 `units` 时换算到声明的单位。同一参数的别名（`concrete01/02` 的 `fc`=`fpc`、`eps_c0`=`epsc0`、`eps_cu`=`epscu`，`concrete02` 的 `fpcu`/`fcu2`=`fcu`、`concrete01` 的 `fcu`=`fpcu`，`steel02` 的 `E0`=`E`、`yield_strength`=`Fy`）与正名同时给出且不等时拒绝（`MATERIAL_ALIAS_CONFLICT`）。
+`materials.<名>: {type: <材料名>, <参数>...}`。参数没有默认值表的，看 `docs/` 里同名文档或算例。带单位的默认值（`rho`、`concrete01/02` 的 `fpc`、`steel02` 的 `E`/`Fy`、`steel_cyclic` 的 `E` 与牌号的 `fy`/`fu`、`bond_ceb` 与 `bond_cyclic` 的 `tau_max`/`s1..s3`）按 SI 给出，声明了非 SI 的 `units` 时换算到声明的单位。同一参数的别名（`concrete01/02` 的 `fc`=`fpc`、`eps_c0`=`epsc0`、`eps_cu`=`epscu`，`concrete02` 的 `fpcu`/`fcu2`=`fcu`、`concrete01` 的 `fcu`=`fpcu`，`steel02` 的 `E0`=`E`、`yield_strength`=`fy`=`Fy`，`rebar`、`j2`、`chaboche` 的 `fy`=`yield_strength`）与正名同时给出且不等时拒绝（`MATERIAL_ALIAS_CONFLICT`）。
 
 ### `bond_ceb`
 
@@ -885,7 +885,7 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * 运动学 uniaxial；后端 numpy, numba；分析模式 dynamic, relaxation；非线性
 * 参数：`fpc`, `epsc0`, `fpcu`, `epscu`, `fc`, `eps_c0`, `fcu`, `eps_cu`, `E`, `rho`, `nu`
 * 输出字段：`axial_stress`, `axial_strain`
-* 注意：OpenSees Concrete01 Kent-Scott-Park (no tension), faithful port.
+* 注意：Kent-Scott-Park envelope, Karsan-Jirsa unloading, no tension.
 * 算例：—
 
 ### `concrete02`
@@ -893,7 +893,7 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * 运动学 uniaxial；后端 numpy, numba；分析模式 dynamic, relaxation；非线性
 * 参数：`fpc`, `epsc0`, `fcu`, `epscu`, `rat`, `ft`, `Ets`, `fc`, `eps_c0`, `fcu2`, `eps_cu`, `rho`, `nu`, `strain_scale`, `fpcu`
 * 输出字段：`axial_stress`, `axial_strain`
-* 注意：OpenSees Concrete02 Yassin damage with tension, faithful port.
+* 注意：Yassin concrete with linear tension softening.
 * 算例：16 个（11, 21, 21b, 21c …）
 * 算例里出现过的参数：`Ets`, `creep`, `epsc0`, `epscu`, `fcu`, `fpc`, `ft`, `rat`, `rho`, `shrinkage`
 

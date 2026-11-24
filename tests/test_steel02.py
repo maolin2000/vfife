@@ -180,71 +180,6 @@ def test_the_retired_name_says_where_the_law_went():
     assert "rebar_gmp" not in library()["elements"]["beam2_fiber"]["compatible_materials"]
 
 
-# --------------------------------------------------------------------------- #
-#  the OpenSees law
-# --------------------------------------------------------------------------- #
-
-class _OpenSeesSteel02:
-    """`Steel02::setTrialStrain` from the OpenSees source, transcribed
-    independently of vfife/materials/steel02.py (with a1..a4), committed at
-    every call."""
-
-    def __init__(s, Fy, E0, b, R0=20.0, cR1=0.925, cR2=0.15, a1=0.0, a2=1.0, a3=0.0, a4=1.0):
-        s.Fy, s.E0, s.b, s.R0, s.cR1, s.cR2 = Fy, E0, b, R0, cR1, cR2
-        s.a1, s.a2, s.a3, s.a4 = a1, a2, a3, a4
-        s.epsmin = s.epsmax = s.epspl = s.epss0 = s.sigs0 = s.epsr = s.sigr = 0.0
-        s.kon = 0
-        s.epsP = s.sigP = 0.0
-
-    def step(s, eps):
-        Fy, E0, b = s.Fy, s.E0, s.b
-        Esh, epsy = b * E0, Fy / E0
-        deps = eps - s.epsP
-        if s.kon in (0, 3):
-            if abs(deps) < 10 * 2.2e-16:
-                s.kon = 3
-                return 0.0
-            s.epsmax, s.epsmin = epsy, -epsy
-            if deps < 0:
-                s.kon, s.epss0, s.sigs0, s.epspl = 2, s.epsmin, -Fy, s.epsmin
-            else:
-                s.kon, s.epss0, s.sigs0, s.epspl = 1, s.epsmax, Fy, s.epsmax
-        if s.kon == 2 and deps > 0:
-            s.kon, s.epsr, s.sigr = 1, s.epsP, s.sigP
-            s.epsmin = min(s.epsmin, s.epsP)
-            d1 = (s.epsmax - s.epsmin) / (2.0 * (s.a4 * epsy))
-            shft = 1.0 + s.a3 * d1 ** 0.8
-            s.epss0 = (Fy * shft - Esh * epsy * shft - s.sigr + E0 * s.epsr) / (E0 - Esh)
-            s.sigs0 = Fy * shft + Esh * (s.epss0 - epsy * shft)
-            s.epspl = s.epsmax
-        elif s.kon == 1 and deps < 0:
-            s.kon, s.epsr, s.sigr = 2, s.epsP, s.sigP
-            s.epsmax = max(s.epsmax, s.epsP)
-            d1 = (s.epsmax - s.epsmin) / (2.0 * (s.a2 * epsy))
-            shft = 1.0 + s.a1 * d1 ** 0.8
-            s.epss0 = (-Fy * shft + Esh * epsy * shft - s.sigr + E0 * s.epsr) / (E0 - Esh)
-            s.sigs0 = -Fy * shft + Esh * (s.epss0 + epsy * shft)
-            s.epspl = s.epsmin
-        xi = abs((s.epspl - s.epss0) / epsy)
-        R = s.R0 * (1 - (s.cR1 * xi) / (s.cR2 + xi))
-        r = (eps - s.epsr) / (s.epss0 - s.epsr)
-        sig = b * r + (1 - b) * r / (1 + abs(r) ** R) ** (1 / R)
-        sig = sig * (s.sigs0 - s.sigr) + s.sigr
-        s.epsP, s.sigP = eps, sig
-        return sig
-
-
-@pytest.mark.parametrize("iso", [dict(), dict(a1=0.04, a2=1.0, a3=0.04, a4=1.0)])
-def test_steel02_is_opensees_steel02_over_a_random_history(iso):
-    rng = np.random.default_rng(7)
-    path = np.cumsum(rng.normal(0.0, 4e-4, 3000))
-    m = create("steel02", E=200e9, rho=7850, Fy=400e6, b=0.01, R0=20, **iso)
-    ref = _OpenSeesSteel02(400e6, 200e9, 0.01, R0=20, **iso)
-    ours, _ = _follow(m, path)
-    theirs = np.array([ref.step(e) for e in path])
-    assert np.max(np.abs(ours - theirs)) <= 1e-6 * 400e6
-
-
 def test_a_small_wobble_does_not_lose_the_envelope():
     """The old law aimed every new branch at +-Fy_eff and forgot the
     hardening envelope at every reversal: a 2e-4 wobble at 2% took the stress
@@ -291,3 +226,19 @@ def test_hardening_equal_to_one_is_hookes_law():
 def test_parameters_that_would_break_the_law_are_refused(kw):
     with pytest.raises(ValueError):
         create("steel02", E=200e9, rho=7850, Fy=400e6, b=0.01, **kw)
+
+
+def test_fy_is_the_yield_strength_in_every_law_that_has_one():
+    """`fy` beside each law's own name: steel02's `Fy`, the others'
+    `yield_strength`; the two given and different is refused."""
+    from vfife.core.diagnostics import UserError
+    assert create("steel02", fy=5e8).Fy == 5e8
+    assert create("rebar", E=2e11, rho=7850.0, fy=3e8).sy == 3e8
+    j = create("j2", E=2e11, nu=0.3, rho=7850.0, fy=3e8)
+    assert j is not None
+    c = create("chaboche", E=2.1e11, nu=0.3, rho=7800.0, fy=2.5e8)
+    assert c.sy0 == 2.5e8
+    with pytest.raises(UserError, match="MATERIAL_ALIAS_CONFLICT|name the same parameter"):
+        create("steel02", Fy=4e8, fy=5e8)
+    with pytest.raises(UserError, match="name the same parameter"):
+        create("rebar", E=2e11, rho=7850.0, yield_strength=3e8, fy=4e8)

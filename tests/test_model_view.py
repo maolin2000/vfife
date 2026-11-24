@@ -62,6 +62,11 @@ def test_the_model_page_runs_in_a_browser(tmp_path):
     if not three:
         pytest.skip("VFIFE_THREE_DIR not set")
     page = model_view.write(str(_case(tmp_path)), scripts=three)
+    a = model_view.load(str(_case(tmp_path)))["arrays"]
+    conn = a["conn"].reshape(-1, 2)
+    # the second step's dots: the girder's nodes; the tendon's own are not drawn, and every arm of
+    # this model is a tendon's, hanging from a girder node
+    girder_nodes = len(np.unique(conn[(a["built"][:, 1] == 1) & ~np.isin(a["kind"], (2, 3))]))
     errors = []
     with pw.sync_playwright() as p:
         try:
@@ -75,6 +80,7 @@ def test_the_model_page_runs_in_a_browser(tmp_path):
         pg.wait_for_timeout(1000)
         assert pg.evaluate("window.__vfife_model.steps") == 3
         pg.click("#next"); pg.wait_for_timeout(200)
+        dots = pg.evaluate("window.__vfife_model.dots()")
         x, y = pg.evaluate("window.__vfife_model.at(7)")     # a member of the closure, built in step 2
         pg.mouse.click(x, y); pg.wait_for_timeout(200)
         picked = pg.inner_text("#pick")
@@ -82,6 +88,7 @@ def test_the_model_page_runs_in_a_browser(tmp_path):
         b.close()
     assert not errors, errors
     assert "closure" in picked
+    assert dots == girder_nodes
 
 
 def test_the_solvers_rules_for_stages_supports_and_loads(tmp_path):
@@ -123,7 +130,7 @@ def _bearings(tmp_path):
     pts = {"a": [0, 0, 0], "b": [10, 0, 0], "c": [20, 0, 0], "at": [0, 0, -0.5], "ct": [20, 0, -0.5],
            "bt": [10, 0, -0.6], "bf": [10, 0, -12.6], "ag": [0, 0, -1.3], "cg": [20, 0, -1.3]}
     lines = {"deck": {"through": ["a", "b", "c"], "divisions": 4},
-             "arm_a": {"through": ["a", "at"], "divisions": 1}, "arm_c": {"through": ["c", "ct"], "divisions": 1},
+             "arm_a": {"through": ["a", "at"], "divisions": 2}, "arm_c": {"through": ["c", "ct"], "divisions": 1},
              "brg_a": {"through": ["at", "ag"], "divisions": 1}, "brg_c": {"through": ["ct", "cg"], "divisions": 1},
              "brg_b": {"through": ["b", "bt"], "divisions": 1}, "pile": {"through": ["bt", "bf"], "divisions": 6}}
     d = {"version": 1, "name": "bearings", "units": {"length": "m", "force": "N", "stress": "Pa"},
@@ -232,6 +239,10 @@ def test_one_symbol_each_with_its_code_and_the_one_clicked_in_full(tmp_path):
         pg.wait_for_timeout(1000)
         pg.evaluate(f"window.__vfife_model.look({ground}, 300)"); pg.wait_for_timeout(200)
         far = pg.evaluate("window.__vfife_model.glyphs()")
+        dots = pg.evaluate("window.__vfife_model.dots()")
+        pg.click("#arms"); pg.wait_for_timeout(100)
+        dots_no_arms = pg.evaluate("window.__vfife_model.dots()")
+        pg.click("#arms"); pg.wait_for_timeout(100)
         pg.evaluate(f"window.__vfife_model.look({ground}, 30)"); pg.wait_for_timeout(200)
         mid = pg.evaluate("window.__vfife_model.glyphs()")
         pg.evaluate(f"window.__vfife_model.look({other}, 6)"); pg.wait_for_timeout(200)
@@ -255,3 +266,7 @@ def test_one_symbol_each_with_its_code_and_the_one_clicked_in_full(tmp_path):
     # bilinear law; the global connector's six springs; the supports, held and free
     assert {"KDGN00", "KKKKKK", "111111", "111000", "001000"} <= set(mid["codes"]), mid["codes"]
     assert pile_only["symbols"] < mid["symbols"]                       # the pile's region only
+    # a dot at every node (everything stands in the one step, no tendons): the one only the offset
+    # arms reach (arm_a's middle) and the connectors' ends too; with the arms hidden, not the middle one
+    assert dots == len(np.unique(data["arrays"]["conn"]))
+    assert dots_no_arms == dots - 1

@@ -1,4 +1,4 @@
-# vfife Python API 参考（自动生成，API 版本 1，1.20.0）
+# vfife Python API 参考（自动生成，API 版本 1，1.20.1）
 
 > 由 `python -m vfife reference --api` 从 `vfife/api.py` 的签名和文档字符串生成；`tests/test_api_v1.py` 保证它与代码一致。**不要手改**——改文档字符串，再重新生成。
 

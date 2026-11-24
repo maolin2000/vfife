@@ -10,7 +10,18 @@ dead-load state, the modes and the buckling loads.
 A case is one YAML file. There is no GUI, by design: the command line, the
 Python API and the case file are one workflow.
 
-**Version 1.20.0** ([CHANGELOG](CHANGELOG.md), MIT licence). The case
+Pre- and post-processing are left to other programs. A mesh is written in
+the case file, made in Gmsh, or converted from a Midas Civil model; results
+go to ParaView (XDMF/HDF5, and VTU for sweeps and mode shapes). vfife's own
+pictures are limited to two read-only web pages, each one file:
+`vfife view case.yaml` shows a frame model before it is run -- what each
+support, connector, tendon and analysis step means to the solver, which no
+mesher knows -- and `vfife view result.h5` replays a result with members at
+their section size, breaks and monitors, for someone without ParaView. The
+pages do not edit a model and are not meant to grow into a pre- or
+post-processor.
+
+**Version 1.20.1** ([CHANGELOG](CHANGELOG.md), MIT licence). The case
 format, the result format, the checkpoint format and the Python API have
 been frozen since 1.0: a case written for 1.0 runs unchanged.
 
@@ -33,7 +44,7 @@ needs them (a hollow slab, a D-region, a reinforced-concrete test specimen).
 ## Install
 
 ```bash
-pip install "vfife-1.20.0-py3-none-any.whl[cpu]"     # from the Releases page; [cpu] is numba
+pip install "vfife-1.20.1-py3-none-any.whl[cpu]"     # from the Releases page; [cpu] is numba
 vfife --version
 ```
 

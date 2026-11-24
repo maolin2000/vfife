@@ -11,7 +11,7 @@ from . import bond_cyclic  # noqa: F401  registers "bond_cyclic"
 from . import rebar       # noqa: F401  registers "rebar"
 from . import steel02      # noqa: F401  registers "steel02" (independent Steel02)
 from . import piecewise_uniaxial  # noqa: F401  registers "piecewise_uniaxial"
-from . import concrete01   # noqa: F401  registers "concrete01" (OpenSees faithful)
+from . import concrete01   # noqa: F401  registers "concrete01" (Kent-Scott-Park)
 from . import concrete02   # noqa: F401  registers "concrete02" (Yassin)
 from . import steel_cyclic  # noqa: F401  registers "steel_cyclic" (Cai et al. 2023)
 from .base import (Material, MaterialDef, available, create, definition,

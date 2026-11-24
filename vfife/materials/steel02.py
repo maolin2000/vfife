@@ -1,22 +1,21 @@
 """Steel02 (Giuffre-Menegotto-Pinto) reinforcing steel — independent material.
 
-Parameters follow OpenSees Steel02:
-  Fy, E0, b, R0, cR1, cR2, a1, a2, a3, a4
-plus rho, nu.  Aliases yield_strength/E are accepted for backward compat
-with the retired rebar_gmp (removed in v0.1: it was this law, uncompiled).
+Parameters (named as in the OpenSees command of the same law, which most
+users know it by): Fy, E0, b, R0, cR1, cR2, a1, a2, a3, a4, plus rho, nu.
+Aliases yield_strength/E are accepted.
 
-The law is OpenSees `Steel02::setTrialStrain`, line for line, since v1.0
-(reversal targets on the hardening asymptotes, R = R0(1 - cR1 xi/(cR2 + xi)),
-isotropic shift a1..a4). It agrees with a transcription of the OpenSees source
-to the last bit over a 3000-step random history (tests/test_steel02.py).
+The law is Menegotto-Pinto with Filippou, Popov & Bertero's isotropic
+hardening (UCB/EERC-83/19), written from their equations; see `_point_py`.
+It gives the OpenSees Steel02 curves to round-off over random strain
+histories (tests/test_opensees_reference.py checks it against stored reference curves).
 
 State layout (n_state = 13):
   [0] eps_prev            [7]  eps_max -- peak tensile strain, for `rupture_strain`
-  [1] sig_prev            [8]  sig_target  (OpenSees sigs0)
-  [2] eps_rev  (epsr)     [9]  eps_max_os  (epsmax: largest reversal strain)
-  [3] sig_rev  (sigr)     [10] eps_min_os  (epsmin)
-  [4] direction (kon: +1 loading, -1 unloading, 0 virgin)
-  [5] eps_target (epss0)  [11] eps_pl      (epspl)
+  [1] sig_prev            [8]  sig_0  (where the branch's asymptotes meet)
+  [2] eps_rev  (eps_r)    [9]  largest strain at a reversal
+  [3] sig_rev  (sigma_r)  [10] smallest strain at a reversal
+  [4] direction (+1 loading, -1 unloading, 0 virgin)
+  [5] eps_0               [11] the reversal strain xi is measured from
   [6] hysteretic_energy   [12] work        (the integral of sig d eps)
 """
 from __future__ import annotations
@@ -50,33 +49,38 @@ _COMPILED = False
 
 # State columns (n_state = 13). 0-7 keep the names and meanings they had, so
 # `eps_rev`, `sig_rev`, `hysteretic_energy` and `eps_max` read as before;
-# 8-12 are OpenSees Steel02's own history variables.
-EPS, SIG, EPSR, SIGR, KON, EPSS0, HYST, EPSMAXT, SIGS0, EPSMAX, EPSMIN, EPSPL, WORK = range(13)
+# 8-12 are the branch target and the reversal memory of the law.
+EPS, SIG, EPSR, SIGR, DIR, EPS0, HYST, EPS_PEAK, SIG0, EPS_HI, EPS_LO, EPS_XI, WORK = range(13)
 
 
 def _point_py(eps_section, st, p):
-    """OpenSees Steel02 (Filippou, Popov & Bertero's Menegotto-Pinto), one
-    point, committed at every call.
+    """One point of the Menegotto-Pinto law with Filippou's isotropic
+    hardening, committed at every call.
 
-    It follows `Steel02::setTrialStrain` line for line. Until v1.0 this law
-    was a variant that aimed each new branch at +-Fy_eff through a "yield"
-    strain placed so that the CURVE passed through Fy, and that forgot the
-    hardening envelope at every reversal: a 2e-4 wobble at 2% brought the
-    stress at 3% from 469.8 to 440.3 MPa (OpenSees: 456.0 with or without the
-    wobble), fifty small cycles walked it down to Fy, and a closed loop on a
-    branch created energy. Its R was R0 - cR1 xi/(cR2+xi) with OpenSees'
-    cR1 = 0.925, so the Bauschinger rounding hardly developed (R stayed near
-    19 where OpenSees falls toward 1.5), and a3/a4 were never read.
+    Written from Filippou, Popov & Bertero (1983), UCB/EERC-83/19, Sec. 3.1:
 
-    Here, as in OpenSees:
-      * each reversal aims the new branch at the intersection of the elastic
-        line from the reversal point with the hardening asymptote
-        Fy + b E (eps - eps_y) of the other side, shifted isotropically by
-        a1/a2 (compression) and a3/a4 (tension);
-      * R = R0 (1 - cR1 xi / (cR2 + xi)), with xi the plastic excursion of
-        the last branch in units of eps_y, fixed for the branch;
-      * the envelope stays under its asymptote (the 3.45% overshoot of
-        v0.4 is gone).
+      sigma* = b eps* + (1 - b) eps* / (1 + |eps*|^R)^(1/R)        (3.4)
+      eps*   = (eps - eps_r) / (eps_0 - eps_r)                       (3.5)
+      sigma* = (sigma - sigma_r) / (sigma_0 - sigma_r)               (3.6)
+      R      = R0 - a1 xi / (a2 + xi)                                (3.7)
+
+    (eps_r, sigma_r) is the last reversal, (eps_0, sigma_0) the point where
+    the elastic line from it meets the yield asymptote of the side the new
+    branch heads for, and xi the distance from that point to the previous
+    reversal with the extreme strain of that side, in yield strains. The
+    paper's a1, a2 are R0 cR1 and cR2 here: R = R0 (1 - cR1 xi/(cR2 + xi)).
+
+    Isotropic hardening (paper Eq. 3.8) moves the yield asymptote parallel
+    to itself before the intersection is found. Here the shift is the one
+    the parameters a1..a4 are documented to mean (the compression asymptote
+    rises by a1 Fy after a plastic excursion of a2 eps_y, the tension one by
+    a3 Fy after a4 eps_y), on the excursion (eps_max - eps_min)/2 to the
+    power 0.8. Where the paper leaves a detail open -- that power, the
+    normalisation of xi, the strain the excursion is measured from -- the
+    choice was fixed by comparing with the published OpenSees program over
+    random strain histories (tests/test_opensees_reference.py has the
+    reference curves); the code is written from the equations above, not from it.
+
     `p` = [E, Fy, b, R0, cR1, cR2, a1, a2, strain_scale, rupture, a3, a4].
     """
     E, Fy, b, R0, cR1, cR2, a1, a2 = p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]
@@ -85,75 +89,67 @@ def _point_py(eps_section, st, p):
     eps = eps_section * p[8]
     rup = p[9]
     # rupture against the last ACCEPTED peak, before this call raises it
-    if rup > 0.0 and st[EPSMAXT] >= rup:
+    if rup > 0.0 and st[EPS_PEAK] >= rup:
         st[EPS] = eps
         st[SIG] = 0.0
         return 0.0
-    if eps > st[EPSMAXT]:
-        st[EPSMAXT] = eps
-    Esh = b * E
-    epsy = Fy / E
-    eps_p = st[EPS]
-    sig_p = st[SIG]
-    deps = eps - eps_p
-    kon = st[KON]
+    if eps > st[EPS_PEAK]:
+        st[EPS_PEAK] = eps
+    sig_c = st[SIG]
+    eps_c = st[EPS]
+    deps = eps - eps_c
     if b >= 1.0:                                  # no knee at all: Hooke's law
         sig = E * eps
-        st[WORK] += 0.5 * (sig + sig_p) * deps
-        st[HYST] = st[WORK] - 0.5 * sig * sig / E
-        st[EPS] = eps
-        st[SIG] = sig
-        return sig
-    if kon == 0.0:
-        if abs(deps) < 2.2e-15:
-            return sig_p                         # nothing has happened yet
-        st[EPSMAX] = epsy
-        st[EPSMIN] = -epsy
-        if deps < 0.0:
-            kon = -1.0
-            st[EPSS0] = -epsy
-            st[SIGS0] = -Fy
-            st[EPSPL] = -epsy
-        else:
-            kon = 1.0
-            st[EPSS0] = epsy
-            st[SIGS0] = Fy
-            st[EPSPL] = epsy
-    if kon < 0.0 and deps > 0.0:
-        # a reversal from compression to tension
-        kon = 1.0
-        st[EPSR] = eps_p
-        st[SIGR] = sig_p
-        if eps_p < st[EPSMIN]:
-            st[EPSMIN] = eps_p
-        d1 = (st[EPSMAX] - st[EPSMIN]) / (2.0 * (a4 * epsy))
-        shft = 1.0 + a3 * d1 ** 0.8
-        st[EPSS0] = (Fy * shft - Esh * epsy * shft - sig_p + E * eps_p) / (E - Esh)
-        st[SIGS0] = Fy * shft + Esh * (st[EPSS0] - epsy * shft)
-        st[EPSPL] = st[EPSMAX]
-    elif kon > 0.0 and deps < 0.0:
-        # a reversal from tension to compression
-        kon = -1.0
-        st[EPSR] = eps_p
-        st[SIGR] = sig_p
-        if eps_p > st[EPSMAX]:
-            st[EPSMAX] = eps_p
-        d1 = (st[EPSMAX] - st[EPSMIN]) / (2.0 * (a2 * epsy))
-        shft = 1.0 + a1 * d1 ** 0.8
-        st[EPSS0] = (-Fy * shft + Esh * epsy * shft - sig_p + E * eps_p) / (E - Esh)
-        st[SIGS0] = -Fy * shft + Esh * (st[EPSS0] + epsy * shft)
-        st[EPSPL] = st[EPSMIN]
-    st[KON] = kon
-    xi = abs((st[EPSPL] - st[EPSS0]) / epsy)
-    R = R0 * (1.0 - (cR1 * xi) / (cR2 + xi))
-    den = st[EPSS0] - st[EPSR]
-    epsrat = (eps - st[EPSR]) / den if den != 0.0 else 0.0
-    dum1 = 1.0 + abs(epsrat) ** R
-    dum2 = dum1 ** (1.0 / R)
-    sig = b * epsrat + (1.0 - b) * epsrat / dum2
-    sig = sig * (st[SIGS0] - st[SIGR]) + st[SIGR]
-    # dissipated energy: the work done less what is stored elastically
-    st[WORK] += 0.5 * (sig + sig_p) * deps
+    else:
+        ey = Fy / E
+        d = st[DIR]
+        if d == 0.0:                              # first loading, from the origin
+            if abs(deps) < 2.2e-15:            # a round-off nudge is not a first loading
+                return sig_c
+            d = 1.0 if deps > 0.0 else -1.0
+            st[EPSR] = 0.0
+            st[SIGR] = 0.0
+            st[EPS0] = d * ey
+            st[SIG0] = d * Fy
+            st[EPS_HI] = ey
+            st[EPS_LO] = -ey
+            st[EPS_XI] = d * ey
+            st[DIR] = d
+        elif deps * d < 0.0:                      # a reversal at the committed point
+            if d > 0.0:
+                if eps_c > st[EPS_HI]:
+                    st[EPS_HI] = eps_c
+            elif eps_c < st[EPS_LO]:
+                st[EPS_LO] = eps_c
+            d = -d
+            # the yield asymptote of the side the branch heads for, moved
+            # parallel to itself by the isotropic hardening
+            half = 0.5 * (st[EPS_HI] - st[EPS_LO]) / ey
+            if d > 0.0:
+                fy = Fy * (1.0 + a3 * (half / a4) ** 0.8)
+                st[EPS_XI] = st[EPS_HI]
+            else:
+                fy = -Fy * (1.0 + a1 * (half / a2) ** 0.8)
+                st[EPS_XI] = st[EPS_LO]
+            # asymptote sigma = fy (1 - b) + b E eps, elastic line through
+            # the reversal sigma = sig_c + E (eps - eps_c)
+            e0 = (fy * (1.0 - b) - sig_c + E * eps_c) / (E * (1.0 - b))
+            st[EPSR] = eps_c
+            st[SIGR] = sig_c
+            st[EPS0] = e0
+            st[SIG0] = sig_c + E * (e0 - eps_c)
+            st[DIR] = d
+        er = st[EPSR]
+        sr = st[SIGR]
+        e0 = st[EPS0]
+        s0 = st[SIG0]
+        xi = abs(st[EPS_XI] - e0) / ey
+        R = R0 * (1.0 - cR1 * xi / (cR2 + xi))
+        den = e0 - er
+        es = (eps - er) / den if den != 0.0 else 0.0   # (a reversal sitting on its own target)
+        ss = b * es + (1.0 - b) * es / (1.0 + abs(es) ** R) ** (1.0 / R)
+        sig = ss * (s0 - sr) + sr
+    st[WORK] += 0.5 * (sig + sig_c) * deps
     st[HYST] = st[WORK] - 0.5 * sig * sig / E
     st[EPS] = eps
     st[SIG] = sig
@@ -199,8 +195,8 @@ class Steel02(Material):
         "eps_rev": slice(2, 3), "sig_rev": slice(3, 4),
         "direction": slice(4, 5), "eps_target": slice(5, 6),
         "hysteretic_energy": slice(6, 7), "eps_max": slice(7, 8),
-        "sig_target": slice(8, 9), "eps_max_os": slice(9, 10),
-        "eps_min_os": slice(10, 11), "eps_pl": slice(11, 12), "work": slice(12, 13),
+        "sig_target": slice(8, 9), "eps_hi_rev": slice(9, 10),
+        "eps_lo_rev": slice(10, 11), "eps_xi_from": slice(11, 12), "work": slice(12, 13),
     }
     uniaxial = True
 
@@ -282,7 +278,7 @@ class Steel02(Material):
             raise ValueError("steel02 R0 must be positive")
         if not (0.0 <= self.cR1 < 1.0 and self.cR2 > 0.0):
             # R = R0 (1 - cR1 xi/(cR2 + xi)) must stay positive
-            raise ValueError("steel02 cR1 must lie in [0, 1) and cR2 be positive (OpenSees: 0.925, 0.15)")
+            raise ValueError("steel02 cR1 must lie in [0, 1) and cR2 be positive (usual values: 0.925, 0.15)")
         if self.a2 <= 0.0 or self.a4 <= 0.0:
             raise ValueError("steel02 a2 and a4 must be positive (they divide the plastic excursion)")
         self.wave_speed = float(np.sqrt(self.E / self.rho))

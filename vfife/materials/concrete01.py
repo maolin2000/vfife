@@ -1,19 +1,14 @@
-"""Concrete01 -- faithful port of OpenSees Concrete01.cpp (Kent-Scott-Park).
+"""Concrete01 -- Kent-Scott-Park concrete with Karsan-Jirsa unloading, no
+tensile strength (the law OpenSees users know by this name and parameters).
 
-Direct translation of Concrete01.cpp rev 1.22 (MHS 06/99) envelope/reload/unload
-logic. No tensile strength, compression only. History variables per fiber:
-
-  n_state = 5 : [CminStrain, CunloadSlope, CendStrain, Cstrain, Cstress]
-Ctangent is derived as CunloadSlope initially and updated via reload/unload.
-
-Reference: OpenSees SRC/material/uniaxial/Concrete01.cpp
+Written from the papers; see `_point_py`. History variables per fibre
+(n_state = 5): [CminStrain, CunloadSlope, CendStrain, Cstrain, Cstress].
 """
 from __future__ import annotations
 import math
 import numpy as np
 from .base import Material, register
 
-DBL_EPSILON = float(np.finfo(float).eps)
 
 # --------------------------------------------------------------------------- #
 #  Compiled point loop -- see the note in steel02.py for why this exists.
@@ -26,7 +21,64 @@ _KERNEL = None
 _COMPILED = False
 
 
+def _point_py(eps, st, p):
+    """One point of Kent-Scott-Park concrete with Karsan-Jirsa unloading,
+    committed at every call; no tensile strength. Compression negative.
+
+    Envelope (Kent & Park 1971, as modified by Scott, Park & Priestley
+    1982): a parabola fpc (2 r - r^2), r = eps/epsc0, up to epsc0; a straight
+    line to (epscu, fpcu); fpcu beyond.
+
+    Unloading from the furthest point reached, (eps_min, sig_min), is a
+    straight line to the plastic strain of Karsan & Jirsa (1969),
+
+        eps_p / epsc0 = 0.145 eta^2 + 0.13 eta          eta < 2
+                      = 0.707 (eta - 2) + 0.834          eta >= 2,
+
+    eta = eps_min / epsc0, with eta held at epscu / epsc0 once the point has
+    crushed, and the line never steeper than the initial slope Ec0 (near the
+    origin the plastic strain above would make it so). Reloading follows the
+    same line; past eps_p the point is open and carries nothing. The two
+    caps were fixed by comparison with the OpenSees program of the same name
+    (tests/test_opensees_reference.py).
+
+    State: [eps_min, unloading slope, eps_p, eps, sig].
+    `p` = [fpc, fpcu, epsc0, epscu, Ec0], compression quantities negative.
+    """
+    fpc, fpcu, epsc0, epscu = p[0], p[1], p[2], p[3]
+    if eps < st[0]:                                   # past the furthest point: the envelope
+        if eps >= epsc0:
+            r = eps / epsc0
+            sig = fpc * (2.0 * r - r * r)
+        elif eps >= epscu:
+            sig = fpc + (fpcu - fpc) * (eps - epsc0) / (epscu - epsc0)
+        else:
+            sig = fpcu
+        eta = (eps if eps > epscu else epscu) / epsc0
+        if eta < 2.0:
+            eps_p = epsc0 * (0.145 * eta * eta + 0.13 * eta)
+        else:
+            eps_p = epsc0 * (0.707 * (eta - 2.0) + 0.834)
+        slope = sig / (eps - eps_p)
+        Ec0 = p[4]
+        if slope > Ec0:                                # never stiffer than the initial slope
+            slope = Ec0
+            eps_p = eps - sig / Ec0
+        st[0] = eps
+        st[1] = slope
+        st[2] = eps_p
+    elif eps < st[2]:                                 # on the unloading/reloading line
+        sig = st[1] * (eps - st[2])
+    else:                                             # open
+        sig = 0.0
+    st[3] = eps
+    st[4] = sig
+    return sig
+
+
 def _compile():
+    """The same function, compiled: one definition of the law, used by the
+    reference loop (as Python), the batch loop and the fused fibre kernel."""
     global _POINT, _KERNEL, _COMPILED
     if _COMPILED:
         return
@@ -35,94 +87,7 @@ def _compile():
         from numba import njit
     except Exception:
         return
-
-    @njit(cache=True, inline="always")
-    def _envelope(eps, fpc, fpcu, epsc0, epscu, Ec0):
-        if eps > epsc0:
-            eta = eps / epsc0
-            return fpc * (2.0 * eta - eta * eta), Ec0 * (1.0 - eta)
-        if eps > epscu:
-            t = (fpc - fpcu) / (epsc0 - epscu)
-            return fpc + t * (eps - epsc0), t
-        return fpcu, 0.0
-
-    @njit(cache=True, inline="always")
-    def _unload(TminStrain, Tstress, epsc0, epscu, Ec0):
-        tempStrain = TminStrain
-        if tempStrain < epscu:
-            tempStrain = epscu
-        eta = tempStrain / epsc0
-        if eta < 2.0:
-            ratio = 0.145 * eta * eta + 0.13 * eta
-        else:
-            ratio = 0.707 * (eta - 2.0) + 0.834
-        TendStrain = ratio * epsc0
-        temp1 = TminStrain - TendStrain
-        temp2 = Tstress / Ec0
-        TunloadSlope = Ec0
-        if temp1 > -DBL_EPSILON:
-            TunloadSlope = Ec0
-        elif temp1 <= temp2:
-            TendStrain = TminStrain - temp1
-            if abs(temp1) > 1e-30:
-                TunloadSlope = Tstress / temp1
-            else:
-                TunloadSlope = Ec0
-        else:
-            TendStrain = TminStrain - temp2
-            TunloadSlope = Ec0
-        return TendStrain, TunloadSlope
-
-    @njit(cache=True, inline="always")
-    def point(eps, st, p):
-        fpc, fpcu, epsc0, epscu, Ec0 = p[0], p[1], p[2], p[3], p[4]
-        CminStrain = st[0]
-        CunloadSlope = st[1]
-        CendStrain = st[2]
-        Cstrain = st[3]
-        Cstress = st[4]
-
-        if (abs(CunloadSlope) < 1e-12 and abs(CminStrain) < 1e-12
-                and abs(CendStrain) < 1e-12):
-            CunloadSlope = Ec0
-
-        Tstrain = eps
-        TminStrain = CminStrain
-        TendStrain = CendStrain
-        TunloadSlope = CunloadSlope
-        Tstress = Cstress
-
-        if abs(Tstrain - Cstrain) < DBL_EPSILON:
-            return Tstress
-
-        if Tstrain > 0.0:
-            Tstress = 0.0
-        else:
-            TunloadSlope = CunloadSlope
-            tempStress = Cstress + TunloadSlope * Tstrain - TunloadSlope * Cstrain
-            if Tstrain < Cstrain:
-                if Tstrain <= TminStrain:
-                    TminStrain = Tstrain
-                    Tstress, _t = _envelope(Tstrain, fpc, fpcu, epsc0, epscu, Ec0)
-                    TendStrain, TunloadSlope = _unload(TminStrain, Tstress,
-                                                       epsc0, epscu, Ec0)
-                elif Tstrain <= TendStrain:
-                    Tstress = TunloadSlope * (Tstrain - TendStrain)
-                else:
-                    Tstress = 0.0
-                if tempStress > Tstress:
-                    Tstress = tempStress
-            elif tempStress <= 0.0:
-                Tstress = tempStress
-            else:
-                Tstress = 0.0
-
-        st[0] = TminStrain
-        st[1] = TunloadSlope
-        st[2] = TendStrain
-        st[3] = Tstrain
-        st[4] = Tstress
-        return Tstress
+    point = njit(cache=True, inline="always")(_point_py)
 
     @njit(cache=True)
     def _point_loop(strain, state, out, p):
@@ -147,7 +112,7 @@ def _kernel():
     verification="constitutive_path",
     output_fields=("axial_stress", "axial_strain"),
     nonlinear=True,
-    caveat="OpenSees Concrete01 Kent-Scott-Park (no tension), faithful port.",
+    caveat="Kent-Scott-Park envelope, Karsan-Jirsa unloading, no tension.",
 )
 class Concrete01(Material):
     n_state = 5
@@ -219,58 +184,6 @@ class Concrete01(Material):
     def describe(self) -> str:
         return f"    Concrete01 fpc={self.fpc/1e6:.1f}MPa epsc0={self.epsc0:.4f} fpcu={self.fpcu/1e6:.1f}MPa epscu={self.epscu:.4f}"
 
-    # ---- helpers matching C++ ----
-    def _envelope(self, Tstrain):
-        if Tstrain > self.epsc0:
-            eta = Tstrain / self.epsc0
-            Tstress = self.fpc * (2 * eta - eta * eta)
-            Ttangent = self.Ec0 * (1.0 - eta)
-        elif Tstrain > self.epscu:
-            Ttangent = (self.fpc - self.fpcu) / (self.epsc0 - self.epscu)
-            Tstress = self.fpc + Ttangent * (Tstrain - self.epsc0)
-        else:
-            Tstress = self.fpcu
-            Ttangent = 0.0
-        return Tstress, Ttangent
-
-    def _unload(self, TminStrain, Tstress):
-        tempStrain = TminStrain
-        if tempStrain < self.epscu:
-            tempStrain = self.epscu
-        eta = tempStrain / self.epsc0
-        if eta < 2.0:
-            ratio = 0.145 * eta * eta + 0.13 * eta
-        else:
-            ratio = 0.707 * (eta - 2.0) + 0.834
-        TendStrain = ratio * self.epsc0
-        temp1 = TminStrain - TendStrain
-        temp2 = Tstress / self.Ec0
-        TunloadSlope = self.Ec0
-        # temp1 should always be negative
-        if temp1 > -DBL_EPSILON:
-            TunloadSlope = self.Ec0
-        elif temp1 <= temp2:
-            TendStrain = TminStrain - temp1
-            TunloadSlope = Tstress / temp1 if abs(temp1) > 1e-30 else self.Ec0
-        else:
-            TendStrain = TminStrain - temp2
-            TunloadSlope = self.Ec0
-        return TendStrain, TunloadSlope
-
-    def _reload(self, Tstrain, TminStrain, TendStrain, TunloadSlope, CminStrain, CendStrain, CunloadSlope):
-        # returns Tstress, Ttangent, TminStrain, TendStrain, TunloadSlope
-        if Tstrain <= TminStrain:
-            TminStrain = Tstrain
-            Tstress, Ttangent = self._envelope(Tstrain)
-            TendStrain, TunloadSlope = self._unload(TminStrain, Tstress)
-        elif Tstrain <= TendStrain:
-            Ttangent = TunloadSlope
-            Tstress = Ttangent * (Tstrain - TendStrain)
-        else:
-            Tstress = 0.0
-            Ttangent = 0.0
-        return Tstress, Ttangent, TminStrain, TendStrain, TunloadSlope
-
     def update(self, strain, state, dt):
         out = np.zeros_like(strain)
         fn = _kernel()
@@ -300,64 +213,11 @@ class Concrete01(Material):
         return _POINT
 
     def _update_reference(self, strain, state, out):
-        """Readable definition of the law; the compiled kernel mirrors it."""
-        for i, eps in enumerate(strain[:, 0]):
-            eps_f = float(eps)
-            CminStrain = float(state[i, 0])
-            CunloadSlope = float(state[i, 1])
-            CendStrain = float(state[i, 2])
-            Cstrain = float(state[i, 3])
-            Cstress = float(state[i, 4])
-
-            # initial state fix: first call CunloadSlope is 0
-            if abs(CunloadSlope) < 1e-12 and abs(CminStrain) < 1e-12 and abs(CendStrain) < 1e-12:
-                CunloadSlope = self.Ec0
-
-            Tstrain = eps_f
-            TminStrain = CminStrain
-            TendStrain = CendStrain
-            TunloadSlope = CunloadSlope
-            Tstress = Cstress
-            # Ctangent not stored, use CunloadSlope as initial
-            Ttangent = CunloadSlope
-
-            dStrain = Tstrain - Cstrain
-            if abs(dStrain) < DBL_EPSILON:
-                out[i, 0] = Tstress
-                # no state change
-                continue
-
-            if Tstrain > 0.0:
-                Tstress = 0.0
-                Ttangent = 0.0
-            else:
-                TunloadSlope = CunloadSlope
-                tempStress = Cstress + TunloadSlope * Tstrain - TunloadSlope * Cstrain
-                if Tstrain < Cstrain:  # further into compression
-                    TminStrain = CminStrain
-                    TendStrain = CendStrain
-                    Tstress, Ttangent, TminStrain, TendStrain, TunloadSlope = self._reload(
-                        Tstrain, TminStrain, TendStrain, TunloadSlope, CminStrain, CendStrain, CunloadSlope
-                    )
-                    if tempStress > Tstress:
-                        Tstress = tempStress
-                        Ttangent = TunloadSlope
-                elif tempStress <= 0.0:
-                    Tstress = tempStress
-                    Ttangent = TunloadSlope
-                else:
-                    Tstress = 0.0
-                    Ttangent = 0.0
-
-            # commit
-            state[i, 0] = TminStrain
-            state[i, 1] = TunloadSlope
-            state[i, 2] = TendStrain
-            state[i, 3] = Tstrain
-            state[i, 4] = Tstress
-            out[i, 0] = Tstress
+        """The law run as plain Python: the same function the kernel compiles."""
+        p = self.numba_params()
+        for i in range(strain.shape[0]):
+            out[i, 0] = _point_py(float(strain[i, 0]), state[i], p)
         return out
-
     def output_fields(self, state):
         return {}
 
