@@ -11,10 +11,10 @@ element types were never asked anything at all.
 
 This registry is that model, once per element:
 
-    build(element)      a Model: the internal-form case dict `cli.make_solver`
+    build(element)      a Model: the internal-form case dict `assemble.make_solver`
                         reads, the in-memory Mesh it reads it against, and the
                         material, with the regions the harness may load
-    make(model)         the solver, through `cli.make_solver`, on copies
+    make(model)         the solver, through `assemble.make_solver`, on copies
     elements()          every element the registry covers
 
 Every model is a cantilever of one kind or another: one end or face held
@@ -104,6 +104,7 @@ MATERIAL_PARAMS: Dict[str, dict] = {
     "series": {"of": [{"type": "linear_elastic", "E": 4.0e11, "nu": 0.3, "rho": 7850.0},
                       {"type": "steel02", "E": 2.0e11, "rho": 7850.0, "Fy": 4.0e8, "b": 0.01}]},
     "gap": {"E": 2.0e11, "rho": 7850.0, "lo": -1.0e-3, "hi": 0.0},       # a stop at the origin, slack behind it
+    "bouc_wen": {"E": 2.0e11, "fy": 3.5e8, "rho": 7850.0, "alpha": 0.02, "n": 2.0},
 }
 
 
@@ -132,9 +133,9 @@ def _material(name: str, element: str) -> dict:
 @dataclass
 class Model:
     element: str            # element type name
-    problem: dict           # the internal-form case dict `cli.make_solver` takes
+    problem: dict           # the internal-form case dict `assemble.make_solver` takes
     mesh: Mesh              # its own copy; solvers mutate mesh.regions
-    material: object        # what `cli.make_solver` expects as `material`
+    material: object        # what `assemble.make_solver` expects as `material`
     dofs_per_node: int      # 3 or 6
     regions: dict           # {"fixed": name, "loaded": name, "face": name or None, "all": "all"}
     length: float           # characteristic length, for scaling perturbations
@@ -637,14 +638,14 @@ def _copy_mesh(mesh: Mesh) -> Mesh:
 
 
 def make(model: Model):
-    """The solver for `model`, through `cli.make_solver`.
+    """The solver for `model`, through `assemble.make_solver`.
 
     On COPIES: a solver rewrites `mesh.regions` and `mesh.cell_blocks`, and a
     solid material binds its per-point data when the points are initialised,
     so a second solver on the same objects would inherit the first one's
     state. The Model stays what `build` made it, and can be made again.
     """
-    from ..cli import make_solver
+    from ..assemble import make_solver
     from ..materials.factory import create_material
 
     return make_solver(copy.deepcopy(model.problem), _copy_mesh(model.mesh),

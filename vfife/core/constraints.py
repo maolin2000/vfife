@@ -46,7 +46,7 @@ from typing import List
 
 import numpy as np
 
-from .rotations import exp_map, log_map
+from ..base.rotations import exp_map, log_map
 
 
 # ------------------------------------------------------------------ floors

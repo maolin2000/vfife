@@ -153,7 +153,7 @@ def a_rigid_rotation_is_free(p, x=None, angle=(0.4, -0.9, 0.6), tol=1e-8) -> Fin
     planar benchmark rotated rigidly and stayed force-free, and a member with
     a twist did not.
     """
-    from ..core.rotations import exp_map
+    from ..base.rotations import exp_map
 
     x = p.get() if x is None else np.asarray(x, float)
     R = exp_map(np.asarray(angle, float))

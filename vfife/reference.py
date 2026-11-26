@@ -365,13 +365,16 @@ def generate(root: pathlib.Path = ROOT) -> str:
             "截面 `type` 对应的单元：`solid` → 实体（由网格决定 tet4/tet10/hexa8/hexa20/wedge6/wedge15/pyramid5），"
             "`shell` → shell3/shell4，`beam` → beam2（`theory: timoshenko` 为 beam2_timoshenko），"
             "`fiber` → beam2_fiber，`bar` → truss2，`connector` → connector2。", "",
-            "| 单元 | 后端 | 分析模式 | 可用材料 | 输出字段 |", "|---|---|---|---|---|"]
-    from .cli import _STATIC_ELEMENTS
+            "“功能”一栏是这种单元的模型能用的模型级功能（`vfife/elements/library.py` 的 `FEATURES`，预检、schema、"
+            "各分析的拒绝都读这一张表）：`static` 静力牛顿法和弧长法，`diaphragms` 刚性楼板，`rigid_links` 主从刚性连接，"
+            "`step_changes` 建立或拆除构件、刚性连接的分析步，`buckling` 线性屈曲。", "",
+            "| 单元 | 后端 | 分析模式 | 功能 | 可用材料 | 输出字段 |", "|---|---|---|---|---|---|"]
     for name, e in sorted(lib["elements"].items()):
-        # `mode: static` runs these, as `describe` says
-        modes = list(e["analysis_modes"]) + (["static"] if name in _STATIC_ELEMENTS
+        # `mode: static` runs these, as `describe` says (elements.library.FEATURES)
+        modes = list(e["analysis_modes"]) + (["static"] if "static" in e.get("features", ())
                                              and "static" not in e["analysis_modes"] else [])
         out.append(f"| `{name}` | {', '.join(e['backends'])} | {', '.join(modes)} | "
+                   f"{', '.join(e.get('features', ())) or '—'} | "
                    f"{', '.join(e['compatible_materials'])} | {', '.join(e.get('output_fields', [])) or '—'} |")
     out.append("")
 

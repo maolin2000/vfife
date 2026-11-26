@@ -14,6 +14,8 @@ import math
 
 import numpy as np
 
+from ..base.scatter import scatter_add  # noqa: F401  (`core.mesh.scatter_add` before 1.22)
+
 # VTK_HEXAHEDRON node ordering, matching elements/hexa8.py
 _OFF = np.array(
     [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
@@ -195,21 +197,6 @@ def add_midside_nodes(mesh: Mesh) -> Mesh:
     conn10 = np.hstack([conn4, (mesh.n_nodes + inv).reshape(-1, 6)])
     return Mesh(nodes=np.ascontiguousarray(nodes),
                 elements=np.ascontiguousarray(conn10, np.int32))
-
-
-def scatter_add(values: np.ndarray, conn: np.ndarray, n_nodes: int) -> np.ndarray:
-    """Assemble (n_elem, 8, 3) element vectors into (n_nodes, 3).
-
-    Uses bincount, whose accumulation order is fixed by the index array, so the
-    result is bit-for-bit reproducible run to run -- which is what makes the
-    later CPU-vs-GPU comparison meaningful.
-    """
-    flat = conn.ravel()
-    out = np.empty((n_nodes, 3), dtype=values.dtype)
-    v = values.reshape(-1, 3)
-    for c in range(3):
-        out[:, c] = np.bincount(flat, weights=v[:, c], minlength=n_nodes)
-    return out
 
 
 # Boundary-face node order follows the element library's corner and mid-side

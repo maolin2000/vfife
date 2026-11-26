@@ -184,7 +184,7 @@ def add_force(solver, out: np.ndarray) -> np.ndarray:
     soil = getattr(solver, "soil", None)
     if soil is None or not len(soil):
         return out
-    from .dof import TRANSLATION
+    from ..base.dof import TRANSLATION
     u = solver.dofs.field(solver.q, TRANSLATION)
     f = soil.force(u[:solver.nn])
     solver.dofs.add_nodal(out, np.arange(solver.nn), f, TRANSLATION)
@@ -198,7 +198,7 @@ def add_stiffness(solver):
     if soil is None or not len(soil):
         return
     import scipy.sparse as sp
-    from .dof import TRANSLATION
+    from ..base.dof import TRANSLATION
     k = soil.stiffness(solver.nn)
     diag = np.zeros(solver.ndof)
     solver.dofs.add_nodal(diag, np.arange(solver.nn), k, TRANSLATION)
@@ -218,7 +218,7 @@ def reaction_residual(solver, residual):
     f = getattr(solver, "soil_force", None)
     if soil is None or not len(soil) or f is None:
         return residual, mask
-    from .dof import TRANSLATION
+    from ..base.dof import TRANSLATION
     flat = np.zeros(len(residual))
     solver.dofs.add_nodal(flat, np.arange(solver.nn), f[:solver.nn], TRANSLATION)
     on = np.zeros(len(residual), bool)

@@ -16,11 +16,11 @@ from . import mass_scaling
 from . import member_axes
 from . import added_mass
 from . import member_geometry
-from .dof import (DofLayout, ROTATION, SparseAssembler,
+from ..base.dof import (DofLayout, ROTATION, SparseAssembler,
                   repeated_rotation)
 from .beam_family import BeamFamily
 from .member_failure import Breaking
-from .rotations import beam_frames_from_triads
+from ..base.rotations import beam_frames_from_triads
 
 
 # one monitor record for every solver (core/monitors)
@@ -844,7 +844,7 @@ class BeamSolver(BeamFamily):
             qv[idx] = Q; vv[idx] = 0.0
         if not len(tips):
             return
-        from .rotations import log_map
+        from ..base.rotations import log_map
         xa = self.mesh.nodes[anc] + qv[anc, :3]
         # the least rotation taking the reference chord from d0 to d (no roll)
         d = np.where((far >= 0)[:, None], self.mesh.nodes[far] + qv[far, :3] - xa, d0)

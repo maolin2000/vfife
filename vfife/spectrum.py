@@ -138,7 +138,7 @@ def _moved(p, x, u, h):
     y = np.asarray(x, float).copy()
     y[p.translation] += h * u[p.translation]
     if p.rotation.size:
-        from .core.rotations import exp_map
+        from .base.rotations import exp_map
         turn = exp_map(h * u[p.rotation].reshape(p.nn, 3))
         p._rotate(y, None, turn)
     return y

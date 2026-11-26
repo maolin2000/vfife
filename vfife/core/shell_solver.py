@@ -9,8 +9,8 @@ from .problem import Problem
 from .beam_solver import BeamSolver
 from .diagnostics import (StopAnalysis, start as start_diagnostics, finish as finish_diagnostics,
                           ConvergenceFailure, NonFiniteFailure, UserError, worst_residual)
-from .dof import DofLayout, ROTATION, SparseAssembler, TRANSLATION, repeated_rotation
-from .rotations import log_map
+from ..base.dof import DofLayout, ROTATION, SparseAssembler, TRANSLATION, repeated_rotation
+from ..base.rotations import log_map
 from ..elements import shell
 
 

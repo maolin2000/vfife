@@ -79,8 +79,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..tensor import ddot, deviator, principal_values
-from ..voigt import (ENG_TO_TENSOR, TENSOR_TO_ENG,
+from ..base.tensor import ddot, deviator, principal_values
+from ..base.voigt import (ENG_TO_TENSOR, TENSOR_TO_ENG,
                      dilatational_wave_speed, elastic_matrix)
 from . import curves as cv
 from .base import Material, register
@@ -245,7 +245,7 @@ class ConcreteDamagedPlasticity(Material):
             lo, hi = self.compression_band_limits
             k_min, k_max_c = float(kc.min()), float(kc.max())
             if k_min < lo or k_max_c > hi:
-                from ..core.diagnostics import UserError
+                from ..base.errors import UserError
                 l_min, l_max = k_min * self.l_ref, k_max_c * self.l_ref
                 # `auto` puts l_ref at the smallest element, so a mesh whose
                 # sizes span more than `hi` cannot be brought inside by it

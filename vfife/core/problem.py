@@ -15,7 +15,7 @@ A `Problem` holds the same case twice:
                    Mapping: `problem["solver"]["backend"]`), while P2 moves
                    the readers over to `case`, one module at a time
 
-For a case that came through `cli._with_element` (every run, every
+For a case that came through `assemble._with_element` (every run, every
 shipped case) the two are the same data, to the type of every value
 (tests/test_problem.py). They differ, and a reader moved to `case` must
 mind it, where:
@@ -43,7 +43,7 @@ a new one (`s.p = s.p.derive(...)`).
 What the dict says that the case cannot:
 
   * a static run is solved by a solver built as for relaxation
-    (`cli._with_element`): the dict's solver section says `mode:
+    (`assemble._with_element`): the dict's solver section says `mode:
     relaxation` and `static_run: true`. `problem.static_run` says it; the
     typed case is validated as the static case it was (a relaxation may not
     hold members that fail, a static run may) and then carries the mode the

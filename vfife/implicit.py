@@ -43,7 +43,7 @@ import scipy.sparse.linalg as spla
 
 from .core.diagnostics import (ConvergenceFailure, finish as finish_diagnostics,
                                start as start_diagnostics, StopAnalysis)
-from .core.rotations import exp_map, log_map
+from .base.rotations import exp_map, log_map
 
 import os as _os
 _DEBUG = bool(_os.environ.get("VFIFE_NEWTON_DEBUG"))
@@ -60,15 +60,11 @@ _MEMBERS = True
 # ----------------------------------------------------------------- the model
 def check(solver) -> None:
     """Refuse what this solver cannot do yet, by name."""
-    from .core.beam_solver import BeamSolver
-    from .core.fiber_beam_solver import FiberBeamSolver
-    from .core.shell_solver import ShellSolver
-    from .core.coupled_solver import CoupledSolver
-    name = type(solver).__name__
-    if isinstance(solver, (ShellSolver, CoupledSolver)) or not isinstance(solver, (BeamSolver, FiberBeamSolver)):
-        raise ValueError(f"solver.mode = static runs frame and fibre-beam models (beam2, "
-                         f"beam2_timoshenko, mixed_line, beam2_fiber); this is a {name}. Use "
-                         "mode: relaxation")
+    from .elements.library import takes, taking
+    element = solver.p.case.element.type
+    if not takes(element, "static"):
+        raise ValueError(f"solver.mode = static runs frame and fibre-beam models ({', '.join(taking('static'))}); this is a "
+                         f"{element} model ({type(solver).__name__}). Use mode: relaxation")
     p = solver.p
     why = []
     # rigid diaphragms (1.7): a linear multi-point constraint,
@@ -89,19 +85,17 @@ def check(solver) -> None:
     if len(getattr(solver, "_hinged", ())) > 0:
         why.append("plastic hinges (rotation_capacity)")
     if getattr(solver, "time_dependent", False):
-        # THE FRAME PATH RUNS ITS CLOCK HERE TOO: every
-        # converged increment of a step with `to_age` is a time station, as
-        # every level of a staged relaxation is. The fibre path, and an
-        # arc-length path whose increments are not levels, do not yet.
-        if not hasattr(solver, "_relax_members"):
-            why.append("creep, shrinkage, ageing or relaxation on fibre beams")
-        else:
-            arc_ = p.solver.static.arc_length              # typed
-            on_ = arc_.steps if arc_ is not None else None
-            timed_ = [st for st in solver.steps if st.get("to_age") is not None
-                      and (not on_ or st.get("name") in on_)]
-            if arc_ and (timed_ or not on_):
-                why.append("creep, shrinkage, ageing or relaxation together with arc_length (in a step of time)")
+        # THE CLOCK RUNS HERE TOO: every converged increment of a step with
+        # `to_age` is a time station, as every level of a staged relaxation
+        # is -- on the frame and the fibre paths alike (each solver's own
+        # `_record_time_station`; the fibre path's from 1.22). An arc-length
+        # path, whose increments are not levels, does not.
+        arc_ = p.solver.static.arc_length              # typed
+        on_ = arc_.steps if arc_ is not None else None
+        timed_ = [st for st in solver.steps if st.get("to_age") is not None
+                  and (not on_ or st.get("name") in on_)]
+        if arc_ and (timed_ or not on_):
+            why.append("creep, shrinkage, ageing or relaxation together with arc_length (in a step of time)")
     sl = getattr(solver, "_sl_on", None)
     if sl is not None and np.any(sl):
         why.append("a cracking shear law (its shear rotation relaxes with the explicit solution)")
@@ -652,12 +646,28 @@ class _Factor:
         live = d > 1e-12 * max(float(d.max()) if d.size else 0.0, 1e-300)
         self.idx = np.flatnonzero(fm)[live]
         self.n = Km.shape[0]
-        self.lu = spla.splu(Km[self.idx][:, self.idx].tocsc())
+        # SuperLU in its symmetric mode (1.22): the tangent is symmetric to the
+        # finite differences' round-off, and the ordering of A + A^T with
+        # diagonal pivots (off the diagonal only where a pivot is under 0.1 of
+        # its column) fills it about a tenth as much as the default (COLAMD
+        # with partial pivoting): on a converted rigid-frame bridge of 16,000
+        # dofs 0.03 s a factorisation instead of 0.39 -- where its Newton spent
+        # 60% of its time. SCALED TO A UNIT DIAGONAL first, S K S with S =
+        # |diag K|^-1/2: a frame in millimetres (or of 5 cm members) has its
+        # rotation-translation couplings far above its translational
+        # diagonals, the diagonal pivots were refused, and the fill was ten
+        # times the default's instead of a tenth (found in review); scaled, the
+        # fill is the same whatever the units
+        self.scale = 1.0 / np.sqrt(d[live])
+        S = sp.diags(self.scale)
+        A = (S @ Km[self.idx][:, self.idx] @ S).tocsc()
+        self.lu = spla.splu(A, permc_spec="MMD_AT_PLUS_A", diag_pivot_thresh=0.1,
+                            options={"SymmetricMode": True})
 
     def solve(self, rhs):
         r = rhs if self.T is None else self.T.T @ rhs
         x = np.zeros(self.n)
-        x[self.idx] = self.lu.solve(r[self.idx])
+        x[self.idx] = self.scale * self.lu.solve(self.scale * r[self.idx])
         return x if self.T is None else self.T @ x
 
 

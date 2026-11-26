@@ -52,8 +52,10 @@ What it maps to:
   (as their two end forces, no end moments) -> the loads of the stage that
   activates their load group, kept, and taken off again by their opposite
   where the group is deactivated;
-* plates, temperatures, pressures, creep and composite sections' later
-  parts: left out, counted.
+* creep and shrinkage by JTG D62 / JTG 3362 (`*TDM-*`, `*ELEM-DEPMATL`,
+  1.22) -> the materials' MC90 `creep` and `shrinkage` (time_effects.py);
+* plates, temperatures, pressures, other creep codes and composite
+  sections' later parts: left out, counted.
 
 Two things are done to the stiffness, because the static solver takes its
 tangent by differences of the forces and their round-off is in proportion to

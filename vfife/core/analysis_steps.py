@@ -43,11 +43,12 @@ WHAT A MEMBER THAT IS NOT BUILT IS
 from __future__ import annotations
 
 from collections import deque
+import weakref
 from typing import Dict, List, Optional
 
 import numpy as np
 
-from .dof import ROTATION, TRANSLATION
+from ..base.dof import ROTATION, TRANSLATION
 
 #: the amplitude a removal's or a release's force is taken off with
 UNLOAD = "_unload"
@@ -152,17 +153,8 @@ def plan(solver) -> Optional[Plan]:
         if len(d) and np.any(~built[d]):
             e = int(d[~built[d]][0])
             raise ValueError(f"steps[{k}] deactivates member {e}, which is not built at that step")
-        is_fibre = getattr(solver, "_is_fiber", None)
-        if len(a) and (kinds is not None or is_fibre is not None):
-            # a connector of the frame models is born like any member, free of
-            # stress where it stands (1.13); the fibre models'
-            # are not yet
-            conn = [int(e) for e in a if is_fibre is not None and not is_fibre[e]]
-            if conn:
-                raise ValueError(f"steps[{k}] activates connector member {conn[0]}: in a fibre model a "
-                                 "connector born in a later step is not supported yet (its law reads "
-                                 "displacements from the mesh); build it from the start, or model the "
-                                 "stage as a beam or a bar")
+        # (a connector is born like any member, free of stress where it
+        # stands: the frame models' from 1.13, the fibre models' from 1.22)
         built[a] = True
         built[d] = False
     acc = np.zeros(nn, bool)
@@ -622,7 +614,7 @@ def _member_loads_at_end(solver, ids, j):
     """(ndof,) the gravity and line loads members ids carried at the end of
     step j -- what leaves with them when they are removed (review, 1.2: the
     line loads and the kept gravity were missing)."""
-    from .dof import TRANSLATION
+    from ..base.dof import TRANSLATION
     out = np.zeros(solver.ndof)
     ids = np.asarray(ids, int)
     for ld in _step_loads(solver, j):
@@ -734,11 +726,10 @@ def _connector_birth(solver, ids):
     deformations it has where its ends stand now are its reference, and its
     laws start from nothing (a bearing built again is a new bearing). A
     saddle's links wait for the cable they carry; a bearing for its girder."""
-    kinds = getattr(solver, "member_kind", None)
-    if kinds is None or not hasattr(solver, "_conn_committed"):
+    if not hasattr(solver, "connector_props") or not hasattr(solver, "_conn_committed"):
         return
     ids = np.asarray(ids, int)
-    cs = ids[np.asarray(kinds)[ids] == "connector2"]
+    cs = np.asarray([e for e in ids if solver.connector_props(int(e)) is not None], int)
     if not len(cs):
         return
     from ..elements import connector
@@ -748,7 +739,7 @@ def _connector_birth(solver, ids):
     for e in cs:
         conn = solver.mesh.elements[e, :2]
         d, _J = connector._deformation_and_jacobian(qv[conn, :3], solver.orient[conn], solver.mesh.nodes[conn],
-                                                    solver.R0[e], solver.member_props[e])
+                                                    solver.R0[e], solver.connector_props(int(e)))
         solver._conn_birth[e] = d
     solver._conn_committed[cs] = 0.0
     solver._conn_slip[cs] = 0.0
@@ -954,7 +945,7 @@ def _place_tangent(solver, ids, dormant):
             qv[m, :3] = 0.0
             solver.orient[m] = np.eye(3)
     _between_cable_ends(solver, cables, dormant, root, qv)
-    from .rotations import log_map
+    from ..base.rotations import log_map
     nodes = list(dormant)
     if nodes:
         qv[nodes, 3:] = log_map(solver.orient[nodes])
@@ -1008,7 +999,7 @@ def raw_local(solver, ids) -> np.ndarray:
     `unstressed_length` is installed to that length -- tensioned to it, or
     slack by it -- not stress-free where it is put (review, 1.2); its stretch
     offset is zero, and it pulls as designed from the moment it is born."""
-    from .rotations import beam_frames_from_triads
+    from ..base.rotations import beam_frames_from_triads
     ids = np.asarray(ids, int)
     conn = solver.mesh.elements[ids, :2]
     dofs = np.array([solver.dofs.element_dofs(c) for c in conn]).reshape(len(ids), 12)
@@ -1197,6 +1188,23 @@ def _jack_step(solver) -> Optional[np.ndarray]:
     return js
 
 
+#: each solver's members' E A, filled as jacks ask for them (`_jack_set` runs
+#: at every force evaluation: a list of E A per jacked member was 4% of a
+#: converted bridge's Newton, 1.22)
+_EA_CACHE = weakref.WeakKeyDictionary()
+
+
+def _member_EA(solver, ids):
+    ids = np.asarray(ids, int)
+    arr = _EA_CACHE.get(solver)
+    if arr is None or len(arr) != solver.nel:
+        arr = _EA_CACHE[solver] = np.full(solver.nel, np.nan)
+    need = ids[np.isnan(arr[ids])]
+    if len(need):
+        arr[need] = [float(solver.member_E[e]) * float(solver.member_props[e]["area"]) for e in need]
+    return arr[ids]
+
+
 def _jack_set(solver, ids, p):
     if not len(ids):
         return
@@ -1206,7 +1214,7 @@ def _jack_set(solver, ids, p):
     L = np.linalg.norm(x[:, 1] - x[:, 0], axis=1)
     dth = getattr(solver, "_thermal_d", None)
     d = 0.0 if dth is None else np.asarray(dth)[ids, 6]
-    EA = np.array([float(solver.member_E[e]) * float(solver.member_props[e]["area"]) for e in ids])
+    EA = _member_EA(solver, ids)
     kf = getattr(solver, "_k_factor", 1.0)
     if np.ndim(kf):
         EA = EA * np.asarray(kf)[ids]

@@ -14,6 +14,7 @@ from .geometry import _free_axis, _key, _local_y, _plain, _to_global, _up_of
 from .prepare import prepare
 from .shapes import G, _poisson, _weight, section_properties
 from .tendons import tendon_specs
+from . import time_effects
 
 
 #: the clock a timed translation starts at, days: a relaxation reads only
@@ -222,6 +223,13 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             notes.append(f"material {key[1:]}: modulus {m['E']:.3g} Pa taken as {e_rigid:.3g} Pa (rigid = {rigid:g} x ordinary)")
             m["E"] = e_rigid
     materials["rigid"] = {"type": "linear_elastic", "E": e_rigid, "nu": 0.3, "rho": 1.0e-6}
+    # creep and shrinkage (1.22): the materials whose concrete creeps in the
+    # stages, each at the notional size its file gives and at an element's
+    # own where *ELEM-DEPMATL gives one (a material of its own per size)
+    creeping = time_effects.specs(model, f, length, leave, notes) if staged else {}
+    for mid_, spec_ in creeping.items():
+        if f"m{mid_}" in materials:
+            time_effects.apply(materials, f"m{mid_}", spec_)
 
     # -------------------------------------------------------------- members
     pretension = {}
@@ -451,19 +459,30 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         fac_ = scales.get(sid)
         return 1.0 if fac_ is None else fac_[6] / fac_[0]
 
-    def material_of(el):
+    def material_of(el, eid):
         """The member's material: its own, or one of a scaled section's whose
         density keeps the weight the section's weight factor says (the area
-        itself is scaled)."""
+        itself is scaled), or one at the member's own notional size for its
+        creep and shrinkage (`*ELEM-DEPMATL`)."""
+        mid_ = el.material
         fac_ = scales.get(el.section)
-        if fac_ is None or el.kind not in ("BEAM", "TRUSS", "TENSTR", "COMPTR"):
-            return el.material
-        ratio = fac_[6] / fac_[0]
-        if ratio == 1.0:
-            return el.material
-        mid_ = f"{el.material}w{el.section}"
-        if f"m{mid_}" not in materials:
-            materials[f"m{mid_}"] = dict(materials[f"m{el.material}"], rho=materials[f"m{el.material}"]["rho"] * ratio)
+        if fac_ is not None and el.kind in ("BEAM", "TRUSS", "TENSTR", "COMPTR"):
+            ratio = fac_[6] / fac_[0]
+            if ratio != 1.0:
+                mid_ = f"{el.material}w{el.section}"
+                if f"m{mid_}" not in materials:
+                    materials[f"m{mid_}"] = dict(materials[f"m{el.material}"],
+                                                 rho=materials[f"m{el.material}"]["rho"] * ratio)
+        spec_ = creeping.get(el.material)
+        h_ = model.notional_sizes.get(eid)
+        if spec_ is not None and h_ is not None:
+            h0_ = h_ * length * 1000.0
+            if round(h0_) != round(spec_["h0"]):
+                own_ = f"{mid_}{time_effects.notional_key(h0_)}"
+                if f"m{own_}" not in materials:
+                    materials[f"m{own_}"] = dict(materials[f"m{mid_}"])
+                    time_effects.apply(materials, f"m{own_}", spec_, h0_)
+                mid_ = own_
         return mid_
 
     # A STUB IS A JOINT, NOT A BEAM. A member stiffer than `stiffest` (N/m, the
@@ -650,7 +669,7 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         else:
             state = 0.0
         # (a beam's last slot is its end offsets; a bar's, "T" when it carries tension only)
-        key = ("bar" if axial else "beam", k, g, skey, material_of(el), orient, state, gone.get(eid, -1),
+        key = ("bar" if axial else "beam", k, g, skey, material_of(el, eid), orient, state, gone.get(eid, -1),
                "T" if el.kind == "TENSTR" else offs)
         groups.setdefault(key, []).append((a, b, eid))
 
@@ -1420,8 +1439,42 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             relaxing |= any(v.get("relaxation") for v in low_["materials"].values())
             kept_specs.append(spec_)
         specs = kept_specs
-    timed = staged and relaxing
+    # concrete that creeps or shrinks: the regions of it, and the age Midas
+    # gives each when its stage builds it
+    def creeps(region_):
+        m_ = materials.get(f"m{region_info[region_].get('material')}", {})
+        return "creep" in m_ or "shrinkage" in m_
+    creeping_regions = {r_ for r_ in region_info if region_info[r_].get("material") is not None and creeps(r_)}
+    ages_ = time_effects.stage_ages(model, born)
+
+    floored = set()
+
+    def age_of(region_):
+        info_ = region_info[region_]
+        a_ = ages_.get((info_["stage"], info_.get("midas_group")))
+        if a_ is not None and a_ < 0.5:
+            if region_ not in floored:
+                floored.add(region_)
+                leave("concrete built at an age under half a day, taken at half a day (MC90's least)")
+            a_ = 0.5
+        return a_
+
+    timed = staged and (relaxing or bool(creeping_regions))
     age = AGE0
+    first_older: List[Tuple[float, List[str]]] = []
+    if creeping_regions:
+        # the clock starts at the age of the youngest concrete the model
+        # starts with; older concrete of the first stage is built in a step
+        # of its own just after the first, as in any stage
+        by_age0: Dict[float, List[str]] = {}
+        for r_ in sorted(creeping_regions):
+            a_ = age_of(r_) if region_info[r_]["stage"] == 0 else None
+            if a_ is not None:
+                by_age0.setdefault(a_, []).append(r_)
+        if by_age0:
+            age = min(by_age0)
+            first_older = [(a_, by_age0[a_]) for a_ in sorted(by_age0)[1:]]
+    age0 = age
     stage_steps = []
     # A STAGE BUILDS MIDAS' GROUPS: the regions of one
     # structure group that a stage builds all of are that group's name in
@@ -1450,8 +1503,23 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         steps = []
         for k, st in enumerate(model.stages):
             step = {"name": st.name, "procedure": procedure}
+            older = first_older if k == 0 else []
             if activate.get(k):
-                step["activate"] = grouped(activate[k])
+                # concrete built at another age than the rest of the stage's
+                # is built in a step of its own just after, no time between:
+                # after the stage's supports, links and loads, which it may
+                # need (review: built first, a part fell under its weight)
+                by_age: Dict[float, List[str]] = {}
+                for r_ in activate[k]:
+                    a_ = age_of(r_) if r_ in creeping_regions else None
+                    if a_ is not None:
+                        by_age.setdefault(a_, []).append(r_)
+                ages_k = sorted(by_age)
+                rest_ = [r_ for r_ in activate[k] if r_ not in {q for a_ in ages_k[1:] for q in by_age[a_]}]
+                older = [(a_, by_age[a_]) for a_ in ages_k[1:]]
+                step["activate"] = grouped(rest_)
+                if ages_k:
+                    step["activate_age"] = ages_k[0]
                 # along the tangent of what stands where the model says so for
                 # a member the stage builds (its tangent-assembly group), else
                 # where the model has them
@@ -1471,6 +1539,15 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             if step_loads.get(k):
                 step["loads"] = step_loads[k]
             steps.append(step)
+            own = [c for c in step_constraints.get(k, []) if not c.get("keep")]
+            for a_, regions_ in older:
+                extra = {"name": f"{st.name} (built at {a_:g} d)", "procedure": procedure,
+                         "activate": grouped(regions_), "activate_age": a_}
+                if "birth" in step:
+                    extra["birth"] = step["birth"]
+                if own:
+                    extra["constraints"] = own
+                steps.append(extra)
             if timed and st.duration > 0.0:
                 age += float(st.duration)
                 tstep = {"name": f"{st.name} ({st.duration:g} d)", "procedure": procedure,
@@ -1478,7 +1555,6 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                 # the stage's own constraints (the twist hold of a part on pins in
                 # one line) hold through its time too; the kept ones carry over
                 # (review, v1.16: the part was free to spin)
-                own = [c for c in step_constraints.get(k, []) if not c.get("keep")]
                 if own:
                     tstep["constraints"] = own
                 steps.append(tstep)
@@ -1491,9 +1567,11 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         case["steps"] = [{"name": "the model", "procedure": procedure}]
     case["solver"] = {"mode": procedure, "backend": "numba"}
     if timed:
-        case["solver"]["age"] = AGE0
-        notes.append(f"each stage's duration runs after it as a step of time (from {AGE0:g} days): "
-                     "the tendons' relaxation; creep and shrinkage not followed")
+        case["solver"]["age"] = age0
+        notes.append(f"each stage's duration runs after it as a step of time (from {age0:g} days): "
+                     + ("creep and shrinkage, and the tendons' relaxation" if creeping_regions and relaxing
+                        else "creep and shrinkage" if creeping_regions
+                        else "the tendons' relaxation; creep and shrinkage not followed"))
     if procedure == "static":
         # the tangent's differences: a step of 1e-5 of a member's length keeps
         # their round-off under a soft link's stiffness (see `stiffest`)
@@ -1518,8 +1596,10 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                               "jacking": t_["jacking"], "segments": [[r, 0, p] for r, p in t_["segments"]]}
         if tendon_out:
             notes.append(f"{len(tendon_out)} tendon(s) as bars bonded to the girder on rigid arms, each bar jacked to "
-                         "the force after friction and draw-in in the stage that stresses it; creep and shrinkage "
-                         "not followed" + ("" if timed else ", nor relaxation"))
+                         "the force after friction and draw-in in the stage that stresses it"
+                         + ("; the concrete's creep and shrinkage lose their share of it as they do the girder's"
+                            if creeping_regions else "; creep and shrinkage not followed"
+                            + ("" if timed else ", nor relaxation")))
         if expanded:
             # the long form, as `vfife expand` writes it: to compare the two
             tmp = msh_path + ".part"

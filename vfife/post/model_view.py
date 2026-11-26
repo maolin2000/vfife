@@ -25,7 +25,7 @@ regions resolved as the solver resolves them -- step by step:
 * a member clicked: its row, region, section and what it holds, material,
   the step that builds it and the one that removes it, its length.
 
-Nothing is run: the case is read and its mesh built (`cli.build`), no
+Nothing is run: the case is read and its mesh built (`assemble.build`), no
 solver. A model the page cannot show (solids, shells) is refused.
 """
 from __future__ import annotations
@@ -239,7 +239,7 @@ def _drawn_sections(d, assigns, sections, sec_names, member_sec, member_assign, 
 
 def load(case_path: str) -> Dict[str, Any]:
     """The page's data: the model as the solver will read it, step by step."""
-    from ..cli import build
+    from ..assemble import build
     from ..core import selectors
     from ..core.diagnostics import UserError
     from ..io import schema

@@ -7,7 +7,7 @@ from .problem import Problem
 from .mesh import Mesh
 from .mixed_structural_solver import MixedStructuralSolver
 from .solver import Solver as SolidSolver
-from .dof import ROTATION, TRANSLATION
+from ..base.dof import ROTATION, TRANSLATION
 
 
 class CoupledSolver(MixedStructuralSolver):

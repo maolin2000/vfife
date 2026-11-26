@@ -34,8 +34,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from .dof import TRANSLATION, repeated_rotation
-from .rotations import beam_frames_from_triads
+from ..base.dof import TRANSLATION, repeated_rotation
+from ..base.rotations import beam_frames_from_triads
 
 #: what a member that collapses to a point is told
 COLLAPSED = "mixed structural member collapsed to zero length"

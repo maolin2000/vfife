@@ -51,7 +51,7 @@ __all__ = [
 #: the version of this interface
 API_VERSION = 1
 
-from .cli import build, make_solver, _with_element
+from .assemble import build, make_solver, _with_element
 from .core.diagnostics import (AnalysisFailure, AnalysisInterrupted, StopAnalysis, UserError,
                                finish as finish_diagnostics, serialise)
 from .io import schema

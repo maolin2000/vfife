@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vfife"
-version = "1.21.0"
+version = "1.22.0"
 description = "Explicit structural solver (VFIFE) for bridges, from construction stages to earthquake and collapse"
 readme = "README.md"
 license = "MIT"

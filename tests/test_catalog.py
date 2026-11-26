@@ -35,7 +35,7 @@ def test_every_registered_material_has_an_engineering_contract():
         # ultra-low-cycle-fatigue fracture strain
         "steel_cyclic",
         # 1.21: laws made of other one-dimensional laws, and a free travel
-        "parallel", "series", "gap",
+        "parallel", "series", "gap", "bouc_wen",
     }
     for name in available_materials():
         item = definition(name)

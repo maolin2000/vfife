@@ -305,7 +305,7 @@ class BondedTruss:
         return f_bar, f_host, sig
 
     def scatter_host(self, f_host, n_nodes):
-        from ..core.mesh import scatter_add
+        from ..base.scatter import scatter_add
 
         return scatter_add(f_host, self.host_nodes, n_nodes)
 
@@ -376,7 +376,7 @@ class BondedTruss:
         this node's share. The previous version had `k |w_a|`, missing the
         factor entirely, and dropped the direction structure with it.
         """
-        from ..core.mesh import scatter_add
+        from ..base.scatter import scatter_add
 
         per_bar_node = (self._interface_row_sums()
                         * stability.coupling_factor(self.w)[:, None])

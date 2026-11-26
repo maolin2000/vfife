@@ -30,8 +30,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..tensor import ddot
-from ..voigt import TENSOR_TO_ENG, dilatational_wave_speed, elastic_matrix
+from ..base.tensor import ddot
+from ..base.voigt import TENSOR_TO_ENG, dilatational_wave_speed, elastic_matrix
 from . import curves as cv
 from .base import Material, register
 

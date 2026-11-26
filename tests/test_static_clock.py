@@ -135,3 +135,34 @@ def test_a_prestressed_bar_born_later_relaxes_from_its_birth(tmp_path):
                                  {"name": "hold", "to_age": 1100.0, "load_steps": 4}],
                       stay={"prestress": TJ.T / TJ.A})
     assert N == pytest.approx(T * (1.0 - R.relaxation_loss(SPEC, 1000.0 * 24.0)), rel=1e-6)
+
+
+@pytest.mark.parametrize("case", ["case_29d_fiber_creep_bar", "case_29g_prestress_loss"])
+def test_a_fibre_models_creep_in_static_steps_is_the_relaxation_runs(tmp_path, case):
+    """Fibre sections creep, shrink and relax in Newton steps too (1.22;
+    refused until then): every converged increment is a time station, as
+    every level of the staged relaxation is, and the two give the same
+    history station by station."""
+    import os
+    import yaml
+    from vfife.api import run_case
+    root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cases")
+    base = yaml.safe_load(open(os.path.join(root, f"{case}.yaml"), encoding="utf-8"))
+    if base["mesh"].get("path"):
+        base["mesh"]["path"] = os.path.normpath(os.path.join(root, base["mesh"]["path"]))
+    got = {}
+    for mode in ("relaxation", "static"):
+        d = copy.deepcopy(base)
+        d["solver"]["mode"] = mode
+        if mode == "static":
+            for st in d.get("steps") or []:
+                st.pop("max_steps_per_load", None)
+        d["output"]["path"] = str(tmp_path / f"{mode}.h5")
+        out = run_case(d)
+        assert out.status == "CONVERGED", out.message
+        got[mode] = {k: np.asarray(v, float) for k, v in out.monitors.items()}
+    for k, v in got["relaxation"].items():
+        if k in ("residual", "kinetic_energy", "time"):
+            continue
+        scale = np.abs(v).max() or 1.0
+        np.testing.assert_allclose(got["static"][k], v, atol=2e-5 * scale, err_msg=k)

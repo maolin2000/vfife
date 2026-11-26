@@ -24,7 +24,7 @@ from ._cache import refresh as _refresh_numba_cache
 
 _refresh_numba_cache()
 
-from ..core.diagnostics import UserError
+from ..base.errors import UserError
 from ..elements import continuum
 
 AVAILABLE = ("numpy", "numba", "warp")
@@ -47,7 +47,7 @@ class NumpyForce:
                            else int(conn.max()) + 1)
 
     def assemble(self, f_e):
-        from ..core.mesh import scatter_add
+        from ..base.scatter import scatter_add
         return scatter_add(f_e, self.conn, self.n_nodes)
 
     def __call__(self, u, quat, state, dt, rot_iters=2, want_stress=False):

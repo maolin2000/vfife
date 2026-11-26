@@ -586,9 +586,16 @@ def test_a_fibre_member_built_again_is_new_concrete(tmp_path):
     assert abs(out.monitors["N2"][-1]) < 1e-3                  # born again, unstressed
 
 
-def test_a_connector_born_late_in_a_fibre_model_is_refused(tmp_path):
-    d = _rc(tmp_path, "conn", [{"name": "a", "load_steps": 1, "max_steps_per_load": 1000},
-                               {"name": "b", "activate": ["link"], "load_steps": 1, "max_steps_per_load": 1000}])
+def test_a_connector_born_late_in_a_fibre_model_is_born_free_of_force(tmp_path):
+    """The fibre models' connectors are born as the frame models' are (1.22;
+    refused until then): where its ends stand -- the girder has sagged in the
+    first step -- the bearing carries nothing, until a load comes on in the
+    third, which it then shares with the girder."""
+    d = _rc(tmp_path, "conn", [{"name": "a", "load_steps": 2, "max_steps_per_load": 40000,
+                                "loads": [{"region": "C", "vector": [0, 0, -2.0e4], "keep": True}]},
+                               {"name": "b", "activate": ["link"], "load_steps": 1, "max_steps_per_load": 40000},
+                               {"name": "c", "load_steps": 2, "max_steps_per_load": 40000,
+                                "loads": [{"region": "C", "vector": [0, 0, -1.0e4]}]}])
     d["mesh"]["points"]["E"] = [4.0, 0, -0.5]
     d["mesh"]["lines"]["link"] = {"through": ["C", "E"], "size": 1.0}
     d["sections"]["brg"] = {"type": "connector", "stiffness": [1e8] * 6}
@@ -596,8 +603,24 @@ def test_a_connector_born_late_in_a_fibre_model_is_refused(tmp_path):
                    {"region": "s2", "section": "g", "orientation": [0, 1, 0]},
                    {"region": "link", "section": "brg", "orientation": [0, 1, 0]}]
     d["constraints"].append({"region": "E", "dofs": [1] * 6})
-    with pytest.raises(ValueError, match="connector"):
-        run_case(d)
+    d["solver"]["tolerance"] = 1e-4
+    import copy
+    born = copy.deepcopy(d)
+    born["steps"] = born["steps"][:2]
+    got = {}
+    out = run_case(born, on_ready=lambda s, _p: got.__setitem__("s", s))
+    assert out.converged, out.message
+    s = got["s"]
+    link = next(e for e in range(s.nel) if s.connector_props(e) is not None)
+    # born where it stands: nothing in it (to the tolerance of the relaxation; born at the
+    # design position its 1e8 N/m would hold the sag back with kilonewtons)
+    assert np.abs(s.end_actions[link]).max() < 1e-4 * 2.0e4
+    got = {}
+    out = run_case(d, on_ready=lambda s, _p: got.__setitem__("s", s))
+    assert out.converged, out.message
+    s = got["s"]
+    # the third step's 10 kN is shared: the bearing takes some of it, not the 30 kN the girder held
+    assert 1e2 < np.abs(s.end_actions[link]).max() < 1.01e4
 
 
 @pytest.mark.parametrize("cable", [{"prestress": 1.0e6}, {"tension_only": True}])

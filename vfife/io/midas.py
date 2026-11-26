@@ -251,6 +251,20 @@ class MidasModel:
     offsets: Dict[int, Tuple[str, Tuple[float, ...], str]] = field(default_factory=dict)
     #: `*TS-GROUP`: the elements, in order, one tapered section runs over
     taper_groups: List[Tuple[str, List[int]]] = field(default_factory=list)
+    #: `*TDM-TYPE` by name: the creep and shrinkage model, (CODE, the
+    #: fields after it as written) -- JTG: STR, HU, MSIZE, BSC, AGE;
+    #: China(JTG3362-2018): the same and FLYASH
+    time_models: Dict[str, Tuple[str, List[str]]] = field(default_factory=dict)
+    #: `*TDM-ELAST` by name: (TYPE, CODE, the fields after it)
+    time_moduli: Dict[str, Tuple[str, str, List[str]]] = field(default_factory=dict)
+    #: `*TDM-LINK`: material -> (creep/shrinkage model name, modulus model name), "" for none
+    time_links: Dict[int, Tuple[str, str]] = field(default_factory=dict)
+    #: `*ELEM-DEPMATL`: element -> notional size h (the file's length unit), its TYPE NSM
+    notional_sizes: Dict[int, float] = field(default_factory=dict)
+    #: `*STAGE-CTRL` line 4: whether the stages take time-dependent effects
+    #: (bINC-TDE), which ("CREEP", "SHRINKAGE" or "BOTH"), and whether the
+    #: strength grows with age (bVAR); None: the file has no stage control
+    time_effects: Optional[Tuple[bool, str, bool]] = None
     other: Dict[str, int] = field(default_factory=dict)      # blocks not read: keyword -> data lines
 
     def si(self) -> Tuple[float, float]:
@@ -632,6 +646,35 @@ def read(path: str) -> MidasModel:
                     stage.activate_loads += _stage_pairs(body)
                 elif last == "DLOAD":
                     stage.deactivate_loads += _stage_pairs(body)
+        elif key == "TDM-TYPE":
+            for r in rows:
+                head, _, rest = r.partition("=")
+                p = _fields(rest)
+                if head.strip().upper() == "NAME" and len(p) > 1:
+                    m.time_models[p[0]] = (p[1].strip(), p[2:])
+                else:                       # a USER model's curve lines, and the like
+                    m.other[key] = m.other.get(key, 0) + 1
+        elif key == "TDM-ELAST":
+            for r in rows:
+                head, _, rest = r.partition("=")
+                p = _fields(rest)
+                if head.strip().upper() == "NAME" and len(p) > 2:
+                    m.time_moduli[p[0]] = (p[1].strip().upper(), p[2].strip(), p[3:])
+                else:
+                    m.other[key] = m.other.get(key, 0) + 1
+        elif key == "TDM-LINK":
+            for r in rows:
+                p = _fields(r) + ["", ""]
+                if p[0].isdigit():
+                    m.time_links[int(p[0])] = (p[1].strip(), p[2].strip())
+        elif key == "ELEM-DEPMATL":
+            for r in rows:
+                p = _fields(r)
+                if len(p) > 2 and p[1].strip().upper() == "NSM":
+                    for e in expand(p[0]):
+                        m.notional_sizes[e] = _num(p[2])
+                else:
+                    m.other[key] = m.other.get(key, 0) + 1
         elif key == "THICKNESS":
             for row in rows:
                 p = [x.strip() for x in row.split(",")]
@@ -655,6 +698,14 @@ def read(path: str) -> MidasModel:
                     first = [x.strip().upper() for x in rows[0].split(",")]
                     if len(first) > 2:
                         m.pretension_control = first[2]
+                    # line 4: bINC-TDE, bCNS, TYPE, ... (lines 1-3 end where a
+                    # row does not end in the continuation backslash)
+                    # (no line 4: no time-dependent effects); bVAR, its 8th
+                    # field, the growth of the strength (and modulus) with age
+                    m.time_effects = (False, "", False)
+                    if len(rows) > 3:
+                        f4 = [x.strip().upper() for x in rows[3].split(",")] + [""] * 8
+                        m.time_effects = (f4[0] == "YES", f4[2], f4[7] == "YES")
                     # ..., bITD, iITD, GROUP, ...: "YES, GROUP, <name>" or "YES, ALL"
                     p = [x.strip() for x in ",".join(rows).split(",")]
                     for i in range(len(p) - 1):

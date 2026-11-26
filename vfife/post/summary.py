@@ -318,7 +318,7 @@ def summarize(path, case: Optional[str] = None) -> Dict[str, Any]:
 def _totals_from_case(case: str) -> Dict[str, np.ndarray]:
     """For a result written before 1.1: build the model from its case."""
     from ..api import prepare_case
-    from ..cli import _with_element, make_solver
+    from ..assemble import _with_element, make_solver
     from ..core.model_totals import totals
     prep = prepare_case(case)
     p = _with_element(prep.case, prep.element, prep.case_path)

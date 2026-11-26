@@ -27,7 +27,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, model_validator
 from pydantic import field_validator
 
-from ..elements.library import element_names
+from ..elements.library import element_names, takes, taking
 
 
 class Strict(BaseModel):
@@ -1496,9 +1496,6 @@ class DiaphragmSpec(Strict):
     normal: Literal["x", "y", "z"] = "z"
 
 
-#: the element types whose models take `rigid_links` (the beam family's
-#: solvers; core/constraints)
-RIGID_LINK_ELEMENTS = ("beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber", "shell3", "shell4", "shell_line")
 
 
 class RigidLinkSpec(Strict):
@@ -1623,8 +1620,10 @@ class StepSpec(Strict):
         return self
 
 
-#: the element types whose steps may change the model or the procedure (1.2)
-STEP_CHANGE_ELEMENTS = frozenset(("beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber"))
+
+#: (the names before 1.22; the one table is `elements.library.FEATURES`)
+RIGID_LINK_ELEMENTS = taking("rigid_links")
+STEP_CHANGE_ELEMENTS = frozenset(taking("step_changes"))
 
 #: Sentinel: a solver setting the schema does not give a default for.
 _NO_SCHEMA_DEFAULT = object()
@@ -1727,6 +1726,10 @@ class DampingSpec(Strict):
     #: the two frequencies (Hz) `ratio` is stated at: usually the first mode and the highest one that matters
     frequencies: Optional[List[float]] = Field(None, min_length=2, max_length=2)
 
+    #: 分区 Rayleigh 阻尼（1.22）：[{regions: [区域名], alpha/beta 或 ratio(/frequencies)}]。列出的区域里的构件（连同它们的刚域质量）用这一项的系数，其余构件和集中质量用上面的；两项重叠时后写的算；不写 frequencies 时用上面那两个频率。只用于动力分析的 `type: rayleigh`，线模型（beam2、beam2_timoshenko、beam2_fiber、mixed_line）
+    #: Rayleigh damping by region (1.22): [{regions: [names], alpha/beta or ratio(/frequencies)}]. The members of the listed regions (with their rigid zones' mass) take this entry's coefficients; the other members and the concentrated masses take the ones above; where two entries overlap the later one holds; an entry's `ratio` without `frequencies` is stated at the two above. `type: rayleigh` in a dynamic run, line models only (core/damping.py)
+    regions: Optional[List["RayleighRegionSpec"]] = None
+
     @model_validator(mode="after")
     def _rayleigh_coefficients(self):
         if (self.ratio is None) != (self.frequencies is None):
@@ -1739,26 +1742,76 @@ class DampingSpec(Strict):
             # again (a solver's case, core/problem.py)
             given = (self.alpha, self.beta)
             self.type = "rayleigh"
-            f1, f2 = (float(x) for x in self.frequencies)
-            if f1 <= 0.0 or f2 <= 0.0 or f1 == f2:
-                raise ValueError("damping.frequencies: two distinct positive frequencies (Hz)")
-            z = self.ratio
-            z1, z2 = (float(z), float(z)) if not isinstance(z, (list, tuple)) else (float(z[0]), float(z[1]))
-            if z1 < 0.0 or z2 < 0.0 or (z1 == 0.0 and z2 == 0.0):
-                raise ValueError("damping.ratio: non-negative, not both zero")
-            w1, w2 = 2.0 * math.pi * f1, 2.0 * math.pi * f2
-            # zeta_i = alpha / (2 w_i) + beta w_i / 2 at both frequencies
-            self.alpha = 2.0 * (z1 * w2 - z2 * w1) * w1 * w2 / (w2 * w2 - w1 * w1)
-            self.beta = 2.0 * (z2 * w2 - z1 * w1) / (w2 * w2 - w1 * w1)
+            self.alpha, self.beta, self.ratio = rayleigh_from_ratio(self.ratio, self.frequencies, "damping")
             if any(given) and given != (self.alpha, self.beta):
                 raise ValueError("damping: give alpha/beta OR ratio/frequencies, not both")
-            if self.alpha < 0.0 or self.beta < 0.0:
-                raise ValueError("damping.ratio: these two ratios at these two frequencies need a negative "
-                                 "alpha or beta -- Rayleigh cannot give a ratio that falls that fast with frequency")
-            self.ratio = [z1, z2]
-        if self.type == "rayleigh" and self.alpha == 0.0 and self.beta == 0.0:
+        if self.regions:
+            if self.type != "rayleigh":
+                raise ValueError("damping.regions: Rayleigh damping by region goes with type: rayleigh")
+            for i, r in enumerate(self.regions):
+                r.resolve(self.frequencies, f"damping.regions[{i}]")
+        if self.type == "rayleigh" and self.alpha == 0.0 and self.beta == 0.0 and not any(
+                r.alpha or r.beta for r in self.regions or ()):
             raise ValueError("Rayleigh damping needs alpha and/or beta > 0")
         return self
+
+
+def rayleigh_from_ratio(ratio, frequencies, where):
+    """(alpha, beta, [zeta_1, zeta_2]) of Rayleigh damping with ratio `ratio`
+    (one number or two) at the two `frequencies` (Hz)."""
+    f1, f2 = (float(x) for x in frequencies)
+    if f1 <= 0.0 or f2 <= 0.0 or f1 == f2:
+        raise ValueError(f"{where}.frequencies: two distinct positive frequencies (Hz)")
+    z = ratio
+    z1, z2 = (float(z), float(z)) if not isinstance(z, (list, tuple)) else (float(z[0]), float(z[1]))
+    if z1 < 0.0 or z2 < 0.0 or (z1 == 0.0 and z2 == 0.0):
+        raise ValueError(f"{where}.ratio: non-negative, not both zero")
+    w1, w2 = 2.0 * math.pi * f1, 2.0 * math.pi * f2
+    # zeta_i = alpha / (2 w_i) + beta w_i / 2 at both frequencies
+    alpha = 2.0 * (z1 * w2 - z2 * w1) * w1 * w2 / (w2 * w2 - w1 * w1)
+    beta = 2.0 * (z2 * w2 - z1 * w1) / (w2 * w2 - w1 * w1)
+    if alpha < 0.0 or beta < 0.0:
+        raise ValueError(f"{where}.ratio: these two ratios at these two frequencies need a negative "
+                         "alpha or beta -- Rayleigh cannot give a ratio that falls that fast with frequency")
+    return alpha, beta, [z1, z2]
+
+
+class RayleighRegionSpec(Strict):
+    """One entry of `damping.regions`: the Rayleigh coefficients of the
+    members of some regions (1.22, core/damping.py)."""
+
+    #: 区域名：与单元监测量的 regions 一样解析（物理组或线组记下的单元，否则两个节点都在节点集里的构件）
+    #: region names, read as an element monitor's `regions` are (the members a group records, else those with both nodes in the node set)
+    regions: List[str] = Field(..., min_length=1)
+    #: 这些构件的质量比例阻尼（1/s）
+    #: these members' mass-proportional damping, 1/s
+    alpha: float = Field(0.0, ge=0.0)
+    #: 这些构件的刚度比例阻尼（s）
+    #: these members' stiffness-proportional damping, s
+    beta: float = Field(0.0, ge=0.0)
+    #: 阻尼比：一个数或 [ζ1, ζ2]，在 frequencies（不写时用上一级的两个频率）上；与 alpha/beta 二选一
+    #: damping ratio, one number or [zeta_1, zeta_2], at `frequencies` (absent: the two above); alpha/beta or this
+    ratio: Optional[Any] = None
+    #: 给 ratio 的两个频率（Hz）
+    #: the two frequencies (Hz) of `ratio`
+    frequencies: Optional[List[float]] = Field(None, min_length=2, max_length=2)
+
+    def resolve(self, frequencies, where):
+        if self.ratio is None:
+            if self.frequencies is not None:
+                raise ValueError(f"{where}: `frequencies` without a `ratio`")
+            return
+        f = self.frequencies if self.frequencies is not None else frequencies
+        if f is None:
+            raise ValueError(f"{where}: a `ratio` needs `frequencies`, here or on damping")
+        given = (self.alpha, self.beta)
+        self.alpha, self.beta, self.ratio = rayleigh_from_ratio(self.ratio, f, where)
+        self.frequencies = [float(x) for x in f]
+        if any(given) and given != (self.alpha, self.beta):
+            raise ValueError(f"{where}: give alpha/beta OR ratio, not both")
+
+
+DampingSpec.model_rebuild()
 
 
 class BarRepeatSpec(Strict):
@@ -2592,7 +2645,7 @@ class Case(Strict):
     _deprecated: List[Any] = PrivateAttr(default_factory=list)
     #: unit-carrying defaults written in the declared units (core/units.py)
     _unit_defaults: List[Any] = PrivateAttr(default_factory=list)
-    #: what the high-level blocks add to the mesh (vfife/prep): `cli.build` reads it with the file
+    #: what the high-level blocks add to the mesh (vfife/prep): `assemble.build` reads it with the file
     _mesh_overlay: Any = PrivateAttr(None)
     #: (who, what) a high-level block followed only roughly -- preflight warns
     _expansion_notes: List[Any] = PrivateAttr(default_factory=list)
@@ -2875,13 +2928,20 @@ class Case(Strict):
                 st.procedure == "dynamic" for st in self.steps):
             raise ValueError("damping.beta is stiffness-proportional Rayleigh damping: it needs "
                              "type: rayleigh in a dynamic run (or dynamic steps)")
-        if changing and self.element.type not in STEP_CHANGE_ELEMENTS:
+        if d is not None and d.regions:
+            if self.solver.mode == "relaxation" and not any(st.procedure == "dynamic" for st in self.steps):
+                raise ValueError("damping.regions: Rayleigh damping by region is for a dynamic run "
+                                 "(or dynamic steps)")
+            if not takes(self.element.type, "damping_regions"):
+                raise ValueError(f"damping.regions: Rayleigh damping by region is on the line models "
+                                 f"({', '.join(taking('damping_regions'))}), not {self.element.type}")
+        if changing and not takes(self.element.type, "step_changes"):
             st = self.steps[changing[0]]
             what = ("a procedure of its own" if not (st.activate or st.deactivate or st.release or st.rigid_links)
                     else "activate / deactivate / release / rigid_links")
             raise ValueError(f"steps[{changing[0]}] has {what}: analysis steps that change the "
                              f"model or the procedure run line models "
-                             f"({', '.join(sorted(STEP_CHANGE_ELEMENTS))}), not {self.element.type}")
+                             f"({', '.join(sorted(taking('step_changes')))}), not {self.element.type}")
         if any(st.procedure == "dynamic" or (st.procedure is None and self.solver.mode == "dynamic")
                for st in self.steps) and self.solver.mode != "dynamic" \
                 and self.solver.total_time is None and any(
@@ -2912,8 +2972,8 @@ class Case(Strict):
                                  "soil springs")
         if self.rigid_links or any(st.rigid_links for st in self.steps):
             # the solvers of the beam family (core/constraints, 1.21)
-            if self.element.type not in RIGID_LINK_ELEMENTS:
-                raise ValueError(f"rigid_links are taken by {', '.join(RIGID_LINK_ELEMENTS)} models, "
+            if not takes(self.element.type, "rigid_links"):
+                raise ValueError(f"rigid_links are taken by {', '.join(taking('rigid_links'))} models, "
                                  f"not {self.element.type}")
             if self.solver.backend == "warp":
                 raise ValueError("rigid_links are not taken by the warp shell backend (its loop is the "

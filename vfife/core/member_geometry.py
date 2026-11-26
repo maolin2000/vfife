@@ -172,7 +172,7 @@ class MemberGeometry:
             fl[[2, 8]] = ql[2]*L/2
             fl[4], fl[10] = -ql[2]*L**2/12, ql[2]*L**2/12
             fl = condense(fl)
-            from .dof import repeated_rotation
+            from ..base.dof import repeated_rotation
             return fl, self.load_to_nodes(e, repeated_rotation(R).T @ fl)
         x1, x2 = self._drawn(e)
         ts, ws = _line_points(x1, x2, self.offset[e, 0], self.offset[e, 1], R, L)
@@ -189,7 +189,7 @@ class MemberGeometry:
         fl, g = drawn_loads(x1, x2, self.offset[e, 0], self.offset[e, 1], R, L, ts, F)
         if condense is not None:
             fl = condense(fl)
-        from .dof import repeated_rotation
+        from ..base.dof import repeated_rotation
         return fl, g + self.load_to_nodes(e, repeated_rotation(R).T @ fl)
 
     def full_axial(self, e: int, kl: np.ndarray, L: float) -> np.ndarray:

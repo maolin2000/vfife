@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 from .core import selectors
 from .catalog import compatibility
-from .core.dof import repeated_rotation
+from .base.dof import repeated_rotation
 
 
 _LINE_TYPES = {"truss2", "beam2", "beam2_timoshenko", "beam2_fiber", "connector2", "mixed_line"}
@@ -1395,10 +1395,6 @@ _MONITOR_KINDS = {
 #: frame models whose solver records member-force monitors (`kind: element`,
 #: v1.0); the shells do not
 _ELEMENT_MONITOR_FRAMES = {"beam2", "beam2_timoshenko", "mixed_line", "coupled"}
-#: where rigid diaphragms are applied (core/constraints)
-_DIAPHRAGM_ELEMENTS = {"beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber", "shell3", "shell4", "shell_line",
-                       "coupled"}
-_STATIC_ELEMENTS = {"beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber"}
 
 
 def _scope(case, element, items):
@@ -1429,7 +1425,8 @@ def _scope(case, element, items):
                    f"monitor {name!r}: `reduce` applies to element monitors (and bar monitors on "
                    f"solids); a {m.kind} monitor reads {what.get(m.kind, 'one value')}, with nothing to reduce",
                    monitor=name)
-    if getattr(case, "diaphragms", None) and (element not in _DIAPHRAGM_ELEMENTS
+    from .elements.library import takes, taking
+    if getattr(case, "diaphragms", None) and (not takes(element, "diaphragms")
                                                or case.solver.backend == "warp"):
         _issue(items, "ERROR", "DIAPHRAGM_UNSUPPORTED",
                f"diaphragms are applied to beam, fibre-beam, shell and coupled models on the numpy/numba backends; "
@@ -1443,10 +1440,10 @@ def _scope(case, element, items):
         _issue(items, "ERROR", "EROSION_UNSUPPORTED",
                f"solver.erosion removes solid elements; a {element} model loses members through "
                "`failure`, section `fracture` or `removals`")
-    if case.solver.mode == "static" and element not in _STATIC_ELEMENTS:
+    if case.solver.mode == "static" and not takes(element, "static"):
         _issue(items, "ERROR", "STATIC_UNSUPPORTED",
-               f"solver.mode = static runs frame and fibre-beam models (beam2, beam2_timoshenko, "
-               f"mixed_line, beam2_fiber); this is a {element} model. Use mode: relaxation")
+               f"solver.mode = static runs frame and fibre-beam models ({', '.join(taking('static'))}); this is a {element} "
+               "model. Use mode: relaxation")
     # SETTINGS WRITTEN WHERE THEY DO NOTHING (found in review):
     # accepted without a word, as `damping` in a static run once was in
     # every mode. Warnings, not errors: the answer is the

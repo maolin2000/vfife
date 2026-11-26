@@ -22,6 +22,7 @@ from typing import Dict
 import numpy as np
 
 from . import added_mass
+from . import damping
 from . import member_geometry
 from . import amplitude as amp
 from . import ground as ground_motion
@@ -32,9 +33,9 @@ from . import selectors
 from .diagnostics import NonFiniteFailure, StopAnalysis, first_nonfinite
 from .diagnostics import finish as finish_diagnostics
 from .diagnostics import start as start_diagnostics, ConvergenceFailure, worst_residual
-from .dof import ROTATION, TRANSLATION, SparseAssembler, repeated_rotation
+from ..base.dof import ROTATION, TRANSLATION, SparseAssembler, repeated_rotation
 from .orientation import OrientedPoints
-from .rotations import beam_frames_from_triads
+from ..base.rotations import beam_frames_from_triads
 
 
 class BeamFamily(OrientedPoints):
@@ -111,6 +112,8 @@ class BeamFamily(OrientedPoints):
             e0 = np.asarray(self.mesh.elements[:, :2], dtype=np.int64).copy()
             self._monitor_members = {name: member_actions.region_members(self.mesh, m.regions, e0)
                                      for name, m in self.monitors.items() if m.kind == "element"}
+        # the members of `damping.regions`, resolved the same way (core/damping)
+        self._damping_members = damping.members(self)
 
     # ------------------------------------------------------------------ #
     #  Member frames
@@ -447,6 +450,9 @@ class BeamFamily(OrientedPoints):
         F = self._force(groups, ground, p0, p0*self.total_time); fint, _actions = self.internal_force()
         if self.damp_kind == "rayleigh":
             damp = self.alpha*self.mass*self.v + self.beta*(self.K @ self.v)
+            regional = self.regional_damping()
+            if regional is not None:
+                damp = damp + regional.force(self.v)
         elif self.damp_kind == "viscous":
             damp = self.zeta*self.mass*self.v
         else:
@@ -1124,6 +1130,36 @@ class BeamFamily(OrientedPoints):
             z = self.member_zone_mass(int(e))
             for k in range(2):
                 m[int(self.mesh.elements[e, k]), :3] += z[k]
+
+    #: each connector's deformation at its birth (nel, 6), or None while no
+    #: connector has been born in a step (core/analysis_steps)
+    _conn_birth = None
+
+    def connector_props(self, e):
+        """Member `e`'s connector properties, or None when it is not a
+        connector (the solvers with connectors say)."""
+        return None
+
+    #: the members' own Rayleigh damping (`damping.regions`, core/damping),
+    #: built on first use; False: the model has none
+    _regional_damping = None
+    _damping_members = None
+
+    def regional_damping(self):
+        """The region members' correction to the model's Rayleigh damping
+        (`core.damping.RegionalRayleigh`), or None."""
+        if self._regional_damping is None:
+            self._regional_damping = damping.regional(self, self._damping_members) or False
+        return self._regional_damping or None
+
+    def live_members(self):
+        """(nel,) bool: the members that carry force (`_live_members`)."""
+        return self._live_members()
+
+    def member_reference_block(self, e):
+        """Member `e`'s (12, 12) reference stiffness in global axes at its
+        nodes, the block `K` is assembled from (the frame solvers' `_kg_ref`)."""
+        return self._kg_ref[int(e)]
 
     def member_mass_share(self, e):
         """The (6,) mass one end of member `e` carries (each solver's

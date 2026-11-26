@@ -211,6 +211,7 @@ _DRIVE = {
     "parallel":           dict(kinematics="uniaxial", amplitude=6.0e-3),
     "series":             dict(kinematics="uniaxial", amplitude=8.0e-3),
     "gap":                dict(kinematics="uniaxial", amplitude=3.0e-3),
+    "bouc_wen":           dict(kinematics="uniaxial", amplitude=1.0e-2),
     "bond_ceb":           dict(kinematics="bond", amplitude=3.0e-3),
     "bond_cyclic":        dict(kinematics="bond", amplitude=3.0e-3),
 }
@@ -610,7 +611,7 @@ def rotating_the_strain_rotates_the_stress(material, s: Spec) -> Finding:
     if not s.isotropic:
         return Finding("rotating_the_strain_rotates_the_stress", True, 0.0, 0.0,
                        "anisotropic by declaration", skipped=True)
-    from ..core.rotations import exp_map
+    from ..base.rotations import exp_map
 
     R = exp_map(np.array([[0.4, -0.7, 0.5]]))[0]
     eps = path(s, "cycle")

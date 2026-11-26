@@ -1,4 +1,4 @@
-# vfife YAML 参考（自动生成，1.21.0）
+# vfife YAML 参考（自动生成，1.22.0）
 
 > 由 `python -m vfife reference` 从 `vfife/io/model.py`、`vfife/io/schema.py` 和材料/单元目录生成；`tests/test_reference.py` 保证它与代码一致。**不要手改**——改字段的 `#:` 注释，再重新生成。
 > 说明列是字段上方 `#:` 注释的中文第一行，英文原注是其余行。概念、建模方法和完整例子见 `docs/用户手册.md`；每个字段最后一列是
@@ -808,6 +808,19 @@ The displacement an arc is measured on (1.3): one node's translation, instead of
 | `beta` | float | `0.0` | 刚度比例阻尼（s）；只用于动力分析的 `type: rayleigh`，会缩小稳定步长 | stiffness-proportional damping, s; `type: rayleigh` in a dynamic analysis only; makes the stable step smaller | 05 |
 | `ratio` | any | — | Rayleigh 的另一种写法：在 `frequencies` 的两个频率上各给阻尼比——一个数（两处相同）或 [ζ1, ζ2]；alpha、beta 由此算出 | Rayleigh stated by its damping ratio at the two `frequencies` (one number, or [zeta_1, zeta_2]); alpha and beta are computed from it | — |
 | `frequencies` | list[float] | — | 给 `ratio` 的两个频率（Hz）：通常取第一阶和参与显著的最高阶 | the two frequencies (Hz) `ratio` is stated at: usually the first mode and the highest one that matters | — |
+| `regions` | list[见 RayleighRegionSpec] | — | 分区 Rayleigh 阻尼（1.22）：[{regions: [区域名], alpha/beta 或 ratio(/frequencies)}]。列出的区域里的构件（连同它们的刚域质量）用这一项的系数，其余构件和集中质量用上面的；两项重叠时后写的算；不写 frequencies 时用上面那两个频率。只用于动力分析的 `type: rayleigh`，线模型（beam2、beam2_timoshenko、beam2_fiber、mixed_line） | Rayleigh damping by region (1.22): [{regions: [names], alpha/beta or ratio(/frequencies)}]. The members of the listed regions (with their rigid zones' mass) take this entry's coefficients; the other members and the concentrated masses take the ones above; where two entries overlap the later one holds; an entry's `ratio` without `frequencies` is stated at the two above. `type: rayleigh` in a dynamic run, line models only (core/damping.py) | — |
+
+### `solver.damping.regions[]` — RayleighRegionSpec
+
+One entry of `damping.regions`: the Rayleigh coefficients of the members of some regions (1.22, core/damping.py).
+
+| 字段 | 类型 | 默认 | 说明 | 英文原注 | 算例 |
+|---|---|---|---|---|---|
+| `regions` | list[str] | **必填** | 区域名：与单元监测量的 regions 一样解析（物理组或线组记下的单元，否则两个节点都在节点集里的构件） | region names, read as an element monitor's `regions` are (the members a group records, else those with both nodes in the node set) | — |
+| `alpha` | float | `0.0` | 这些构件的质量比例阻尼（1/s） | these members' mass-proportional damping, 1/s | — |
+| `beta` | float | `0.0` | 这些构件的刚度比例阻尼（s） | these members' stiffness-proportional damping, s | — |
+| `ratio` | any | — | 阻尼比：一个数或 [ζ1, ζ2]，在 frequencies（不写时用上一级的两个频率）上；与 alpha/beta 二选一 | damping ratio, one number or [zeta_1, zeta_2], at `frequencies` (absent: the two above); alpha/beta or this | — |
+| `frequencies` | list[float] | — | 给 ratio 的两个频率（Hz） | the two frequencies (Hz) of `ratio` | — |
 
 ### `solver.erosion` — ErosionSpec
 
@@ -880,6 +893,13 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * 参数：`damage_coeff`, `damage_exponent`, `friction_ratio`, `s_reload`
 * 输出字段：`bond_stress`, `slip`, `slip_max`, `bond_damage`, `bond_energy`
 * 注意：Eligehausen-type cyclic degradation on the MC2010 envelope. The shape is standard; damage_coeff, damage_exponent, friction_ratio and s_reload are exposed defaults to calibrate, not citations.
+* 算例：—
+
+### `bouc_wen`
+
+* 运动学 uniaxial；后端 numpy；分析模式 dynamic, relaxation；非线性
+* 参数：`E`, `fy`, `rho`, `alpha`, `n`, `beta`, `gamma`, `A`
+* 输出字段：`stress`, `z`, `hysteretic_energy`
 * 算例：—
 
 ### `cdp`
@@ -1004,25 +1024,27 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 
 截面 `type` 对应的单元：`solid` → 实体（由网格决定 tet4/tet10/hexa8/hexa20/wedge6/wedge15/pyramid5），`shell` → shell3/shell4，`beam` → beam2（`theory: timoshenko` 为 beam2_timoshenko），`fiber` → beam2_fiber，`bar` → truss2，`connector` → connector2。
 
-| 单元 | 后端 | 分析模式 | 可用材料 | 输出字段 |
-|---|---|---|---|---|
-| `beam2` | numpy, numba | dynamic, relaxation, static | linear_elastic | displacement, rotation, end_actions, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, capacity_ratio, member_failed, member_built, reaction_force, reaction_moment |
-| `beam2_fiber` | numpy, numba | dynamic, relaxation, static | linear_elastic, rebar, steel02, steel_cyclic, piecewise_uniaxial, concrete01, concrete02, parallel, series, gap | displacement, rotation, end_actions, reaction_force, reaction_moment, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, member_failed, member_built, fiber_stress, fiber_damage, connector_flag, connector_force, connector_moment, connector_deformation, connector_slip |
-| `beam2_timoshenko` | numpy, numba | dynamic, relaxation, static | linear_elastic | displacement, rotation, end_actions, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, capacity_ratio, member_failed, member_built, reaction_force, reaction_moment |
-| `connector2` | numpy | dynamic, relaxation | linear_elastic | displacement, rotation, connector_force, connector_moment, connector_deformation, reaction_force, reaction_moment |
-| `coupled` | numpy, numba | dynamic, relaxation | linear_elastic | displacement, stress, strain, von_mises, stress_nodal, reaction_force, rotation, member_type, beam_formulation, connector_flag, connector_force, connector_moment, connector_deformation, end_actions, reaction_moment |
-| `hexa20` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
-| `hexa8` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
-| `mixed_line` | numpy, numba | dynamic, relaxation, static | linear_elastic | displacement, rotation, member_type, beam_formulation, connector_flag, connector_force, connector_moment, connector_deformation, connector_slip, end_actions, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, capacity_ratio, member_failed, member_built, reaction_force, reaction_moment |
-| `pyramid5` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
-| `shell3` | numpy | dynamic, relaxation | linear_elastic | displacement, rotation, membrane_resultants, bending_resultants, shear_resultants, shell_stress_top, shell_stress_bottom, von_mises_top, von_mises_bottom, reaction_force, reaction_moment |
-| `shell4` | numpy, numba, warp | dynamic, relaxation | linear_elastic | displacement, rotation, membrane_resultants, bending_resultants, shear_resultants, shell_stress_top, shell_stress_bottom, von_mises_top, von_mises_bottom, reaction_force, reaction_moment |
-| `shell_line` | numpy, numba | dynamic, relaxation | linear_elastic | displacement, rotation, shell_stress_top, shell_stress_bottom, end_actions, reaction_force, reaction_moment |
-| `tet10` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
-| `tet4` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
-| `truss2` | numpy | dynamic, relaxation | linear_elastic, rebar, piecewise_uniaxial, steel02, steel_cyclic, concrete01, concrete02, parallel, series, gap | displacement, axial_force, axial_force_max_abs, axial_stress, von_mises, capacity_ratio, member_failed, reaction_force |
-| `wedge15` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
-| `wedge6` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
+“功能”一栏是这种单元的模型能用的模型级功能（`vfife/elements/library.py` 的 `FEATURES`，预检、schema、各分析的拒绝都读这一张表）：`static` 静力牛顿法和弧长法，`diaphragms` 刚性楼板，`rigid_links` 主从刚性连接，`step_changes` 建立或拆除构件、刚性连接的分析步，`buckling` 线性屈曲。
+
+| 单元 | 后端 | 分析模式 | 功能 | 可用材料 | 输出字段 |
+|---|---|---|---|---|---|
+| `beam2` | numpy, numba | dynamic, relaxation, static | static, diaphragms, rigid_links, step_changes, damping_regions, buckling | linear_elastic | displacement, rotation, end_actions, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, capacity_ratio, member_failed, member_built, reaction_force, reaction_moment |
+| `beam2_fiber` | numpy, numba | dynamic, relaxation, static | static, diaphragms, rigid_links, step_changes, damping_regions, buckling | linear_elastic, rebar, steel02, steel_cyclic, piecewise_uniaxial, concrete01, concrete02, parallel, series, gap | displacement, rotation, end_actions, reaction_force, reaction_moment, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, member_failed, member_built, fiber_stress, fiber_damage, connector_flag, connector_force, connector_moment, connector_deformation, connector_slip |
+| `beam2_timoshenko` | numpy, numba | dynamic, relaxation, static | static, diaphragms, rigid_links, step_changes, damping_regions, buckling | linear_elastic | displacement, rotation, end_actions, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, capacity_ratio, member_failed, member_built, reaction_force, reaction_moment |
+| `connector2` | numpy | dynamic, relaxation | buckling | linear_elastic | displacement, rotation, connector_force, connector_moment, connector_deformation, reaction_force, reaction_moment |
+| `coupled` | numpy, numba | dynamic, relaxation | diaphragms | linear_elastic | displacement, stress, strain, von_mises, stress_nodal, reaction_force, rotation, member_type, beam_formulation, connector_flag, connector_force, connector_moment, connector_deformation, end_actions, reaction_moment |
+| `hexa20` | numpy, numba, warp | dynamic, relaxation | — | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
+| `hexa8` | numpy, numba, warp | dynamic, relaxation | — | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
+| `mixed_line` | numpy, numba | dynamic, relaxation, static | static, diaphragms, rigid_links, step_changes, damping_regions, buckling | linear_elastic | displacement, rotation, member_type, beam_formulation, connector_flag, connector_force, connector_moment, connector_deformation, connector_slip, end_actions, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, capacity_ratio, member_failed, member_built, reaction_force, reaction_moment |
+| `pyramid5` | numpy, numba, warp | dynamic, relaxation | — | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
+| `shell3` | numpy | dynamic, relaxation | diaphragms, rigid_links | linear_elastic | displacement, rotation, membrane_resultants, bending_resultants, shear_resultants, shell_stress_top, shell_stress_bottom, von_mises_top, von_mises_bottom, reaction_force, reaction_moment |
+| `shell4` | numpy, numba, warp | dynamic, relaxation | diaphragms, rigid_links | linear_elastic | displacement, rotation, membrane_resultants, bending_resultants, shear_resultants, shell_stress_top, shell_stress_bottom, von_mises_top, von_mises_bottom, reaction_force, reaction_moment |
+| `shell_line` | numpy, numba | dynamic, relaxation | diaphragms, rigid_links | linear_elastic | displacement, rotation, shell_stress_top, shell_stress_bottom, end_actions, reaction_force, reaction_moment |
+| `tet10` | numpy, numba, warp | dynamic, relaxation | — | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
+| `tet4` | numpy, numba, warp | dynamic, relaxation | — | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
+| `truss2` | numpy | dynamic, relaxation | buckling | linear_elastic, rebar, piecewise_uniaxial, steel02, steel_cyclic, concrete01, concrete02, parallel, series, gap, bouc_wen | displacement, axial_force, axial_force_max_abs, axial_stress, von_mises, capacity_ratio, member_failed, reaction_force |
+| `wedge15` | numpy, numba, warp | dynamic, relaxation | — | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
+| `wedge6` | numpy, numba, warp | dynamic, relaxation | — | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
 
 ## 五 没有任何自带算例用到的字段
 
@@ -1242,6 +1264,12 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * `solver.static.arc_length.control.dof`
 * `solver.damping.ratio`
 * `solver.damping.frequencies`
+* `solver.damping.regions`
+* `solver.damping.regions[].regions`
+* `solver.damping.regions[].alpha`
+* `solver.damping.regions[].beta`
+* `solver.damping.regions[].ratio`
+* `solver.damping.regions[].frequencies`
 * `solver.erosion.damage`
 * `solver.erosion.measure`
 * `solver.erosion.strain`
@@ -1254,6 +1282,7 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * `output.monitors.*.axle`
 * `output.monitors.*.fiber_kind`
 * `materials.bond_cyclic`
+* `materials.bouc_wen`
 * `materials.chaboche`
 * `materials.concrete01`
 * `materials.gap`

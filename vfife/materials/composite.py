@@ -51,7 +51,7 @@ def _part(spec):
     if not getattr(m, "uniaxial", False) and m.name != "linear_elastic":
         raise ValueError(f"a part of a composite material must be a one-dimensional law; "
                          f"{m.name!r} is not (use linear_elastic, steel02, concrete01/02, "
-                         "piecewise_uniaxial, steel_cyclic, rebar, gap, parallel or series)")
+                         "piecewise_uniaxial, steel_cyclic, rebar, gap, bouc_wen, parallel or series)")
     return m
 
 
@@ -301,7 +301,7 @@ class Series(_Composite):
                 break
             if it == self.max_iterations:
                 bad = int(np.flatnonzero(~done)[0])
-                from ..core.diagnostics import UserError
+                from ..base.errors import UserError
                 raise UserError(
                     "SERIES_NOT_CONVERGED",
                     f"material 'series' ({' + '.join(self._names)}): the parts' stresses at point {bad} "

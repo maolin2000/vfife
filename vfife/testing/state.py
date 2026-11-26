@@ -123,7 +123,7 @@ class Probe:
         symmetry left to hide an out-of-plane term. It costs one line and no
         solve, which is what makes it affordable to ask of every element.
         """
-        from ..core.rotations import exp_map
+        from ..base.rotations import exp_map
 
         X = self.nodes
         span = X.max(axis=0) - X.min(axis=0)
@@ -264,8 +264,8 @@ def _truss(s) -> Probe:
 def _framed(s, coupled=False) -> Probe:
     """Beams, fibre beams, shells, mixed lines, connectors, coupled models:
     everything that keeps `q` flat with an orientation matrix per point."""
-    from ..core.dof import ROTATION, TRANSLATION
-    from ..core.rotations import exp_map, log_map, orthonormalize
+    from ..base.dof import ROTATION, TRANSLATION
+    from ..base.rotations import exp_map, log_map, orthonormalize
 
     nn = s.nn
     n = s.ndof
@@ -382,8 +382,8 @@ def _framed(s, coupled=False) -> Probe:
 
 def _orient_of(s, x):
     """The orientation matrices a state vector stands for."""
-    from ..core.dof import ROTATION
-    from ..core.rotations import exp_map
+    from ..base.dof import ROTATION
+    from ..base.rotations import exp_map
 
     return exp_map(s.dofs.field(np.asarray(x, float), ROTATION))
 

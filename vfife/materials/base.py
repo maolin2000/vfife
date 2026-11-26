@@ -121,7 +121,7 @@ def _refuse_unknown_parameters(name, kwargs):
     known = accepted_parameters(name)
     unknown = sorted(k for k in kwargs if k not in known)
     if unknown:
-        from ..core.diagnostics import UserError
+        from ..base.errors import UserError
         lines = []
         for k in unknown:
             near = difflib.get_close_matches(k, known, n=1, cutoff=0.6)
@@ -164,7 +164,7 @@ def _fold_aliases(name, kwargs):
 def _refuse_alias_conflicts(name, kwargs):
     """A parameter written under two of its names with different values is
     refused by name, as a section's old and new spellings are."""
-    from ..core.diagnostics import UserError
+    from ..base.errors import UserError
     for canonical, aliases in ALIASES.get(name, {}).items():
         given = [(k, kwargs[k]) for k in (canonical,) + aliases if kwargs.get(k) is not None]
         values = {repr(float(v)) if isinstance(v, (int, float)) else repr(v) for _, v in given}
@@ -195,7 +195,7 @@ def _check_slow(name, slow):
 
 def create(name: str, **kwargs) -> "Material":
     if name not in _REGISTRY:
-        from ..core.diagnostics import UserError
+        from ..base.errors import UserError
         import difflib
 
         if name in RETIRED:

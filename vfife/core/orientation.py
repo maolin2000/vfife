@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .rotations import exp_map, log_map, orthonormalize
+from ..base.rotations import exp_map, log_map, orthonormalize
 from . import amplitude as amp
 from .components import HasComponents
 
@@ -93,16 +93,19 @@ class OrientedPoints(HasComponents):
         from ..elements.stability import damped_step_factor, power_omega_max
         kind = getattr(self, "damp_kind", None)
         rayleigh = kind == "rayleigh"
-        if rayleigh and getattr(self, "beta", 0.0) > 0.0 and omega_max > 0.0 \
+        from .damping import bounds as damping_bounds
+        if rayleigh and damping_bounds(self)[1] > 0.0 and omega_max > 0.0 \
                 and getattr(self, "K", None) is not None:
             sharp = power_omega_max(self.K, self.mass, ~self._held_dofs())
             if sharp > 0.0:
                 self.omega_max_sharp, self.omega_max_gershgorin = sharp, float(omega_max)
                 omega_max = min(float(omega_max), 1.05 * sharp)
+        # the largest alpha and beta of the model's regions (core/damping)
+        a, b = damping_bounds(self) if rayleigh else (0.0, 0.0)
         return damped_step_factor(
             omega_max,
-            alpha=getattr(self, "alpha", 0.0) if rayleigh else 0.0,
-            beta=getattr(self, "beta", 0.0) if rayleigh else 0.0,
+            alpha=a,
+            beta=b,
             coeff=getattr(self, "zeta", 0.0) if kind == "viscous" else 0.0)
 
     def _held_dofs(self):

@@ -45,7 +45,7 @@ import os
 
 import numpy as np
 
-from .dof import TRANSLATION
+from ..base.dof import TRANSLATION
 from .capabilities import refuse
 
 #: amplitude factors and ground accelerations are precomputed per run of
@@ -159,6 +159,8 @@ def refusal(solver, fixed, moving, prescribed, groups, ground):
         return refuse("hooked", what=", ".join(hooked) or comp or refuse("rigid_contact"))
     if solver.constraint_layer().links is not None:
         return refuse("rigid_links")
+    if solver.damp_kind == "rayleigh" and solver.regional_damping() is not None:
+        return refuse("damping_regions")
     if not fiber and getattr(solver, "backend", "numpy") != "numba":
         return refuse("backend")
     if solver.dofs.stride != 6 or solver.q.size != 6 * solver.nn:

@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use vfife in published work, please cite it as below."
 title: "vfife: an explicit co-rotational finite element solver (VFIFE) in Python"
 type: software
-version: 1.21.0
+version: 1.22.0
 date-released: "2026-11-26"
 license: MIT
 repository-code: "https://github.com/maolin2000/vfife"

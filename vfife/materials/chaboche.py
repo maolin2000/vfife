@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..voigt import (
+from ..base.voigt import (
     TENSOR_TO_ENG,
     dilatational_wave_speed,
     elastic_matrix,

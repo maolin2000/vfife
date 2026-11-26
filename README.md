@@ -21,7 +21,7 @@ their section size, breaks and monitors, for someone without ParaView. The
 pages do not edit a model and are not meant to grow into a pre- or
 post-processor.
 
-**Version 1.21.0** ([CHANGELOG](CHANGELOG.md), MIT licence). The case
+**Version 1.22.0** ([CHANGELOG](CHANGELOG.md), MIT licence). The case
 format, the result format, the checkpoint format and the Python API have
 been frozen since 1.0: a case written for 1.0 runs unchanged.
 
@@ -44,7 +44,7 @@ needs them (a hollow slab, a D-region, a reinforced-concrete test specimen).
 ## Install
 
 ```bash
-pip install "vfife-1.21.0-py3-none-any.whl[cpu]"     # from the Releases page; [cpu] is numba
+pip install "vfife-1.22.0-py3-none-any.whl[cpu]"     # from the Releases page; [cpu] is numba
 vfife --version
 ```
 

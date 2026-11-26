@@ -412,7 +412,7 @@ class EmbeddedTruss:
 
     def lumped_mass(self, n_nodes):
         """Bar mass, distributed to the host nodes the same way the force is."""
-        from ..core.mesh import scatter_add
+        from ..base.scatter import scatter_add
 
         m = self.material.rho * self.pre.volume / 2.0
         nnh = self.n_host_nodes
@@ -703,7 +703,7 @@ def _emb_row_sums(emb, n_nodes):
     row sum underestimates the mass, and an under-massed dof in an explicit
     scheme is simply unstable.
     """
-    from ..core.mesh import scatter_add
+    from ..base.scatter import scatter_add
 
     k = ((emb.material.E - emb.pre.host_deduction) * emb.pre.area
          / emb.pre.L0)

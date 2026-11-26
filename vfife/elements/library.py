@@ -64,6 +64,8 @@ class ElementCapability:
     gmsh_type: int | None = None
     #: Gmsh -> VTK node permutation, `ours[i] = gmsh[order[i]]`
     gmsh_order: tuple[int, ...] | None = None
+    #: the model-level features this element's models take (`FEATURES`)
+    features: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -609,7 +611,7 @@ LINE_ELEMENTS: Dict[str, ElementCapability] = {
         # a steel02 bar the solver would have run.
         ("solid_3d", "uniaxial"),
         ("linear_elastic", "rebar", "piecewise_uniaxial", "steel02", "steel_cyclic",
-         "concrete01", "concrete02", "parallel", "series", "gap"),
+         "concrete01", "concrete02", "parallel", "series", "gap", "bouc_wen"),
         ("numpy",), ("dynamic", "relaxation"),
         ("nodal_force", "gravity", "body_force", "ground_motion"),
         ("displacement", "axial_force", "axial_force_max_abs",
@@ -763,6 +765,41 @@ LINE_ELEMENTS: Dict[str, ElementCapability] = {
 }
 
 
+#: WHAT EACH ELEMENT'S MODELS TAKE (1.22): one table, read by the schema's
+#: checks, preflight, the analyses' refusals, `vfife describe` and the
+#: reference -- each kept its own list until 1.21 (six of them), and a list
+#: that missed an element refused what the solver did (the fibre beam's rigid
+#: floors, found in 1.21). The compiled step's own limits are
+#: `core/capabilities` (a second path, not a second answer).
+FEATURES: dict[str, tuple[str, ...]] = {
+    # Newton statics and arc length (implicit.check): the frame and fibre-beam paths
+    "static": ("beam2", "beam2_timoshenko", "beam2_fiber", "mixed_line"),
+    # rigid floors (core/constraints)
+    "diaphragms": ("beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber", "shell3", "shell4",
+                   "shell_line", "coupled"),
+    # master-slave rigid links (core/constraints)
+    "rigid_links": ("beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber", "shell3", "shell4",
+                    "shell_line"),
+    # analysis steps that build or remove members, or make rigid links
+    # (core/analysis_steps: members, `k_local`)
+    "step_changes": ("beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber"),
+    # linear buckling (buckling.py): the stress stiffness of member forces
+    # Rayleigh damping by region (core/damping)
+    "damping_regions": ("beam2", "beam2_timoshenko", "beam2_fiber", "mixed_line"),
+    "buckling": ("truss2", "beam2", "beam2_timoshenko", "beam2_fiber", "mixed_line", "connector2"),
+}
+
+
+def takes(element: str, feature: str) -> bool:
+    """Do models of `element` take `feature` (`FEATURES`)?"""
+    return element in FEATURES[feature]
+
+
+def taking(feature: str) -> tuple[str, ...]:
+    """The element types whose models take `feature`."""
+    return FEATURES[feature]
+
+
 def element_definitions() -> dict[str, ElementCapability]:
     """All continuum and structural elements through one metadata protocol."""
     out = dict(LINE_ELEMENTS)
@@ -809,7 +846,9 @@ def element_definitions() -> dict[str, ElementCapability]:
             xdmf=elem.xdmf, gmsh_type=elem.gmsh_type,
             gmsh_order=elem.gmsh_order,
         )
-    return {name: out[name] for name in sorted(out)}
+    from dataclasses import replace
+    return {name: replace(out[name], features=tuple(f for f, els in FEATURES.items() if name in els))
+            for name in sorted(out)}
 
 
 def element_names() -> tuple[str, ...]:

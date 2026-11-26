@@ -143,6 +143,14 @@ _STEP_CHANGE_KEYS = ("procedure", "total_time", "activate", "birth", "activate_a
 _ADDED_SINCE_1_0 = {"with_mass": False, "keep": False, "end_offsets": None}
 
 
+def _without_none(d, key):
+    """`d` without `key` where it is None (a key added since 1.0 whose
+    absence is the 1.0 model)."""
+    if isinstance(d, dict) and key in d and d[key] is None:
+        return {k: v for k, v in d.items() if k != key}
+    return d
+
+
 def _plain(x, mesh):
     """A value with its regions by content and its file paths by name: a
     restart on another machine reads the same record from another folder."""
@@ -186,7 +194,7 @@ def model_fingerprint(solver, prepared, static_run: bool = False) -> Dict[str, A
     given as a file, a dict, a `CaseDraft` or a `schema.Case` gives the same
     fingerprint (v1.0: it hashed the YAML text, and a `schema.Case`
     had no materials or sections at all)."""
-    from ..cli import _with_element
+    from ..assemble import _with_element
     mesh = getattr(solver, "mesh", None) or prepared.mesh
     nodes = np.ascontiguousarray(np.asarray(mesh.nodes, dtype=np.float64))
     blocks = getattr(prepared.mesh, "cell_blocks", None) or {}
@@ -222,7 +230,8 @@ def model_fingerprint(solver, prepared, static_run: bool = False) -> Dict[str, A
         "contact": _canon(_plain(d.get("contact"), pm)),
         "steps": _canon(_plain([{k: (st or {}).get(k) for k in ("loads", "constraints")}
                                 for st in (d.get("steps") or [])], pm)),
-        "damping": _canon(_plain(sol.get("damping"), pm)),
+        # (`regions`, 1.22: a model without them is as before)
+        "damping": _canon(_plain(_without_none(sol.get("damping"), "regions"), pm)),
         "mass": _canon([sol.get("mass"), _plain(sol.get("mass_scaling"), pm)]),
     }
     # added in 1.2, and only when used: a 1.0 or 1.1 checkpoint still fits

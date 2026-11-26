@@ -35,7 +35,7 @@ import numpy as np
 
 from . import api
 from .io.writer import open_result
-from .core.rotations import exp_map
+from .base.rotations import exp_map
 from .core.structural import make_structural_solver
 
 

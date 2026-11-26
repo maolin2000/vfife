@@ -909,6 +909,22 @@
           "default": null,
           "title": "Frequencies",
           "description": "给 `ratio` 的两个频率（Hz）：通常取第一阶和参与显著的最高阶\n\nthe two frequencies (Hz) `ratio` is stated at: usually the first mode and the highest one that matters"
+        },
+        "regions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/RayleighRegionSpec"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Regions",
+          "description": "分区 Rayleigh 阻尼（1.22）：[{regions: [区域名], alpha/beta 或 ratio(/frequencies)}]。列出的区域里的构件（连同它们的刚域质量）用这一项的系数，其余构件和集中质量用上面的；两项重叠时后写的算；不写 frequencies 时用上面那两个频率。只用于动力分析的 `type: rayleigh`，线模型（beam2、beam2_timoshenko、beam2_fiber、mixed_line）\n\nRayleigh damping by region (1.22): [{regions: [names], alpha/beta or ratio(/frequencies)}]. The members of the listed regions (with their rigid zones' mass) take this entry's coefficients; the other members and the concentrated masses take the ones above; where two entries overlap the later one holds; an entry's `ratio` without `frequencies` is stated at the two above. `type: rayleigh` in a dynamic run, line models only (core/damping.py)"
         }
       },
       "title": "DampingSpec",
@@ -2527,6 +2543,69 @@
       "title": "PlaneSpec",
       "type": "object"
     },
+    "RayleighRegionSpec": {
+      "additionalProperties": false,
+      "description": "One entry of `damping.regions`: the Rayleigh coefficients of the\nmembers of some regions (1.22, core/damping.py).",
+      "properties": {
+        "regions": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Regions",
+          "type": "array",
+          "description": "区域名：与单元监测量的 regions 一样解析（物理组或线组记下的单元，否则两个节点都在节点集里的构件）\n\nregion names, read as an element monitor's `regions` are (the members a group records, else those with both nodes in the node set)"
+        },
+        "alpha": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Alpha",
+          "type": "number",
+          "description": "这些构件的质量比例阻尼（1/s）\n\nthese members' mass-proportional damping, 1/s"
+        },
+        "beta": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Beta",
+          "type": "number",
+          "description": "这些构件的刚度比例阻尼（s）\n\nthese members' stiffness-proportional damping, s"
+        },
+        "ratio": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ratio",
+          "description": "阻尼比：一个数或 [ζ1, ζ2]，在 frequencies（不写时用上一级的两个频率）上；与 alpha/beta 二选一\n\ndamping ratio, one number or [zeta_1, zeta_2], at `frequencies` (absent: the two above); alpha/beta or this"
+        },
+        "frequencies": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frequencies",
+          "description": "给 ratio 的两个频率（Hz）\n\nthe two frequencies (Hz) of `ratio`"
+        }
+      },
+      "required": [
+        "regions"
+      ],
+      "title": "RayleighRegionSpec",
+      "type": "object"
+    },
     "RecordMotionSpec": {
       "additionalProperties": false,
       "description": "A support's own ground motion: the flagged\ntranslational dofs of the constraint's region follow a record in time,\nin ABSOLUTE coordinates -- the multiple-support form, in which every\nsupport can move differently and the members between them are strained\nby the difference.",
@@ -4142,7 +4221,8 @@
             "alpha": 0.0,
             "beta": 0.0,
             "ratio": null,
-            "frequencies": null
+            "frequencies": null,
+            "regions": null
           },
           "description": "见 DampingSpec；松弛默认 kinetic，动力默认无阻尼\n\nsee DampingSpec; kinetic by default under relaxation, none under dynamic"
         },
@@ -5575,6 +5655,7 @@
             "enum": [
               "bond_ceb",
               "bond_cyclic",
+              "bouc_wen",
               "cdp",
               "chaboche",
               "concrete01",
@@ -5595,6 +5676,7 @@
             "enumDescriptions": [
               "parameters: fc, condition, failure_mode, confinement, tau_max, tau_max_coeff, s1, s2, s3, alpha, tau_f_ratio, s_elastic, rho",
               "parameters: damage_coeff, damage_exponent, friction_ratio, s_reload",
+              "parameters: E, fy, rho, alpha, n, beta, gamma, A",
               "parameters: E, nu, rho, compression, tension, dilation_angle, eccentricity, fb0_fc0, Kc, wt, wc, viscosity, damage_max, n_return, crack_band, l_ref",
               "parameters: E, nu, rho, yield_strength, Q_inf, b, H_iso, C1, gamma1, C2, gamma2, damage_initiation_strain, damage_evolution_rate, damage_max, damage_viscosity, n_newton",
               "parameters: fpc, epsc0, fpcu, epscu, fc, eps_c0, fcu, eps_cu, E, rho, nu",

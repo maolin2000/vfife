@@ -214,7 +214,7 @@ rotation vectors do not add and a member whose nodes have twisted has a
 frame the chord cannot see: a member rotated rigidly with a twist carried a
 spurious moment. The frame now follows the mean nodal triad as well as the
 chord and the local rotation is the relative rotation of the node's triad
-(Crisfield 1990; `core/rotations.py`). Each structural point carries its
+(Crisfield 1990; `base/rotations.py`). Each structural point carries its
 orientation as a rotation matrix, advanced multiplicatively by the step's spin
 — R ← exp(ω dt) R, driven by the spatial moment directly, the
 particle equation of Ting & Wu (2020) as written; the rotation vector log R is

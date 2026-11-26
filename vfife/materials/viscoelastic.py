@@ -1,7 +1,7 @@
 """Linear viscoelastic (Prony) -- Maxwell chain, shear relaxation only."""
 from __future__ import annotations
 import numpy as np
-from ..voigt import dilatational_wave_speed
+from ..base.voigt import dilatational_wave_speed
 from .base import Material, register
 
 @register("viscoelastic", kinematics=("solid_3d",), backends=("numpy",), analysis_modes=("dynamic",), output_fields=("stress","strain","von_mises"), nonlinear=True, verification="analytical", caveat="Shear Prony only; bulk elastic. Dynamic analysis only (physical time).")

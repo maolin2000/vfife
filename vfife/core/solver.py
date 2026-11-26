@@ -48,9 +48,9 @@ from ..elements import continuum
 from ..elements import library as continuum_library
 from . import amplitude as amp
 from . import selectors
-from .dof import DofLayout
+from ..base.dof import DofLayout
 from .components import HasComponents
-from ..voigt import von_mises
+from ..base.voigt import von_mises
 from .mesh import FaceMoment, FollowerPressure, Mesh, scatter_add, surface_traction, surface_pressure, volume_body_force
 from .diagnostics import (StopAnalysis, UserError,
                           start as start_diagnostics, finish as finish_diagnostics,
@@ -277,7 +277,7 @@ class Solver(HasComponents):
         hourglass = pre_opts.hourglass_coeff
 
         # `char_length: auto` resolves against the whole mesh, the same probe
-        # cli.build uses, so a block material and the whole-mesh material see
+        # assemble.build uses, so a block material and the whole-mesh material see
         # one number
         base = self.p.get("material")
         lc = None

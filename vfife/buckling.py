@@ -140,11 +140,9 @@ def _size(p) -> float:
 
 
 def _family(solver) -> str:
-    from .core.coupled_solver import CoupledSolver
-    from .core.shell_solver import ShellSolver
-    from .core.solver import Solver
     from .core.truss_solver import TrussSolver
-    if isinstance(solver, (Solver, ShellSolver, CoupledSolver)):
+    from .elements.library import takes
+    if not takes(solver.p.case.element.type, "buckling"):
         raise UserError("BUCKLING_FAMILY",
                 f"buckling is for line models (frames, fibre beams, bars and cables); this is a "
                 f"{type(solver).__name__}: its stress stiffness is built from member axial forces, "
@@ -373,7 +371,7 @@ def _cr_stress_stiffness(x, T, R0, f, scale, off=None):
     r = Q e turned by the spin -- so the derivative carries B^T (.) B and
     the lever's own term (d theta x r) x f, the rigid stretch's string
     stiffness."""
-    from .core.rotations import beam_frames_from_triads, exp_map
+    from .base.rotations import beam_frames_from_triads, exp_map
     ne = len(f)
     fb = f.reshape(ne, 4, 3)
     K = np.zeros((ne, 12, 12))
@@ -404,7 +402,7 @@ def _cr_local_jacobian(x, T, R0, L0, scale, off=None):
     local quantities of `f = k d` -- the elongation at index 6, the two
     ends' local rotations at 3:6 and 9:12, the rest zero (the frame passes
     through both ends). (ne, 12, 12)."""
-    from .core.rotations import beam_frames_from_triads, exp_map
+    from .base.rotations import beam_frames_from_triads, exp_map
     ne = len(x)
     B = np.zeros((ne, 12, 12))
     ht, hr = 1e-6 * scale, 1e-6
@@ -500,7 +498,7 @@ def stress_stiffness(solver, p, N, family=None, x=None):
         beams.append(e)
     if not beams:
         return KG, N
-    from .core.dof import TRANSLATION
+    from .base.dof import TRANSLATION
     from .testing.state import _orient_of
     beams = np.asarray(beams)
     x = p.get() if x is None else np.asarray(x, float)

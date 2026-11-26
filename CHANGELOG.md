@@ -7,6 +7,74 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-11-26
+
+A feature release on the 1.0 formats: a case written for 1.21 runs
+unchanged, and a model that uses none of the new features gives the same
+answers (Newton statics to round-off, from the faster factorisation). Fibre
+models take creep in static steps and connectors born in later steps, as
+frame models do; Rayleigh damping can be given region by region; Bouc-Wen
+is a material of the table and, on a connector's two shear components, one
+law in the plane. The Midas converter follows creep and shrinkage by the JTG
+codes: a bridge converted again from a file that has them is a different
+model, and its results change accordingly (on the course models checked,
+as close to Midas' as the elastic part is). Under the hood: one table of
+what each element's models take, the bottom layer `vfife.base`,
+`vfife.assemble` for building a model, and the fibre solver in four modules.
+
+### Added
+
+- **Fibre models creep, shrink and relax in static steps**: `solver.mode:
+  static` with `to_age` now runs the clock on fibre-beam models too (one time
+  station per converged increment, as in the staged relaxation, which it
+  matches on case_29d and case_29g to the relaxation's tolerance). Steps of
+  time under `static.arc_length` stay refused.
+- **A connector born in a later step of a fibre-beam model** is born free of
+  force, as in the frame models: the six deformations at that moment are its
+  reference. It was refused by name.
+- **Rayleigh damping by region** (`damping.regions`): the members of some
+  regions take their own alpha and beta (or ratio at two frequencies), the
+  rest and the concentrated masses the model's -- Midas's group damping,
+  OpenSees' `region -rayleigh`. Line models, dynamic runs; such a run takes
+  the step-by-step loop (core/damping.py).
+- **The Midas translation follows creep and shrinkage** (`*TDM-TYPE`,
+  `*TDM-LINK`, `*TDM-ELAST`, `*ELEM-DEPMATL`, `*STAGE-CTRL`): concrete of
+  JTG D62-2004 or JTG 3362-2018 creeps and shrinks by MC90 at fcm = 0.8 fcu,k
+  + 8 MPa, at the file's humidity, notional sizes (an element's own a
+  material of its own), beta_sc and drying age; each stage builds its
+  concrete at its age and runs its duration as a step of time, as the stage
+  control says. Bridges converted again from such files change accordingly.
+- **Bouc-Wen** (`bouc_wen`): the smooth hysteretic law of Wen (1976), a
+  one-dimensional material of the table -- a connector's force-deformation
+  law through `type: material`, and on a connector's `uy` and `uz` together
+  one law in the plane with a circular yield surface (Park, Wen & Ang 1986):
+  lead-rubber and high-damping rubber bearings.
+
+### Changed
+
+- **Newton statics factor the tangent about ten times faster** on large
+  line models: SuperLU in its symmetric mode, on the tangent scaled to a unit
+  diagonal (so the units of the case do not matter), fills about a tenth of
+  what the default did. A converted rigid-frame bridge of 16,000 dofs ran its
+  48 stages in 130 s instead of 314 s. Static results change at round-off.
+- **One table of what each element's models take** (`elements.library.FEATURES`:
+  `static`, `diaphragms`, `rigid_links`, `step_changes`, `buckling`), read by
+  the schema, preflight, the analyses' refusals, `vfife describe` (a
+  `features` key) and the YAML reference (a column). It replaces six lists
+  kept by hand. A `connector2` model run straight through `implicit.run`,
+  past preflight, is now refused as preflight and the command line refused
+  it.
+- **`vfife.assemble`**: `build`, `make_solver` and `_with_element` moved there
+  from `vfife.cli` (which still exports them), so the Python API no longer
+  imports the command line.
+- **`vfife.base`**: the bottom layer -- the errors (`UserError` and the
+  analysis failures), the degrees of freedom, finite rotations, `scatter_add`,
+  the Voigt and tensor notations -- that elements, materials and kernels
+  import instead of reaching up into `core`. The old module paths
+  (`vfife.core.dof`, `vfife.core.rotations`, `vfife.voigt`, `vfife.tensor`,
+  `vfife.core.diagnostics.UserError`, `vfife.core.mesh.scatter_add`) are the
+  same modules and objects.
+
 ## [1.21.0] — 2026-11-26
 
 A feature release on the 1.0 formats: a case written for 1.20 runs

@@ -1,4 +1,4 @@
-# vfife 错误代码 / error codes（自动生成，1.21.0）
+# vfife 错误代码 / error codes（自动生成，1.22.0）
 
 > 由 `python -m vfife reference --codes` 从源码生成；`tests/test_review6_docs.py` 保证它与代码一致。**不要手改。**
 
@@ -49,7 +49,7 @@ Analysis statuses (`analysis_status` in the result, `AnalysisOutcome.status`; se
 | `DUPLICATE_ELEMENT` | ERROR | duplicate elements have identical node sets | vfife/preflight.py |
 | `DUPLICATE_NODE` | ERROR | distinct nodes share the same position (within …): | vfife/preflight.py |
 | `ELEMENTS_UNASSIGNED` | refused/ERROR | … element(s) are covered by no `assign` entry; the first is | vfife/core/solver.py, vfife/preflight.py |
-| `ELEMENT_TYPE_MISMATCH` | refused | the case says element.type = … but | vfife/cli.py |
+| `ELEMENT_TYPE_MISMATCH` | refused | the case says element.type = … but | vfife/assemble.py |
 | `EMPTY_MESH` | ERROR | mesh contains no elements | vfife/preflight.py |
 | `EMPTY_REGION` | ERROR | region … contains no nodes | vfife/preflight.py |
 | `EROSION_UNSUPPORTED` | ERROR | solver.erosion removes solid elements; a … model loses members through | vfife/preflight.py |
@@ -81,18 +81,18 @@ Analysis statuses (`analysis_status` in the result, `AnalysisOutcome.status`; se
 | `INIT_OVERWRITES_MESH` | refused | … is the mesh file itself; the case would replace it | vfife/cli.py |
 | `INTERNAL_KEY_IN_INPUT_FORM` | refused | this case has `materials` / `sections` / `assign` and also | vfife/io/schema.py |
 | `INVALID_SHELL_FACE` | ERROR | shell4 faces are degenerate, inverted or excessively warped | vfife/preflight.py |
-| `LINES_ARE_LINES` | refused | mesh type `lines` writes line members only; a model with shells or | vfife/cli.py |
+| `LINES_ARE_LINES` | refused | mesh type `lines` writes line members only; a model with shells or | vfife/assemble.py |
 | `LINE_LENGTH_RANGE` | WARNING | line length ratio exceeds 100 | vfife/preflight.py |
 | `LINE_LOAD_WITHOUT_MASS` | INFO | loads … … without | vfife/preflight.py |
-| `LINE_MESH` | refused | — | vfife/cli.py |
+| `LINE_MESH` | refused | — | vfife/assemble.py |
 | `LOAD_STEPS_UNSUPPORTED` | ERROR | a truss2 model relaxes each step continuously: `load_steps` would only change the | vfife/preflight.py |
 | `MATERIAL_ALIAS_CONFLICT` | refused | material …: … name the same parameter and differ | vfife/materials/base.py |
-| `MATERIAL_NOT_A_NUMBER` | refused | material …: `…` is | vfife/cli.py |
+| `MATERIAL_NOT_A_NUMBER` | refused | material …: `…` is | vfife/assemble.py |
 | `MERGED_SHARED_ELEMENTS` | INFO | … … cells were | vfife/preflight.py |
 | `MESH_DUPLICATE_NODE_TAG` | refused | node tag(s) … appear more | vfife/io/gmsh.py |
-| `MESH_GROUP` | refused | — | vfife/cli.py |
+| `MESH_GROUP` | refused | — | vfife/assemble.py |
 | `MESH_PARAMETRIC_NODES` | refused | the mesh file stores parametric node coordinates, which this | vfife/io/gmsh.py |
-| `MESH_SCALE_UNUSED` | refused | mesh.scale applies to a mesh read from a file; `lines` are written | vfife/cli.py |
+| `MESH_SCALE_UNUSED` | refused | mesh.scale applies to a mesh read from a file; `lines` are written | vfife/assemble.py |
 | `MESH_UNKNOWN_NODE_TAG` | refused | an element names node tag(s) …, | vfife/io/gmsh.py |
 | `MIGRATE_FAILED` | refused | …: … | vfife/cli.py |
 | `MIGRATE_MISMATCH` | refused | the rewritten case does not lower to the same model (… differences) | vfife/cli.py |
@@ -130,7 +130,7 @@ Analysis statuses (`analysis_status` in the result, `AnalysisOutcome.status`; se
 | `PRESTRESS_PROFILE` | INFO | reinforcement …: … MPa AT THE JACK | vfife/preflight.py |
 | `PRESTRESS_YIELD` | refused | reinforcement … is prestressed to | vfife/core/solver.py |
 | `RAGGED_MONITORS` | refused | the monitors in this file have different lengths: | vfife/post/__init__.py |
-| `REGION_NAME_CLASH` | refused | region … is both a point, line or group of mesh.lines and | vfife/cli.py |
+| `REGION_NAME_CLASH` | refused | region … is both a point, line or group of mesh.lines and | vfife/assemble.py |
 | `REGION_RESOLUTION` | ERROR | — | vfife/preflight.py |
 | `REGION_SNAPPED` | INFO | — | vfife/preflight.py |
 | `REMOVAL_AFTER_END` | WARNING | the removal of … is at t = … s, after the run ends | vfife/preflight.py |
@@ -147,19 +147,19 @@ Analysis statuses (`analysis_status` in the result, `AnalysisOutcome.status`; se
 | `RIGID_BODY_MODE` | ERROR/WARNING | connected component … suppresses only … of … observable rigid-body modes | vfife/preflight.py |
 | `SECTION_ELEMENTS` | INFO | section …: … element(s), material … | vfife/preflight.py |
 | `SECTION_EMPTY` | refused/ERROR | section(s) … are assigned to a | vfife/core/solver.py, vfife/preflight.py |
-| `SECTION_MESH_MISMATCH` | refused | the case's sections are solid or shell, but … contains only | vfife/cli.py |
+| `SECTION_MESH_MISMATCH` | refused | the case's sections are solid or shell, but … contains only | vfife/assemble.py |
 | `SECTION_OVERRIDE` | INFO | section … takes … element(s) also covered by | vfife/preflight.py |
 | `SERIES_NOT_CONVERGED` | refused | material 'series' (…): the parts' stresses at point … | vfife/materials/composite.py |
 | `SHELL_EXPERIMENTAL` | WARNING | — | vfife/preflight.py |
 | `SHELL_LINE_TOPOLOGY` | ERROR | shell_line requires Shell4 and selected Line2 blocks | vfife/preflight.py |
 | `SHELL_NORMALS_INCONSISTENT` | ERROR | the pressure on … acts on shells whose normals point different | vfife/preflight.py |
-| `SPECTRUM_FILE` | refused | — | vfife/cli.py |
+| `SPECTRUM_FILE` | refused | — | vfife/assemble.py |
 | `SPLIT_BAR_ROUTE` | WARNING | bonded reinforcement … has … line(s) that | vfife/preflight.py |
 | `SPLIT_CAPACITY` | refused | element … needs a new particle and the split capacity | vfife/core/topology.py |
-| `SPLIT_NEEDS_DYNAMIC` | refused | element.fracture.split needs solver.mode = dynamic | vfife/core/fiber_beam_solver.py |
+| `SPLIT_NEEDS_DYNAMIC` | refused | element.fracture.split needs solver.mode = dynamic | vfife/core/fiber_fracture.py |
 | `STATIC_BLOCK_IGNORED` | WARNING | solver.static (Newton, arc length) is read only under mode: static; this run is | vfife/preflight.py |
 | `STATIC_IGNORES_DAMPING` | WARNING | solver.damping has no effect under mode: static (Newton has no time and no velocity); | vfife/preflight.py |
-| `STATIC_UNSUPPORTED` | ERROR | solver.mode = static runs frame and fibre-beam models (beam2, beam2_timoshenko, | vfife/preflight.py |
+| `STATIC_UNSUPPORTED` | ERROR | solver.mode = static runs frame and fibre-beam models (…); this is a … | vfife/preflight.py |
 | `STUDY_UNKNOWN_FIELD` | refused | …: the case has no such field (from the study's change | vfife/api.py |
 | `SWEEP_EVERY` | refused | every = …: write every k-th frame, k >= 1 | vfife/sweep.py |
 | `TENDON_APPROXIMATE` | WARNING | …: … | vfife/preflight.py |

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..voigt import dilatational_wave_speed, elastic_matrix
+from ..base.voigt import dilatational_wave_speed, elastic_matrix
 from .base import Material, register
 
 

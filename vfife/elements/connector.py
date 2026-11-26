@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..core.rotations import exp_map, log_map
+from ..base.rotations import exp_map, log_map
 
 
 COMPONENTS = ("ux", "uy", "uz", "rx", "ry", "rz")
@@ -289,6 +289,15 @@ def has_material_law(props) -> bool:
     return any(l.get("type") == "material" for l in (props.get("laws") or {}).values())
 
 
+def planar_material(laws) -> bool:
+    """`uy` and `uz` carry the same `material` law, of a material that is
+    one law in the plane (`update_planar`: Bouc-Wen, 1.22)."""
+    if not ("uy" in laws and "uz" in laws and laws["uy"].get("type") == "material"
+            and _same_law(laws["uy"], laws["uz"])):
+        return False
+    return hasattr(law_material(laws["uy"]), "update_planar")
+
+
 class MaterialStates:
     """The history of every connector component that carries a `material`
     law: a committed state and a working one, (1, n_state) each, per
@@ -300,10 +309,14 @@ class MaterialStates:
     def __init__(self, ids, props_of):
         self.rows = {}
         for e in ids:
-            for name, law in ((props_of(e) or {}).get("laws") or {}).items():
+            laws = (props_of(e) or {}).get("laws") or {}
+            planar = planar_material(laws)
+            for name, law in laws.items():
                 if law.get("type") == "material":
+                    if planar and name == "uz":
+                        continue                 # one state for the pair, on uy's row
                     m = law_material(law)
-                    c = m.init_state(1)
+                    c = m.init_state_planar() if planar and name == "uy" else m.init_state(1)
                     self.rows.setdefault(int(e), {})[COMPONENTS.index(name)] = [m, c, c.copy()]
 
     def __bool__(self):
@@ -320,7 +333,8 @@ class MaterialStates:
     def reset(self, ids):
         for e in ids:
             for row in (self.rows.get(int(e)) or {}).values():
-                row[1][...] = row[0].init_state(1); row[2][...] = row[1]
+                row[1][...] = 0.0 if row[1].shape[1] != row[0].n_state else row[0].init_state(1)
+                row[2][...] = row[1]
 
     def _order(self):
         return [(e, i) for e in sorted(self.rows) for i in sorted(self.rows[e])]
@@ -368,7 +382,10 @@ def law_stiffness(law) -> float:
     t = law["type"]
     if t == "material":
         area, length = _scale(law)
-        return area * float(law_material(law).E) / length
+        m = law_material(law)
+        # the largest tangent where the law states one above E (Bouc-Wen's
+        # unloading), else E
+        return area * float(getattr(m, "tangent_max", m.E)) / length
     if t == "gap":
         return float(law["stiffness"]) if (law.get("lo") is not None or law.get("hi") is not None) else 0.0
     if t == "bilinear":
@@ -559,9 +576,10 @@ def response(u, triads, ve, x0, R0, props, *, include_damping=False,
         sc = np.zeros(6) if slip_committed is None else np.asarray(slip_committed, float)
         planar = ("uy" in laws and "uz" in laws and laws["uy"]["type"] in ("friction", "bilinear", "pendulum")
                   and _same_law(laws["uy"], laws["uz"]))
+        in_plane = planar_material(laws)
         for name, law in laws.items():
             i = COMPONENTS.index(name)
-            if planar and name in ("uy", "uz"):
+            if (planar or in_plane) and name in ("uy", "uz"):
                 continue
             if law["type"] == "material":
                 from ..materials.composite import uniaxial_stress
@@ -583,6 +601,18 @@ def response(u, triads, ve, x0, R0, props, *, include_damping=False,
                 slip_out[i] = s_new
             if law["type"] == "gap" and f == 0.0:
                 open_gaps.append(i)
+        if in_plane:
+            law = laws["uy"]
+            area, length = _scale(law)
+            strain2 = d[1:3] / length
+            if materials is not None and 1 in materials:
+                m, committed, work = materials[1]
+                work[...] = committed
+            else:
+                m = law_material(law); work = m.init_state_planar()
+            action[1:3] = area * m.update_planar(strain2, work)
+            if slip_out is not None:
+                slip_out[1:3] = strain2
         if planar:
             law = laws["uy"]
             dp = d[1:3]; sp = sc[1:3]

@@ -1,6 +1,6 @@
 # 统一自由度与混合装配协议
 
-`vfife/core/dof.py` 是节点物理分量到全局方程编号的唯一映射层。单元不得自行假定 `6*node+dof`，而应通过 `DofLayout` 请求自由度映射。
+`vfife/base/dof.py`（1.22 之前是 `vfife/core/dof.py`） 是节点物理分量到全局方程编号的唯一映射层。单元不得自行假定 `6*node+dof`，而应通过 `DofLayout` 请求自由度映射。
 
 ## 布局
 

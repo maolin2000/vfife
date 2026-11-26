@@ -91,7 +91,7 @@ def _translations(solver, shapes):
     nn = solver.mesh.nodes.shape[0]
     dofs = getattr(solver, "dofs", None)
     if dofs is not None:
-        from ..core.dof import TRANSLATION
+        from ..base.dof import TRANSLATION
         T = dofs.component_indices(TRANSLATION)
         return shapes.reshape(len(shapes), nn, dofs.stride)[:, :, T]
     return shapes.reshape(len(shapes), nn, -1)[:, :, :3]

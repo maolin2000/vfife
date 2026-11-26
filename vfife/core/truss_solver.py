@@ -25,7 +25,7 @@ from .mesh import Mesh, scatter_add
 from .diagnostics import (UserError, start as start_diagnostics, finish as finish_diagnostics,
                           ConvergenceFailure, NonFiniteFailure, first_nonfinite,
                           worst_residual)
-from .dof import DofLayout
+from ..base.dof import DofLayout
 from ..elements import truss
 from ..materials.points import initialise_points, validate_restored_state
 

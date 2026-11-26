@@ -3,7 +3,7 @@
 # vfife Vector Form Intrinsic Finite Element Structural Analysis Software — User Manual
 
 **Software name**: vfife Vector Form Intrinsic Finite Element structural analysis software (vfife for short)
-**Version**: 1.21.0
+**Version**: 1.22.0
 **Runtime environment**: Python 3.10 or later; Windows, Linux, macOS; the GPU backend requires NVIDIA CUDA
 **License**: MIT
 
@@ -122,7 +122,7 @@ Output:
 
 ```
 elements: beam2, beam2_fiber, beam2_timoshenko, connector2, coupled, hexa20, hexa8, mixed_line, pyramid5, shell3, shell4, shell_line, tet10, tet4, truss2, wedge15, wedge6
-materials: bond_ceb, bond_cyclic, cdp, chaboche, concrete01, concrete02, gap, j2, linear_elastic, orthotropic, parallel, piecewise_uniaxial, rebar, series, steel02, steel_cyclic, viscoelastic
+materials: bond_ceb, bond_cyclic, bouc_wen, cdp, chaboche, concrete01, concrete02, gap, j2, linear_elastic, orthotropic, parallel, piecewise_uniaxial, rebar, series, steel02, steel_cyclic, viscoelastic
 ```
 
 If the elements and materials are listed, the installation is fine. Commands are always written as `python -m vfife ...`; after `pip install -e .`
@@ -523,7 +523,15 @@ both ends loses to both anchorages' draw-in together (the point that does not mo
 on a short tendon). Since 1.16 a tendon whose `*TDN-PROPERTY` says it relaxes (the code's method) relaxes as that code says: each bar gets
 the relaxation curve of its own stress after anchoring (from `vfife.codes`, Section 11.3), and a staged model with such tendons runs each
 stage's duration after the stage as a step of time (`to_age`; the map's `stage_steps` gives the step each stage ends with, which is the
-one Midas' stage results are at). Creep and shrinkage are not followed. A stub (a member shorter than 0.05 of its radius of gyration and stiffer than 1e13 N/m) becomes a stiff
+one Midas' stage results are at). **Creep and shrinkage (1.22)**: the concrete `*TDM-LINK` ties to a model of JTG D62-2004 or JTG 3362-2018
+(`*TDM-TYPE`) creeps and shrinks by MC90, which those codes' annexes are, at fcm = 0.8 fcu,k + 8 MPa, the humidity, notional size, β_sc and
+drying age the file gives; an element's own notional size (`*ELEM-DEPMATL`, NSM) is a material of its own; the modulus is the material's
+as the 28-day one, or grows by CEB-FIP 2010 where `*TDM-ELAST` says so and the stage control takes the strength's growth (`ageing`, s by
+its cement class); β_sc is the shrinkage's alone, as in JTG. It follows the stage control
+(`*STAGE-CTRL` line 4: time-dependent effects on, and CREEP, SHRINKAGE or BOTH); a model without a stage control takes none. Each stage
+builds its concrete at the age the stage gives it (`activate_age`; concrete of another age in the same stage in a step of its own just
+after, the first stage's too), the clock starts at the age of the concrete standing from the first stage, and every stage's duration runs after it as a step
+of time. Other codes, 3362's fly-ash adjustment and other modulus laws are counted and left out. A stub (a member shorter than 0.05 of its radius of gyration and stiffer than 1e13 N/m) becomes a stiff
 connector. `convert(..., cases=("wind",))` adds a load case of the finished bridge as one more step. The map's `tendons` gives each
 tendon's stage, jacking force and its bars' regions and forces. Against Midas on six real bridges, the displacements and member forces
 agree to about 1% where the two models are the same; on a rigid frame built by balanced cantilevers with 132
@@ -675,6 +683,23 @@ materials:
   spring: {type: linear_elastic, E: 2.0e9, nu: 0.3, rho: 7850.0}
   brace: {type: parallel, of: [core, spring]}
   stop: {type: series, of: [slack, core]}
+```
+
+**Bouc–Wen** (`bouc_wen`, 1.22): σ = α E ε + (1 − α) f_y z, with ε_y dz = [A − |z|^n (β sgn(dε z) + γ)] dε (Wen 1976). `E` the
+modulus (the initial tangent with the default A = 1; ε_y = fy/E), `fy` the yield stress, `alpha` the post-yield ratio (0), `n` the sharpness of the knee (1; large n is bilinear), `beta`,
+`gamma`, `A` (0.5, 0.5, 1: |z| tends to 1). It needs β > 0 and −β < γ ≤ β. Integrated by the implicit midpoint rule in sub-increments
+of at most ε_y/50, rate-independent; state z and the energy the loop has dissipated (`hysteretic_energy`). On a connector with area =
+length = 1 it is the force–deformation law itself (E the stiffness, fy the yield force), and on `uy` and `uz` together one law in the
+plane (Section 11.11). The explicit step and the reference stiffness take its largest tangent, E[α + (1 − α) A max(1, 2β/(β + γ))]
+(E itself at the defaults). It is meant for connectors and bars (`truss2` takes it); fibre sections do not, though a `parallel` or
+`series` holding it runs there on the NumPy path.
+
+```yaml
+materials:
+  lrb: {type: bouc_wen, E: 2.0e7, fy: 5.0e4, alpha: 0.1, n: 2}
+sections:
+  bearing: {type: connector, stiffness: [2.0e9, 0, 0, 0, 0, 0],
+            laws: {uy: {type: material, material: lrb}, uz: {type: material, material: lrb}}}
 ```
 
 ### 6.3 Bond materials
@@ -1249,10 +1274,10 @@ steps:
   a run stopped while the late segment creeps resumes to the bit; a segment born in a step that also moves the clock is a bar built at
   its age in a model of its own, and one taken out and cast again is one cast once. A member not built does not size the residual.
   Ageing is refused on a fibre section whatever the steps (a nonlinear law's modulus is not one number).
-* **A connector born in a later step** (frame models, 1.13): like a beam or a bar it is free of force where its ends stand when it is
+* **A connector born in a later step** (frame models, 1.13; fibre models, 1.22): like a beam or a bar it is free of force where its ends stand when it is
   built -- its six deformations then are its reference -- and its laws start from nothing; removed and built again it is a new one.
   A connector carries no new node under `birth: tangent`, and neither does a cable being jacked: a node only they reach starts where the model has it.
-* **Not yet** (refused by name): a connector born in a later step of a FIBRE model (build it from the start); the shell and solid models; model
+* **Not yet** (refused by name): the shell and solid models; model
   changes with relaxing fibre tendons; `keep` on a moving load, a vehicle or a ground motion. (Model changes with relaxing prestressed
   or jacked bars run since 1.16: each bar relaxes from its birth or its lock-off, Section 11.3.)
 * In a model with dynamic steps, `solver.damping` is the dynamic steps' (not `kinetic`; Rayleigh `beta` is allowed in a relaxation
@@ -1500,6 +1525,7 @@ solver:
 | rigid diaphragms | loop | loop | loop |
 | soil springs | loop | loop | loop |
 | master-slave rigid links (`rigid_links`, 1.21) | loop | loop | loop |
+| Rayleigh damping by region (`damping.regions`, 1.22) | loop | loop | — |
 | members with end offsets (`end_offsets`, 1.21) | loop | loop | loop |
 | plastic hinges | compiled | — | loop |
 | a fibre section the fused kernel does not take (`solver.kernel_status` says why) | — | loop | — |
@@ -1561,6 +1587,29 @@ The stiffness-proportional term (`beta`) reduces the stable time step — the da
 frequency (power iteration on the reference stiffness and mass, milliseconds), not the Gershgorin upper bound: the bound is 1.5–4 times the true value
 (single beam 1.0, Lee frame 3.4, shell 4.1), so the time step of a computation with `beta` can be larger by the same factor. The time step of computations without damping or with only
 `alpha` is unchanged and still taken from the bound. The log's `damping` lines give what β costs in time step and both frequencies (`damping  step x… for beta at omega_max … (power iteration; Gershgorin …)`) and, on fibre models since v1.0, the α and β a `ratio` became (`damping  rayleigh alpha=… 1/s, beta=… s`).
+
+**Rayleigh damping by region (1.22).** `damping.regions` gives the members of some regions their own coefficients -- a steel deck and
+concrete piers, an isolation layer and the structure on it (Midas's group damping, OpenSees' `region -rayleigh`):
+
+```yaml
+  damping:
+    type: rayleigh
+    ratio: 0.05
+    frequencies: [0.5, 5.0]       # the model's: members outside the regions, concentrated masses
+    regions:
+      - regions: [piers]          # read as an element monitor's regions
+        ratio: 0.02               # at the two frequencies above, unless the entry gives its own
+      - regions: [isolators]
+        beta: 0.004
+```
+
+The damping force is α₀Mv + β₀Kv with each region member's own α_e M_e + β_e K_e in place of the model's: M_e is the member's lumped mass at
+its two ends (with its rigid zones' mass), K_e its reference stiffness. Where two entries overlap the later one holds; an entry's `ratio` without `frequencies` takes the model's, so a model written with
+`alpha`/`beta` gives each region its own. The mass that is not a member's (concentrated masses, mass scaling, the rotary floor) keeps the
+model's α. A member removed or
+broken no longer damps. The explicit step is sized with the largest α and β of the model. Line models only (`beam2`, `beam2_timoshenko`,
+`beam2_fiber`, `mixed_line`), `type: rayleigh` in a dynamic run or dynamic steps; a run with regions takes the step-by-step loop rather
+than the compiled step (same results).
 
 Ultimate-capacity analysis often uses a "slow dynamic pushover": the load is ramped at a very slow rate, is quasi-static before the peak, and past
 the limit point the deflection develops by itself — static relaxation cannot pass a limit point and can only report the last converged load increment.
@@ -1748,7 +1797,8 @@ imposed strain. `creep`/`shrinkage`/`ageing`/`relaxation` on solids, shells, cou
 
 **In static steps too (1.16).** `solver.mode: static` runs the same clock on beam and mixed-line models: every converged increment of a
 step with `to_age` is a time station, as every level of a staged relaxation is, and the answers are the staged relaxation's (to 1e-9 on
-the test cases). Fibre models, and steps of time under `static.arc_length`, are refused by name.
+the test cases); fibre models too from 1.22 (to the relaxation's tolerance on case_29d and case_29g). Steps of time under
+`static.arc_length` are refused by name.
 
 **Each prestressed bar on its own clock (1.16).** A bar with `prestress` relaxes from `tensioned_at` (by default the analysis start); one
 born in a later step from the age it is born at; one `jack`ed in a step from the age its step locks it off, from the strain the jack
@@ -2152,7 +2202,8 @@ sections:
   as it is, e.g. a buckling-restrained brace `ux: {type: material, material: core, area: 4.0e-3, length: 3.2}`. The reference
   stiffness is `area`·E/`length`. The component's `connector_slip_*` field reports the material's strain d/`length`. The law's
   state is kept in the checkpoint and starts afresh when an analysis step builds the connector. `uy` and `uz` stay two laws
-  (a square yield surface). The material's own rupture does not break the connector. The compiled connector kernel does not
+  (a square yield surface) -- except a `bouc_wen` material given to both as the same law (1.22): that is one law in the plane,
+  the yield surface a circle (Park, Wen & Ang 1986), a lead-rubber or high-damping rubber bearing. The material's own rupture does not break the connector. The compiled connector kernel does not
   take this law: in a model with it the connectors are evaluated in Python and the compiled step keeps the step-by-step loop
   ("connectors whose law has no compiled path" in the capability table)
 * the SAME law (friction, bilinear or pendulum) on `uy` and `uz` is one law in the plane: it yields or slides along the resultant, on a circular surface (before v1.0 the two were independent and the surface was square: 1.414 mu N at 45 degrees)
@@ -2889,7 +2940,7 @@ vfife is **an analysis engine, not design software**. The following are not incl
 * Vehicles are planar models (vertical + pitch), with no roll or transverse distribution; lane loads and dynamic amplification factors are code content and not in the library
 * **Shells (shell3, shell4, shell_line) are experimental and not covered by 1.0**: the triangle shell3 locks in shear -- a thin plate deflects 0.2-20% of the true value, so mesh with quads; shell4's default hourglass stabilisation stiffens bending by 2-30% (more on elongated elements, not removed by refinement) and distorted quads lock. Preflight gives every shell model a `SHELL_EXPERIMENTAL` warning. Resultants are in the element's local axes, whose x axis follows the element's first edge and so the node order; the top/bottom stresses carry no transverse shear (`shear_x`, `shear_y` are Q; the mid-surface peak is 1.5 Q/t)
 * A shell run on the warp (GPU) backend cannot be restarted from a checkpoint (`--restart`); use the numba backend
-* Comparisons with commercial software are with Midas Civil, on the course models the project keeps outside the repository; the Midas translation follows tendon relaxation (1.16) but no creep or shrinkage, no temperature, no moving loads and no plate stiffness
+* Comparisons with commercial software are with Midas Civil, on the course models the project keeps outside the repository; the Midas translation follows tendon relaxation (1.16) and creep and shrinkage by the JTG codes (1.22), but no temperature, no moving loads and no plate stiffness
 * A model whose only load is bars being `jack`ed does not converge as one continuous relaxation step (`mode: relaxation` with `n_steps` and no
   `load_steps`; its residual stalls near 0.5): give the step `load_steps`, or use `mode: static`, which the Midas translation writes
 * Debris after a progressive collapse: up to 1.16, fragments could gain energy without bound once on the ground (a real steel truss

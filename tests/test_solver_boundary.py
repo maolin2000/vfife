@@ -44,7 +44,12 @@ SOLVER_NAMES = {"s", "solver", "sol"}
 #: class's own business and is not counted
 SOLVER_FILES = ("beam_solver.py", "fiber_beam_solver.py", "mixed_structural_solver.py", "solver.py",
                 "truss_solver.py", "shell_solver.py", "shell_line_solver.py", "coupled_solver.py",
-                "connector_solver.py", "orientation.py", "beam_family.py")
+                "connector_solver.py", "orientation.py", "beam_family.py",
+                # the fibre solver's mixins (1.22): its sections, fracture and time
+                "fiber_sections.py", "fiber_fracture.py", "fiber_time.py")
+#: the fibre solver's class and the mixins it is made of
+FIBRE_CLASSES = (("fiber_beam_solver.py", "FiberBeamSolver"), ("fiber_sections.py", "FiberSections"),
+                 ("fiber_fracture.py", "FiberFracture"), ("fiber_time.py", "FiberTimeDependence"))
 
 
 def _files(top):
@@ -125,8 +130,8 @@ def _class_methods(fname, cls):
 def _twins():
     """The methods both solvers define in their own class body: a shared one
     lives in core/beam_family and is in neither."""
-    return (_class_methods("beam_solver.py", "BeamSolver")
-            & _class_methods("fiber_beam_solver.py", "FiberBeamSolver"))
+    fibre = set().union(*(_class_methods(f, c) for f, c in FIBRE_CLASSES))
+    return _class_methods("beam_solver.py", "BeamSolver") & fibre
 
 
 def _totals(m):

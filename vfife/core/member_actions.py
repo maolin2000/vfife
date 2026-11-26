@@ -74,7 +74,7 @@ REDUCE = {
 }
 
 
-def region_members(mesh, regions, elements0) -> np.ndarray:
+def region_members(mesh, regions, elements0, what="element monitor") -> np.ndarray:
     """The members a monitor reads: those of its regions' physical groups
     where the mesh records them, else every member whose nodes are all in
     the region -- taken on the connectivity as read (`elements0`), so a
@@ -92,7 +92,7 @@ def region_members(mesh, regions, elements0) -> np.ndarray:
         if got is None:
             nodes = mesh.regions.get(r)
             if nodes is None:
-                raise ValueError(f"element monitor: no region {r!r}")
+                raise ValueError(f"{what}: no region {r!r}")
             inside = np.zeros(int(max(mesh.n_nodes, np.max(elements0) + 1)), dtype=bool)
             inside[np.asarray(nodes, dtype=np.int64)] = True
             got = np.flatnonzero(inside[elements0].all(axis=1))
@@ -100,7 +100,7 @@ def region_members(mesh, regions, elements0) -> np.ndarray:
     out = np.unique(np.concatenate(ids)) if ids else np.zeros(0, np.int64)
     out = out[out < len(elements0)]
     if not len(out):
-        raise ValueError(f"element monitor on {', '.join(regions)}: the region owns no member "
+        raise ValueError(f"{what} on {', '.join(regions)}: the region owns no member "
                          "(every node of a member must be in it)")
     return out
 

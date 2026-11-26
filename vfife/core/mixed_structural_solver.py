@@ -10,7 +10,7 @@ from . import mass_scaling
 from . import member_axes
 from . import added_mass
 from . import member_geometry
-from .dof import SparseAssembler, TRANSLATION, repeated_rotation
+from ..base.dof import SparseAssembler, TRANSLATION, repeated_rotation
 from ..elements import connector
 from . import families
 from .families import COLLAPSED
@@ -788,6 +788,10 @@ class MixedStructuralSolver(BeamSolver):
                        self.mode == "dynamic", out, actions, end_actions, deformation, 6, ck["no_rows"],
                        False, True, self._pick_birth) >= 0:
                 raise ValueError("mixed structural member collapsed to zero length")
+
+    def connector_props(self, e):
+        """Member `e`'s connector properties, or None when it is not one."""
+        return self.member_props[e] if self.member_kind[e] == "connector2" else None
 
     def _connector_kernel(self):
         """The compiled connectors' arrays under `backend: numba`
