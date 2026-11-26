@@ -13,7 +13,7 @@ def prepare(model, leave, notes, f, length, link_rigid, cases):
     nodes, supports in a node's own axes, the load cases of the finished
     bridge as steps, master-slave rigid links and rigid elastic links as
     arms or stiff springs, and two nodes at one place set a millimetre apart.
-    Returns (model, all_links, tied, drawn, six)."""
+    Returns (model, all_links, tied, drawn, six, rigid)."""
     import dataclasses
     # A POINT SPRING (`*SPRING`: soil on a pile) IS A LINK TO THE GROUND: a
     # node of its own at the same place, held in every direction, and an
@@ -128,7 +128,7 @@ def prepare(model, leave, notes, f, length, link_rigid, cases):
         for c in cases:
             if c not in model.load_cases:
                 raise ValueError(f"cases: the file has no load case {c!r} (it has {', '.join(model.load_cases)})")
-            mine = [q[-1] for q in nl + bl if q[0] == c]
+            mine = [q[3] for q in nl if q[0] == c] + [q[5] for q in bl if q[0] == c]
             if not mine:
                 raise ValueError(f"cases: the load case {c!r} has no nodal or member load this translation reads")
             used = sorted({g_ for g_ in mine if g_ in in_stage})
@@ -136,18 +136,19 @@ def prepare(model, leave, notes, f, length, link_rigid, cases):
                 raise ValueError(f"cases: the load case {c!r} is already applied by a stage (load group {used[0]})")
             g = f"(case {c})"
             nl = [(q[0], q[1], q[2], g) if q[0] == c else q for q in nl]
-            bl = [q[:5] + (g,) if q[0] == c else q for q in bl]
+            bl = [q[:5] + (g,) + q[6:] if q[0] == c else q for q in bl]
             if any(t[0] == c for t in model.temperatures) or any(w[0] == c for w in model.self_weight):
                 leave(f"temperature or self weight of the load case {c} (its step has the case's other loads)")
             st.append(midas.Stage(name=c, activate_loads=[(g, "FIRST")]))
         model = dataclasses.replace(model, nodal_loads=nl, beam_loads=bl, stages=st,
                                     load_groups=list(model.load_groups) + [f"(case {c})" for c in cases])
 
-    # A MASTER AND ITS SLAVES (`*RIGIDLINK`) ARE RIGID ARMS, one from the master
-    # to each slave, like a RIGID elastic link: built and removed with their
-    # boundary group. One that ties all six directions; a slave left free in
-    # some direction (a saddle that slides on its tower) is not an arm, and
-    # is left out and counted.
+    # A MASTER AND ITS SLAVES (`*RIGIDLINK`) ARE THE SOLVER'S RIGID LINKS
+    # (1.21), the flags as Midas writes them -- a saddle that slides on its
+    # tower (011111) too: `rigid` here, made into `rigid_links` by the
+    # converter with their boundary group. They were rigid arms (stiff beams,
+    # their stiffness a multiple of the model's) for the links tying all six
+    # directions, and the others were left out.
     # A GEN LINK MAY SAY "RIGID" DIRECTION BY DIRECTION, and its number there
     # is then nothing (zero, often). Rigid in all six, it is a RIGID link;
     # in some, those directions take `link_rigid` (N/m and N m/rad).
@@ -169,18 +170,13 @@ def prepare(model, leave, notes, f, length, link_rigid, cases):
                     tied.append(link.nodes)
                 notes.append(f"elastic links rigid in some directions: {link_rigid:g} N/m (N m/rad) there")
         all_links.append(link)
+    rigid = []
     for master, dofs, slaves, g in model.rigid_links:
-        if dofs.strip() != "111111":
-            leave(f"*RIGIDLINK that leaves a direction free ({dofs.strip()})", len(slaves))
+        flags = dofs.strip().ljust(6, "0")[:6]
+        if set(flags) - {"0", "1"} or "1" not in flags:
+            leave(f"*RIGIDLINK with flags {dofs.strip()!r} (six 0/1, at least one 1)", len(slaves))
             continue
-        for sl in slaves:
-            if sl == master:
-                continue
-            if model.nodes[sl] == model.nodes[master]:
-                all_links.append(midas.Link(kind="GEN", nodes=(master, sl), group=g, stiffness=six))
-                tied.append((master, sl))
-            else:
-                all_links.append(midas.Link(kind="RIGID", nodes=(master, sl), group=g))
+        rigid.append((master, flags, [sl for sl in slaves if sl != master], g))
     # TWO NODES AT ONE PLACE, JOINED BY A LINK (a bearing drawn at a point),
     # ARE SET A MILLIMETRE APART: the mesh has no two nodes at one place and
     # no member without a length. The one fewer things hold moves, along X,
@@ -224,4 +220,4 @@ def prepare(model, leave, notes, f, length, link_rigid, cases):
     if apart:
         model = dataclasses.replace(model, nodes=place)
         notes.append(f"{apart} link(s) between two nodes at one place: one of the two is set 1 mm along X from the other")
-    return model, all_links, tied, drawn, six
+    return model, all_links, tied, drawn, six, rigid

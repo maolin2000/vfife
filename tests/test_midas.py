@@ -134,7 +134,7 @@ def test_the_loads_keep_their_load_case(model):
     assert m.pretension == [("K1", 10, 2104.2, "K1")]
     assert m.nodal_loads == [("平台", 2, (0.0, 0.0, -5.0, 0.0, 0.0, 0.0), "平台"),
                              ("平台", 3, (0.0, 0.0, -5.0, 0.0, 0.0, 0.0), "平台")]
-    assert m.beam_loads == [("平台", 1, "GZ", -0.0011, -0.0011, "平台"), ("平台", 2, "GZ", -0.0011, -0.0011, "平台")]
+    assert m.beam_loads == [("平台", 1, "GZ", -0.0011, -0.0011, "平台", False), ("平台", 2, "GZ", -0.0011, -0.0011, "平台", False)]
     assert m.temperatures == [("平台", 5.0, "平台")]
 
 

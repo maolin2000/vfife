@@ -196,6 +196,12 @@ def fill_defaults(d: Dict[str, Any]) -> Tuple[Dict[str, Any], List[tuple]]:
                     put(props, key, table[key], "stress", f"{where}.{key}")
         if kind in BOND_LAWS:
             _bond_defaults(props, where, sc, filled)
+        if kind in ("parallel", "series"):
+            # a part written in place takes the defaults a named one does
+            # (found in review: an inline steel02 in a mm case kept 7850
+            # and 400e6 -- 1e12 too heavy, and it never yielded)
+            for i, part in enumerate(props.get("of") or ()):
+                law(part, f"{where}.of[{i}]")
 
     for name, props in (out.get("materials") or {}).items():
         law(props, f"materials.{name}")

@@ -85,9 +85,9 @@ class ConnectorLawSpec(Strict):
     (Coulomb: sticks, then slides at mu times the compression another
     component of the same connector carries). elements/connector.py has the
     mechanics; one scalar of history per component, the slipped deformation."""
-    #: 律的种类：`gap` 间隙/限位，`bilinear` 双线性滞回（隔震支座、屈服耗能装置），`friction` 库仑摩擦滑动，`damper` 非线性粘滞阻尼器 F = c·sign(v)·|v|^α（1.10），`pendulum` 摩擦摆支座（1.10）
-    #: `gap`, `bilinear`, `friction`, `damper` (a fluid viscous damper, F = c sign(v) |v|^alpha; 1.10) or `pendulum` (a friction pendulum bearing; 1.10)
-    type: Literal["gap", "bilinear", "friction", "damper", "pendulum"]
+    #: 律的种类：`gap` 间隙/限位，`bilinear` 双线性滞回（隔震支座、屈服耗能装置），`friction` 库仑摩擦滑动，`damper` 非线性粘滞阻尼器 F = c·sign(v)·|v|^α（1.10），`pendulum` 摩擦摆支座（1.10），`material` 材料表里的一维材料，F = area·σ(d/length)（1.21）
+    #: `gap`, `bilinear`, `friction`, `damper` (a fluid viscous damper, F = c sign(v) |v|^alpha; 1.10), `pendulum` (a friction pendulum bearing; 1.10) or `material` (a one-dimensional law of the material table, F = area sigma(d / length); 1.21)
+    type: Literal["gap", "bilinear", "friction", "damper", "pendulum", "material"]
     #: gap：自由行程的下限（m 或 rad），不给即该侧无限位（friction 的粘着刚度是 `stiffness`，不读 `lo`）
     #: gap: lower bound of the free travel (None = no stop that side); friction does not read it (its stick stiffness is `stiffness`)
     lo: Optional[float] = None
@@ -124,17 +124,28 @@ class ConnectorLawSpec(Strict):
     #: friction：压紧力从哪来——`ux`（同一连接器局部 ux 线性弹簧当前的压力；只有它的正负与节点顺序无关），或一个常数（N）
     #: friction: where the compression comes from -- `ux` (the current compression of this connector's local ux spring, the one component whose sign does not depend on the node order) or a constant force
     normal: Optional[Union[str, float]] = None
+    #: material：`materials` 里一维材料的名字（可以是 parallel、series、gap）
+    #: material: the name of a one-dimensional law in `materials` (parallel, series and gap included)
+    material: Optional[Union[str, Dict[str, Any]]] = None
+    #: material：力 = area × 应力；不写为 1（材料表即力–变形关系）
+    #: material: force = area x stress; 1 when left out (the table is then the force-deformation relation)
+    area: Optional[float] = Field(None, gt=0.0)
+    #: material：应变 = 变形 / length；不写为 1
+    #: material: strain = deformation / length; 1 when left out
+    length: Optional[float] = Field(None, gt=0.0)
 
     @model_validator(mode="after")
     def _by_type(self):
         need = {"gap": ("stiffness",), "bilinear": ("k1", "k2", "fy"), "friction": ("stiffness", "mu", "normal"),
-                "damper": ("c", "exponent"), "pendulum": ("stiffness", "mu", "normal", "radius")}
+                "damper": ("c", "exponent"), "pendulum": ("stiffness", "mu", "normal", "radius"),
+                "material": ("material",)}
         allowed = {"gap": {"lo", "hi", "stiffness"}, "bilinear": {"k1", "k2", "fy"},
                    "friction": {"stiffness", "mu", "normal"},
                    "damper": {"c", "exponent", "linear_below", "stiffness"},
-                   "pendulum": {"stiffness", "mu", "normal", "radius"}}
+                   "pendulum": {"stiffness", "mu", "normal", "radius"},
+                   "material": {"material", "area", "length"}}
         given = {k for k in ("lo", "hi", "stiffness", "k1", "k2", "fy", "mu", "normal", "radius", "c",
-                             "exponent", "linear_below")
+                             "exponent", "linear_below", "material", "area", "length")
                  if getattr(self, k) is not None}
         missing = [k for k in need[self.type] if getattr(self, k) is None]
         if missing:
@@ -448,6 +459,9 @@ class ElementSpec(Strict):
     #: End rotation releases, e.g. ``[i_rz, j_rz]``.  Translational releases are
     #: deliberately not accepted: they create an unconnected member.
     releases: List[str] = []
+    #: 梁端刚性偏移（1.21）：{i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}，构件弹性段的两端离节点的向量；节点到弹性段端点之间是刚体，随节点转动。梁端刚域沿构件给，截面偏心（形心不在节点连线上）横向给。`axial: full` 让框架梁的轴向和扭转刚度按节点间的长度算（刚域只在弯曲和剪切上是刚的，同 Midas、ETABS）；默认 `elastic` 按弹性段
+    #: rigid end offsets (1.21): {i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}, the vectors from the nodes to the elastic part's two ends; the stretch between is rigid and turns with its node. A rigid end zone is an offset along the member, a section set off its nodes one across it. `axial: full` takes a frame beam's axial and torsional stiffness over the length between the nodes (a zone rigid in bending and shear only, as Midas and ETABS have it); `elastic`, the default, over the elastic part (core/end_offsets.py)
+    end_offsets: Optional[Dict[str, Any]] = None
     #: connector2: six local/global stiffness and damping components, either a
     #: diagonal vector or a symmetric 6x6 matrix.
     stiffness: Optional[Any] = None
@@ -506,6 +520,9 @@ class ElementSpec(Strict):
             raise ValueError("element.area applies to truss2 and beam elements only")
         if self.type != "beam2_timoshenko" and (self.ay is not None or self.az is not None):
             raise ValueError("element.ay/az apply to beam2_timoshenko only")
+        if self.end_offsets is not None and self.type not in ("beam2", "beam2_timoshenko", "beam2_fiber"):
+            raise ValueError(f"element.end_offsets apply to beam2, beam2_timoshenko and beam2_fiber, "
+                             f"not {self.type} (a mixed_line model gives them per member group)")
         if self.type == "beam2_fiber":
             if self.fiber_section:
                 fs = self.fiber_section
@@ -679,6 +696,9 @@ class MemberGroupSpec(Strict):
     #: [width, height] of a rect/box beam section, for `vfife info`
     section_size: Optional[List[float]] = Field(None, min_length=2, max_length=2)
     releases: List[str] = []
+    #: 梁端刚性偏移（1.21）：{i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}，构件弹性段的两端离节点的向量；节点到弹性段端点之间是刚体，随节点转动。梁端刚域沿构件给，截面偏心（形心不在节点连线上）横向给。`axial: full` 让框架梁的轴向和扭转刚度按节点间的长度算（刚域只在弯曲和剪切上是刚的，同 Midas、ETABS）；默认 `elastic` 按弹性段
+    #: rigid end offsets (1.21): {i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}, the vectors from the nodes to the elastic part's two ends; the stretch between is rigid and turns with its node. A rigid end zone is an offset along the member, a section set off its nodes one across it. `axial: full` takes a frame beam's axial and torsional stiffness over the length between the nodes (a zone rigid in bending and shear only, as Midas and ETABS have it); `elastic`, the default, over the elastic part (core/end_offsets.py)
+    end_offsets: Optional[Dict[str, Any]] = None
     stiffness: Optional[Any] = None
     connector_damping: Optional[Any] = None
     coordinate_system: Literal["local", "global"] = "local"
@@ -1476,6 +1496,38 @@ class DiaphragmSpec(Strict):
     normal: Literal["x", "y", "z"] = "z"
 
 
+#: the element types whose models take `rigid_links` (the beam family's
+#: solvers; core/constraints)
+RIGID_LINK_ELEMENTS = ("beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber", "shell3", "shell4", "shell_line")
+
+
+class RigidLinkSpec(Strict):
+    """A master-slave rigid link (1.21): the slaves' tied components follow
+    the master as a rigid body does, in large rotation (core/constraints).
+    Midas' *RIGIDLINK, OpenSees' rigidLink and (with `arm: false`) equalDOF."""
+    #: 主节点：恰好一个节点的区域
+    #: the master: a region of exactly one node
+    master: str
+    #: 从节点：一个或多个节点的区域
+    #: the slaves: a region of one or more nodes
+    slaves: str
+    #: 跟着主节点的分量，整体轴的 ux uy uz rx ry rz，1 为跟随（Midas 的 6 位标记）
+    #: the components that follow the master, in the global axes ux uy uz rx ry rz, 1 = tied (Midas' six flags)
+    dofs: List[int] = Field(default_factory=lambda: [1, 1, 1, 1, 1, 1], min_length=6, max_length=6)
+    #: true：平动按主从之间的力臂随主节点转动（rigidLink）；false：从节点平动等于主节点平动（equalDOF）
+    #: true: the translations carry the arm between master and slave, turning with the master (rigidLink); false: the slave's translation is the master's (equalDOF)
+    arm: bool = True
+    #: 名字（报错和输出里用）
+    #: a name (for messages)
+    name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _flags(self):
+        if any(f not in (0, 1) for f in self.dofs) or not any(self.dofs):
+            raise ValueError("a rigid link's `dofs` is six flags of 0 or 1, at least one of them 1")
+        return self
+
+
 class StepSpec(Strict):
     """One analysis step. Steps run in sequence and share the model state.
 
@@ -1540,9 +1592,12 @@ class StepSpec(Strict):
     #: 本步移除的构件：它们对其余结构的作用力（含自重）在本步内卸到零
     #: members removed in this step: what they did to the rest of the structure (their weight included) is taken off over the step
     deactivate: List[str] = []
-    #: 解除这些区域节点上继承下来的约束（模型级与 keep 的）：支反力在本步内卸到零；本步自己的约束照常施加
-    #: frees the inherited constraints (model-level and kept ones) on these regions' nodes: the reaction is taken off over the step; the step's own constraints still apply
+    #: 解除这些区域节点上继承下来的约束（模型级与 keep 的）：支反力在本步内卸到零；本步自己的约束照常施加。也可以写主从刚性连接的 `name`（1.21）：连接拆除，它的约束力在本步内卸到零
+    #: frees the inherited constraints (model-level and kept ones) on these regions' nodes: the reaction is taken off over the step; the step's own constraints still apply. A rigid link's `name` frees that link (1.21): the force it carried is taken off over the step
     release: List[str] = []
+    #: 本步开始时建立的主从刚性连接（1.21），按这时节点所在的位置和转角建立，建立时不受力；写法同模型级的 `rigid_links`
+    #: master-slave rigid links made at this step's start (1.21), where their nodes then stand and free of force; written as the model's `rigid_links`
+    rigid_links: List[RigidLinkSpec] = []
 
     @model_validator(mode="after")
     def _model_change(self):
@@ -2571,6 +2626,9 @@ class Case(Strict):
     soil_springs: List[SoilSpringSpec] = []
     #: floors that are rigid in their own plane
     diaphragms: List[DiaphragmSpec] = []
+    #: 主从刚性连接：从节点的指定分量按刚体跟随主节点，大转动（1.21；框架、纤维梁、壳和壳线模型；部分约束转动时相对转角要小）
+    #: master-slave rigid links: the slaves' tied components follow the master as a rigid body, in large rotation (1.21; frame, fibre-beam, shell and shell-line models)
+    rigid_links: List[RigidLinkSpec] = []
     #: named amplitude curves; see core/amplitude.py. `ramp` and `hold` exist
     #: without being declared.
     amplitudes: Dict[str, Any] = {}
@@ -2799,7 +2857,7 @@ class Case(Strict):
                              "model-level ones apply in every step already; `keep` carries a "
                              "STEP's own into the steps after it")
         changing = [k for k, st in enumerate(self.steps)
-                    if st.activate or st.deactivate or st.release or st.total_time is not None
+                    if st.activate or st.deactivate or st.release or st.rigid_links or st.total_time is not None
                     or any(x.keep for x in list(st.loads) + list(st.constraints))
                     or (st.procedure is not None and st.procedure != self.solver.mode)]
         for k, st in enumerate(self.steps):
@@ -2819,8 +2877,8 @@ class Case(Strict):
                              "type: rayleigh in a dynamic run (or dynamic steps)")
         if changing and self.element.type not in STEP_CHANGE_ELEMENTS:
             st = self.steps[changing[0]]
-            what = ("a procedure of its own" if not (st.activate or st.deactivate or st.release)
-                    else "activate / deactivate / release")
+            what = ("a procedure of its own" if not (st.activate or st.deactivate or st.release or st.rigid_links)
+                    else "activate / deactivate / release / rigid_links")
             raise ValueError(f"steps[{changing[0]}] has {what}: analysis steps that change the "
                              f"model or the procedure run line models "
                              f"({', '.join(sorted(STEP_CHANGE_ELEMENTS))}), not {self.element.type}")
@@ -2852,8 +2910,19 @@ class Case(Strict):
                                  "hold the pile to ground that does not move, while the supports move "
                                  "with the record; use a uniform `ground_motion` (relative motion) with "
                                  "soil springs")
+        if self.rigid_links or any(st.rigid_links for st in self.steps):
+            # the solvers of the beam family (core/constraints, 1.21)
+            if self.element.type not in RIGID_LINK_ELEMENTS:
+                raise ValueError(f"rigid_links are taken by {', '.join(RIGID_LINK_ELEMENTS)} models, "
+                                 f"not {self.element.type}")
+            if self.solver.backend == "warp":
+                raise ValueError("rigid_links are not taken by the warp shell backend (its loop is the "
+                                 "device's); use backend: numba")
         known = set(self.regions)
         known.add("all")
+        # a step's `release` may name a rigid link (1.21)
+        link_names = {lk.name for lk in list(self.rigid_links) + [lk for st in self.steps for lk in st.rigid_links]
+                      if lk.name}
         if self.mesh.type == "lines":
             # its points and lines are regions, by name (1.1)
             known |= set(self.mesh.points or {}) | set(self.mesh.lines or {}) | set(self.mesh.groups or {})
@@ -2866,7 +2935,7 @@ class Case(Strict):
         for k, st in enumerate(self.steps):
             for key in ("activate", "deactivate", "release"):
                 for r in getattr(st, key):
-                    if r not in known:
+                    if r not in known and not (key == "release" and r in link_names):
                         raise ValueError(f"steps[{k}].{key} references unknown region {r!r}")
         for c in self.constraints:
             if c.region not in known:
@@ -2886,6 +2955,12 @@ class Case(Strict):
         for d in self.diaphragms:
             if d.region not in known:
                 raise ValueError(f"diaphragm references unknown region {d.region!r}")
+        for where, lks in [("rigid_links", self.rigid_links)] + [(f"steps[{j}].rigid_links", st.rigid_links)
+                                                                 for j, st in enumerate(self.steps)]:
+            for k, lk in enumerate(lks):
+                for r in (lk.master, lk.slaves):
+                    if r not in known:
+                        raise ValueError(f"{where}[{k}] references unknown region {r!r}")
         for name, m in self.output.monitors.items():
             # an element or bar monitor may leave the region out entirely,
             # which means the whole model

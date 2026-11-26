@@ -1,4 +1,4 @@
-# vfife 错误代码 / error codes（自动生成，1.20.1）
+# vfife 错误代码 / error codes（自动生成，1.21.0）
 
 > 由 `python -m vfife reference --codes` 从源码生成；`tests/test_review6_docs.py` 保证它与代码一致。**不要手改。**
 
@@ -44,7 +44,7 @@ Analysis statuses (`analysis_status` in the result, `AnalysisOutcome.status`; se
 | `DEPRECATED_FIELD` | WARNING | …: `…` is the old spelling of `…`; it is still read, and | vfife/preflight.py |
 | `DIAPHRAGM_OVER_CONSTRAINED` | ERROR | diaphragm region … contains nodes whose in-plane degrees of | vfife/preflight.py |
 | `DIAPHRAGM_TOO_SMALL` | ERROR | diaphragm region … has one node; a rigid floor needs at least two | vfife/preflight.py |
-| `DIAPHRAGM_UNSUPPORTED` | ERROR | diaphragms are applied to beam, shell and coupled models on the numpy/numba backends; | vfife/preflight.py |
+| `DIAPHRAGM_UNSUPPORTED` | ERROR | diaphragms are applied to beam, fibre-beam, shell and coupled models on the numpy/numba backends; | vfife/preflight.py |
 | `DISTORTED_ELEMENT` | WARNING | shell4 Jacobian ratio is below 0.05 | vfife/preflight.py |
 | `DUPLICATE_ELEMENT` | ERROR | duplicate elements have identical node sets | vfife/preflight.py |
 | `DUPLICATE_NODE` | ERROR | distinct nodes share the same position (within …): | vfife/preflight.py |
@@ -149,6 +149,7 @@ Analysis statuses (`analysis_status` in the result, `AnalysisOutcome.status`; se
 | `SECTION_EMPTY` | refused/ERROR | section(s) … are assigned to a | vfife/core/solver.py, vfife/preflight.py |
 | `SECTION_MESH_MISMATCH` | refused | the case's sections are solid or shell, but … contains only | vfife/cli.py |
 | `SECTION_OVERRIDE` | INFO | section … takes … element(s) also covered by | vfife/preflight.py |
+| `SERIES_NOT_CONVERGED` | refused | material 'series' (…): the parts' stresses at point … | vfife/materials/composite.py |
 | `SHELL_EXPERIMENTAL` | WARNING | — | vfife/preflight.py |
 | `SHELL_LINE_TOPOLOGY` | ERROR | shell_line requires Shell4 and selected Line2 blocks | vfife/preflight.py |
 | `SHELL_NORMALS_INCONSISTENT` | ERROR | the pressure on … acts on shells whose normals point different | vfife/preflight.py |

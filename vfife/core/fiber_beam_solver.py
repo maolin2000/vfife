@@ -25,6 +25,7 @@ from . import member_axes
 #: later integration station replaces the reported one only beyond round-off
 _TIE = 1.0 + 1e-9
 from . import added_mass
+from . import member_geometry
 from . import creep
 from . import fracture
 from .member_failure import Breaking
@@ -108,6 +109,8 @@ class FiberBeamSolver(BeamFamily):
     #: a removal in the step that ended set something loose, to be looked
     #: at between two steps (`apply_pending_splits`)
     _pending_debris = False
+    #: the history of the connectors' `material` laws (`connector.MaterialStates`, 1.21)
+    connector_materials = None
     ELEMENT_NAME = "beam2_fiber"
     HOLD_PARKED = True
     SOLVER_WHAT = "fiber beam"
@@ -146,6 +149,7 @@ class FiberBeamSolver(BeamFamily):
         self.q = np.zeros(self.ndof)
         self.v = np.zeros(self.ndof)
         self._init_orientation()
+        self._carried_step()
         #: the next velocity update is a central-difference RESTART and
         #: takes half the acceleration; set again wherever v is zeroed
         self._half = True
@@ -155,6 +159,10 @@ class FiberBeamSolver(BeamFamily):
         self.time = 0.0
         self.rebar = []
         self._pending_splits = getattr(self, "_pending_splits", [])
+        if self.p.case.rigid_links or any(st.rigid_links for st in self.p.case.steps):
+            # the links are made where the nodes stand now, before the steps
+            # are installed (core/constraints), as the frame solver's are
+            self.constraint_layer()
         if self.plan is not None:
             analysis_steps.install(self)
 
@@ -311,6 +319,9 @@ class FiberBeamSolver(BeamFamily):
         # under the same trial discipline as the fibre states
         self._conn_committed = np.zeros((self.nel, 6))
         self._conn_slip = np.zeros((self.nel, 6))
+        #: the history of the connectors' `material` laws (1.21)
+        self.connector_materials = connector.MaterialStates(
+            self._connector_ids, lambda e: self._connector_props[int(self._connector_of[e])])
 
     @property
     def has_connectors(self):
@@ -972,7 +983,10 @@ class FiberBeamSolver(BeamFamily):
                               [-6*L, 2*L*L, 6*L, 4*L*L]])
         k[np.ix_(ids, ids)] += block
         if T is None:
-            T = self.T[e]
+            # the reference block K holds: with the rigid stretch of any end
+            # offsets in it (a turned one is turned by `_turned_blocks`, at
+            # the offsets as they are then)
+            return self.geometry.stiffness_to_nodes(e, self.T[e].T @ k @ self.T[e])
         return T.T @ k @ T
 
     def _connector_force(self, e, conn, dof):
@@ -988,7 +1002,8 @@ class FiberBeamSolver(BeamFamily):
             qe[:, :3], self.orient[conn], self.v[dof], self.mesh.nodes[conn],
             self.R0[e], self._connector_props[int(self._connector_of[e])],
             include_damping=self.mode == "dynamic",
-            slip_committed=self._conn_committed[e], slip_out=self._conn_slip[e])
+            slip_committed=self._conn_committed[e], slip_out=self._conn_slip[e],
+            materials=self.connector_materials.of(e) if self.connector_materials else None)
 
     def _connector_kernel(self):
         """The compiled connectors' arrays (kernels/numba_connector), built
@@ -998,7 +1013,8 @@ class FiberBeamSolver(BeamFamily):
         if ck is not False:
             return ck
         ck = None
-        if len(getattr(self, "_connector_ids", ())) and self.dofs.stride == 6:
+        if len(getattr(self, "_connector_ids", ())) and self.dofs.stride == 6 \
+                and not any(connector.has_material_law(p) for p in self._connector_props):
             try:
                 from ..kernels import numba_connector as nc
                 if nc.available():
@@ -1011,6 +1027,8 @@ class FiberBeamSolver(BeamFamily):
     def _commit_members(self):
         """The connector laws' history the next evaluation starts from."""
         self._conn_committed[...] = self._conn_slip
+        if self.connector_materials:
+            self.connector_materials.commit()
         if getattr(self, "_sl_on", None) is not None and self._sl_on.any():
             # the shear laws' history
             self._sl_gcr_c[...] = self._sl_gcr_t
@@ -1059,6 +1077,18 @@ class FiberBeamSolver(BeamFamily):
     def _assemble_reference(self):
         self.T, self.R0, self.length = [], [], []
         orient = self.p.case.element.orientation
+        el = self._elem_spec
+        many = el.get("fiber_sections")
+        if many:
+            groups = [(self._rows[k], m.get("end_offsets"), m.get("orientation") or orient, m["region"])
+                      for k, m in enumerate(many)]
+        else:
+            groups = [(self._rows[0], el.get("end_offsets"), orient, el.get("fiber_region") or "all")]
+        self.geometry = geometry = member_geometry.MemberGeometry.build(self.mesh, self.nel, groups)
+        if geometry.full is not None:
+            raise ValueError("end_offsets.axial: full is for frame beams (beam2, beam2_timoshenko, the beams "
+                             "of mixed_line): a fibre section's axial response is its fibres' over the "
+                             "elastic part")
         for e, conn in enumerate(self.mesh.elements):
             # a section's own orientation wins over the model's: a
             # column and a beam in one frame do not share a local y
@@ -1075,7 +1105,7 @@ class FiberBeamSolver(BeamFamily):
                     axis = self.mesh.nodes[conn[1]] - self.mesh.nodes[conn[0]]
                     basis = np.eye(3)
                     o = basis[np.argmin(np.abs(basis @ (axis / np.linalg.norm(axis))))]
-            R, L = self._frame(self.mesh.nodes[conn[0]], self.mesh.nodes[conn[1]], o)
+            R, L = self._frame(*geometry.reference_ends(e), o)
             self.T.append(repeated_rotation(R)); self.R0.append(R); self.length.append(L)
         self.T, self.R0, self.length = (np.asarray(self.T), np.asarray(self.R0),
                                          np.asarray(self.length))
@@ -2590,6 +2620,16 @@ class FiberBeamSolver(BeamFamily):
             z = self._kernel_zero_birth = np.zeros((self.nel, 12))
         return z
 
+    #: the members' end offsets as the fused kernel takes them (core/member_geometry)
+    _koffs = None
+
+    def _kernel_offsets(self):
+        """(offs (nel, 2, 3), has (nel,) uint8) for the fused kernel: zeros
+        on a model without end offsets."""
+        if self._koffs is None or self._koffs[0].shape[0] != self.nel:
+            self._koffs = self.geometry.kernel_arrays(np.arange(self.nel))
+        return self._koffs
+
     def _internal_force_kernel(self):
         """Fused path. `_internal_force_true` remains the reference it copies."""
         if getattr(self, "_trial_mode", False):
@@ -2641,7 +2681,8 @@ class FiberBeamSolver(BeamFamily):
                      self._cpar, self._spar, self._G0J0,
                      self._GA, self._Bgy, self._Bgz,
                      out, actions, end_actions, self._kernel_active, self._fstress,
-                     self._kernel_birth(), *self._shear_law_arrays(), bool(getattr(self, "_sl_update", False)))
+                     self._kernel_birth(), *self._shear_law_arrays(), bool(getattr(self, "_sl_update", False)),
+                     *self._kernel_offsets())
         # THE CONNECTORS ARE NOT IN THE KERNEL, and the mask is why: `_active`
         # is the fracture latch and it is WRITTEN by `_latch_fracture`, so a
         # connector cannot borrow it -- a fracture anywhere would revive it.
@@ -2866,7 +2907,12 @@ class FiberBeamSolver(BeamFamily):
             # +x face, GA gz is the y shear
             actions[e] = [peak[0], Vy, -Vz, peak[1], peak[2], peak[3]]
             station_abs[e] = pabs[[0, 1, 2, 3]]
-            out[dof] += T.T @ fl
+            g = T.T @ fl
+            if self.geometry.any:
+                g = g.reshape(1, 12)
+                self.geometry.forces_to_nodes([e], g, self.orient)
+                g = g[0]
+            out[dof] += g
             end_actions[e] = fl
         self.end_actions = end_actions
         self._set_actions_abs(actions, station_abs)
@@ -2961,6 +3007,7 @@ class FiberBeamSolver(BeamFamily):
             self.p.get("loads"), self._region, self.mesh.nodes[:self.nn], self.mesh.elements[:, :2],
             None if kinds is None else np.asarray(kinds) != "connector2", self.p.case.units)
         m[:, :3] += add; m[:, 3:] += rot; self.additional_mass = add
+        self._add_zone_mass(m)                      # the rigid zones' own (1.21)
         true_rot += rot
         self.physical_mass = m.reshape(-1)
         # selective mass scaling, before anything reads the mass.
@@ -3070,10 +3117,8 @@ class FiberBeamSolver(BeamFamily):
         # what acts inside the members now, for their end actions
         self._member_load_at = (groups, progress)
         if t is not None:
-            for ts, ac, direction in ground:
-                ag = np.interp(t, ts, ac, left=0., right=0.)
-                mass = self.dofs.field(self.physical_mass, TRANSLATION)
-                self.dofs.add_nodal(f, np.arange(self.nn), -mass*ag*direction, TRANSLATION)
+            self._ground_force(f, ground, t)
+        self._carried_body_force(f, ground, progress, t)
         return f
 
     def _running(self):
@@ -3450,6 +3495,8 @@ class FiberBeamSolver(BeamFamily):
             out[f"fiber_committed_{i}"] = s.copy()
         if not self._is_fiber.all():
             out["connector_slip"] = self._conn_committed.copy()
+            if self.connector_materials:
+                out["connector_material_state"] = self.connector_materials.checkpoint()
         # THE FIBRES' STRESSES, as the last evaluation left them: a member
         # that has fractured or been removed is not evaluated again, and its
         # row is the stress it broke at -- what `fiber_stress` and a fibre
@@ -3495,6 +3542,8 @@ class FiberBeamSolver(BeamFamily):
         if "connector_slip" in ck:
             self._conn_committed = np.asarray(ck["connector_slip"], float).copy()
             self._conn_slip = self._conn_committed.copy()
+        if self.connector_materials and "connector_material_state" in ck:
+            self.connector_materials.restore(ck["connector_material_state"])
         # (a checkpoint from before v1.12 has neither: the broken members'
         # stresses then read 0, as they did)
         for key, name in (("fiber_stress_kernel", "_fstress"), ("fiber_stress_rows", "_fiber_stress_rows")):

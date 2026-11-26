@@ -97,6 +97,13 @@ MATERIAL_PARAMS: Dict[str, dict] = {
     # Cai et al. 2023, Table 1. A grade name is enough -- the eleven numbers
     # behind it are in materials/steel_cyclic.GRADES.
     "steel_cyclic": {"grade": "Q345B", "E": 2.06e11, "rho": 7850.0},
+    # the composites (1.21): a yielding core beside an elastic spring, and an
+    # elastic link in series with it -- parts that are laws already exercised
+    "parallel": {"of": [{"type": "steel02", "E": 2.0e11, "rho": 7850.0, "Fy": 4.0e8, "b": 0.01},
+                        {"type": "linear_elastic", "E": 2.0e10, "nu": 0.3, "rho": 7850.0}]},
+    "series": {"of": [{"type": "linear_elastic", "E": 4.0e11, "nu": 0.3, "rho": 7850.0},
+                      {"type": "steel02", "E": 2.0e11, "rho": 7850.0, "Fy": 4.0e8, "b": 0.01}]},
+    "gap": {"E": 2.0e11, "rho": 7850.0, "lo": -1.0e-3, "hi": 0.0},       # a stop at the origin, slack behind it
 }
 
 

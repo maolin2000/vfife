@@ -913,6 +913,9 @@ class AssignSpec(Strict):
     #: 梁端释放，取自 i_rx, i_ry, i_rz, j_rx, j_ry, j_rz（i 为第一个节点）；两端铰接写 [i_ry, i_rz, j_ry, j_rz]
     #: beam end releases, from i_rx, i_ry, i_rz, j_rx, j_ry, j_rz (i = first node); a pin at both ends is [i_ry, i_rz, j_ry, j_rz]
     releases: List[str] = []
+    #: 梁端刚性偏移（1.21）：{i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}，弹性段两端离节点的向量（`local` 是构件按节点连线和 `orientation` 定的轴）。梁端刚域沿构件给，截面偏心（形心在节点下方）横向给。`axial: full` 让框架梁的轴向和扭转刚度按节点间的长度算；默认 `elastic` 按弹性段
+    #: rigid end offsets (1.21): {i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}, the vectors from the nodes to the ends of the member's elastic part (`local`: the member's axes from its nodes' chord and `orientation`). A rigid end zone is an offset along the member, a section whose centroid is below its nodes one across it. `axial: full` takes a frame beam's axial and torsional stiffness over the length between the nodes; `elastic`, the default, over the elastic part
+    end_offsets: Optional[Dict[str, Any]] = None
     #: 连接器：`local`（x 沿弦、y 由 `orientation` 定）或 `global` 分量
     #: connector: `local` (x along the chord, y from `orientation`) or `global` components
     coordinate_system: Optional[Literal["local", "global"]] = None
@@ -1023,8 +1026,8 @@ ASSIGN_KEYS = {
                       "anchorage", "prestress", "friction"},
     "bar": {"prestress", "unstressed_length", "unstressed_lengths", "jack", "tension_only", "failure",
             "orientation"},
-    "beam": {"orientation", "releases", "failure"},
-    "fiber": {"orientation", "anchorage"},
+    "beam": {"orientation", "releases", "failure", "end_offsets"},
+    "fiber": {"orientation", "anchorage", "end_offsets"},
     "connector": {"orientation", "coordinate_system", "failure"},
     "solid": set(),
     "shell": set(),
@@ -1315,11 +1318,32 @@ class InputCase(Strict):
             if "type" not in m:
                 raise ValueError(f"material {name!r} has no type")
 
-        def mat(name, who):
+        def parts_of(spec, name, within):
+            """A composite's parts (1.21), each a name in the table or a spec
+            of its own, resolved here where the table is in scope, so the law
+            is built from specs."""
+            if spec.get("type") not in ("parallel", "series"):
+                return spec
+            parts = spec.get("of")
+            if not isinstance(parts, list) or len(parts) < 2 \
+                    or not all(isinstance(x, (str, dict)) for x in parts):
+                raise ValueError(f"material {name!r}: `of` lists two or more materials (names in "
+                                 f"`materials`, or specs with a `type`), not {parts!r}")
+            spec["of"] = [mat(x, f"material {name!r}", within) if isinstance(x, str)
+                          else parts_of(coerce_numbers(copy.deepcopy(x)), name, within) for x in parts]
+            return spec
+
+        def mat(name, who, _within=()):
             if name not in mats:
                 raise ValueError(f"{who} names material {name!r}, which is not in `materials` "
                                  f"({', '.join(sorted(mats)) or 'empty'})")
-            return copy.deepcopy(mats[name])
+            if name in _within:
+                raise ValueError(f"material {name!r} is a part of itself ({' -> '.join(_within + (name,))})")
+            return parts_of(copy.deepcopy(mats[name]), name, _within + (name,))
+
+        # a connector's `material` law names a material too (1.21), resolved
+        # where its entry is made
+        self._mat = mat
 
         if self.tendons or self.include or self.groups or self.tendon_defaults or self.offset_arms:
             # expanded before the lowering (vfife/prep): here
@@ -1520,6 +1544,8 @@ class InputCase(Strict):
                 entry["anchorage"] = a.anchorage
             if a.orientation is not None:
                 entry["orientation"] = a.orientation
+            if a.end_offsets is not None:
+                entry["end_offsets"] = dict(a.end_offsets)
             entries.append(entry)
         element["type"] = "beam2_fiber"
         element["formulation"] = first.formulation or "full"
@@ -1566,6 +1592,8 @@ class InputCase(Strict):
             element["strain_penetration"] = a.anchorage
         if a.orientation is not None:
             element["orientation"] = a.orientation
+        if a.end_offsets is not None:
+            element["end_offsets"] = dict(a.end_offsets)
         if conn:
             element["fiber_connectors"] = [
                 {"region": c.region, **self._line_element(c, self.sections[c.section])}
@@ -1745,6 +1773,9 @@ class InputCase(Strict):
                 entry["curves"] = s.curves
             if s.laws:
                 entry["laws"] = {k: v.model_dump() for k, v in s.laws.items()}
+                for k, law in entry["laws"].items():
+                    if law["type"] == "material":
+                        law["material"] = self._mat(law["material"], f"section {a.section!r} law {k}")
         else:
             g = s.geometry()
             if s.type == "bar":
@@ -1787,6 +1818,8 @@ class InputCase(Strict):
             entry["orientation"] = a.orientation
         if a.releases:
             entry["releases"] = a.releases
+        if a.end_offsets is not None:
+            entry["end_offsets"] = dict(a.end_offsets)
         if a.coordinate_system is not None:
             entry["coordinate_system"] = a.coordinate_system
         if a.failure is not None:

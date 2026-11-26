@@ -207,7 +207,7 @@ def make_kernel(concrete_point, steel_point, n_gauss, n_conc, n_steel, parallel=
                cy, cz, ca_, cpre, sy, sz, sa_, spre, state_c, state_s,
                cpar, spar, G0J0, GA, Bgy, Bgz, out, actions, end_actions, active, fstress, birth,
                sl_on, sl_ri, sl_rj, sl_GA0, sl_GAcr, sl_Vy, sl_h, sl_kb, sl_flex, sl_epscr,
-               sl_gamma, sl_gcr_c, sl_gmax_c, sl_gcr_t, sl_gmax_t, sl_V, sl_update):
+               sl_gamma, sl_gcr_c, sl_gmax_c, sl_gcr_t, sl_gmax_t, sl_V, sl_update, offs, has_off):
         n_elem = edofs.shape[0]
         ge = np.zeros((n_elem, 12))
         collapsed = np.zeros(n_elem, dtype=np.uint8)
@@ -236,6 +236,16 @@ def make_kernel(concrete_point, steel_point, n_gauss, n_conc, n_steel, parallel=
                 x1[i] = x0[e, 0, i] + q[edofs[e, i]]
                 x2[i] = x0[e, 1, i] + q[edofs[e, 6 + i]]
             n1 = edofs[e, 0] // 6; n2 = edofs[e, 6] // 6
+            # end offsets (1.21, core/member_geometry): the elastic ends x + Q e
+            r1 = np.zeros(3); r2 = np.zeros(3)
+            if has_off[e]:
+                for i in range(3):
+                    r1[i] = (orient[n1, i, 0] * offs[e, 0, 0] + orient[n1, i, 1] * offs[e, 0, 1]
+                             + orient[n1, i, 2] * offs[e, 0, 2])
+                    r2[i] = (orient[n2, i, 0] * offs[e, 1, 0] + orient[n2, i, 1] * offs[e, 1, 1]
+                             + orient[n2, i, 2] * offs[e, 1, 2])
+                    x1[i] += r1[i]
+                    x2[i] += r2[i]
             L = member_frame(x1, x2, orient[n1], orient[n2], R0[e], R, loc)
             if L < 1e-14:
                 collapsed[e] = 1              # raised below: not from a thread
@@ -416,6 +426,14 @@ def make_kernel(concrete_point, steel_point, n_gauss, n_conc, n_steel, parallel=
                     for k in range(3):
                         acc += R[k, i] * fl[3 * blk + k]
                     ge[e, 3 * blk + i] = acc
+            if has_off[e]:
+                # the nodes get m + r x f
+                ge[e, 3] += r1[1] * ge[e, 2] - r1[2] * ge[e, 1]
+                ge[e, 4] += r1[2] * ge[e, 0] - r1[0] * ge[e, 2]
+                ge[e, 5] += r1[0] * ge[e, 1] - r1[1] * ge[e, 0]
+                ge[e, 9] += r2[1] * ge[e, 8] - r2[2] * ge[e, 7]
+                ge[e, 10] += r2[2] * ge[e, 6] - r2[0] * ge[e, 8]
+                ge[e, 11] += r2[0] * ge[e, 7] - r2[1] * ge[e, 6]
 
         for e in range(n_elem):
             if collapsed[e]:

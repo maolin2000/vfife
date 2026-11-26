@@ -5,7 +5,7 @@ each on a model small enough to have a closed form:
   section, a tapered one over a `*TS-GROUP`, a solid rectangle);
 * a stub is a joint, not a softened beam, and only a stub is one -- a
   metre of a box girder is left as it is;
-* a master and its slaves (`*RIGIDLINK`) are rigid arms;
+* a master and its slaves (`*RIGIDLINK`) are the solver's rigid links (1.21);
 * a force and a moment on one node are two loads;
 * an elastic link rigid in some directions, and the same link written in
   two boundary groups that follow one another."""
@@ -125,13 +125,24 @@ def _pipe():
     return i, 2 * i, E / (2 * (1 + NU))
 
 
-def test_a_master_and_its_slaves_are_rigid_arms(tmp_path):
+def test_a_master_and_its_slaves_are_rigid_links(tmp_path):
+    """Two slaves tied in all six on arms across the tip (stiff beams before
+    1.21), each reached by a bar from the tip that the link moves rigidly
+    (no strain: it carries nothing). One tied in all but x above it, which
+    no member reaches, has nothing to hold it along x: left out, and
+    counted (as is a slave no member reaches at all: the mesh has no node
+    that no member uses)."""
     text = _arm("   10, 4, 2, 0\n   11, 4, -2, 0\n   12, 4, 0, 1\n",
                 "*RIGIDLINK\n   2, 111111, 10 11, \n   2, 011111, 12, \n", "   10, 0, 0, -1000, 0, 0, 0, ,\n")
+    text = text.replace("   1, BEAM  ,    1,     2,     1,     2,     0,     0\n",
+                        "   1, BEAM  ,    1,     2,     1,     2,     0,     0\n"
+                        "   2, TRUSS ,    1,     2,     2,    10,     0,     0\n"
+                        "   3, TRUSS ,    1,     2,     2,    11,     0,     0\n")
     model, report, case, row = _model(text, tmp_path)
     assert len(model.rigid_links) == 2
-    assert report["rigid_arms"] == 2
-    assert report["left_out"] == {"*RIGIDLINK that leaves a direction free (011111)": 1}
+    assert report["rigid_arms"] == 0 and report["rigid_link_slaves"] == 2
+    assert report["left_out"] == {"*RIGIDLINK slave that no member reaches": 1}
+    assert [lk["dofs"] for lk in case["rigid_links"]] == [[1] * 6]
     q, _f = _run(case)
     i, j, g = _pipe()
     bend = 1000 * 4 ** 3 / (3 * E * i)
@@ -282,7 +293,12 @@ def test_rigid_between_two_points_at_one_place_is_six_stiff_springs(tmp_path):
     text = text.replace("    11, 20000, 0, 0\n", "    11, 20000, 0, 0\n    12, 20000, 0, 0\n")
     text = text.replace("   1, 111111, 拱脚固结\n", "   1, 111111, 拱脚固结\n   11, 111111, 拱脚固结\n   12, 111111, 拱脚固结\n")
     _m, report, case, _row = _model(text, tmp_path)
-    assert report["connectors"] == 2 and report["rigid_arms"] == 0 and not any("rigid" in k for k in report["left_out"])
+    # the *RIGIDLINK beside it ties a node nothing else reaches (it was six
+    # stiff springs too, before 1.21): a rigid link is no member, and its slave
+    # is left out with the support on it, counted
+    assert report["connectors"] == 1 and report["rigid_arms"] == 0 and report["rigid_link_slaves"] == 0
+    assert report["left_out"]["*RIGIDLINK slave that no member reaches"] == 1
+    assert report["left_out"]["support on a node no member reaches"] == 1
     ks = [s["stiffness"] for s in case["sections"].values() if s["type"] == "connector"]
     assert ks == [pytest.approx([1.0e10] * 6)]
     part = links.replace("YES, YES, YES, YES, YES, YES, 0, 0, 0, 0, 0, 0", "NO, NO, NO, NO, YES, NO, 1, 2, 3, 4, 0, 6")
@@ -576,10 +592,13 @@ def test_a_member_drawn_by_its_top_is_on_its_centroids_line(tmp_path):
     along the nodes' line is then a pull and a moment on the member, and
     the node's own displacement has the section's turn times the depth in
     it: on a real rigid frame the lengthwise displacement was 0.7 to 0.85
-    of Midas' with the member left on its nodes' line."""
+    of Midas' with the member left on its nodes' line. It is an end
+    offset (1.21): the member stays on its nodes, no node or arm is added."""
     _m, report, case, row = _model(_top_aligned(), tmp_path)
-    assert report["members_set_off_their_nodes"] == 2 and report["rigid_arms"] == 3 and report["nodes"] == 6
+    assert report["members_set_off_their_nodes"] == 2 and report["rigid_arms"] == 0 and report["nodes"] == 3
     assert not any("offset" in k for k in report["left_out"])
+    (beam,) = [a for a in case["assign"] if "end_offsets" in a]
+    assert beam["end_offsets"] == {"per": "member", "i": [0.0, 0.0, -0.5], "j": [0.0, 0.0, -0.5], "axial": "full"}
     q, _f = _run(case)
     P, L, e, A, I = 1.0e6, 8.0, 0.5, 0.5, 0.5 / 12
     assert q[row[3], 0] == pytest.approx(P * L / (E * A) + P * e * e * L / (E * I), rel=0.01)
@@ -593,6 +612,7 @@ def test_a_member_drawn_by_its_top_is_on_its_centroids_line(tmp_path):
     # on its centroid (CC) nothing is added
     _m, report, case, row = _model(_top_aligned("CC"), tmp_path, name="cc")
     assert report["members_set_off_their_nodes"] == 0 and report["nodes"] == 3
+    assert not any("end_offsets" in a for a in case["assign"])
     q, _f = _run(case)
     assert q[row[3], 0] == pytest.approx(P * L / (E * A), rel=0.01)
 
@@ -614,25 +634,37 @@ def test_a_stiff_girder_drawn_by_its_top_bends_as_one_on_its_centroid(tmp_path):
     q, _f = _run(case)
     want = q[row[9], 2]
     _m, report, case, row = _model(_box_cantilever("CT"), tmp_path, name="ct")
-    assert report["members_set_off_their_nodes"] == 8 and report["nodes"] == 18
+    assert report["members_set_off_their_nodes"] == 8 and report["nodes"] == 9
     q, _f = _run(case)
     assert q[row[9], 2] == pytest.approx(want, rel=0.005)
     curve = [(i, 0.0, -i * i / 10000.0) for i in range(9)]                          # a vertical curve of 5000 m
     _m, report, case, row = _model(_box_cantilever("CT", curve), tmp_path, name="curve")
-    assert report["nodes"] == 18                                                    # one centroid node a joint
+    assert report["nodes"] == 9
     q, _f = _run(case)
     assert q[row[9], 2] == pytest.approx(want, rel=0.01)
 
 
 def test_a_centroid_that_is_a_node_of_the_model(tmp_path):
-    """A pier's top drawn at the girder's centroid, under its node: that node is the centroid node."""
+    """A pier's top drawn at the girder's centroid, under its node. The girder
+    is on its own nodes (1.21), so the pier holds it only where the model
+    joins the two -- as in Midas. With the centroid nodes it was merged with
+    the pier whether the model joined them or not."""
     pier = "   20, BEAM  ,    1,     2,   20,   21,     0,     0\n"
-    text = _box_cantilever("CT", [(4.0 * i, 0.0, 0.0) for i in range(9)],
-                           extra_nodes="   20, 32, 0, -0.8\n   21, 32, 0, -5\n", extra="   21, 111111, \n")
-    text = text.replace("*MATERIAL", pier + "*MATERIAL").replace("*SECT-PSCVALUE", "*SECTION\n" + PIPE + "*SECT-PSCVALUE")
-    _m, report, case, _row = _model(text, tmp_path)
-    assert report["nodes"] == 9 + 8 + 2                                             # no node of its own under node 9
-    _run(case)
+
+    def text(link=""):
+        t = _box_cantilever("CT", [(4.0 * i, 0.0, 0.0) for i in range(9)],
+                            extra_nodes="   20, 32, 0, -0.8\n   21, 32, 0, -5\n", extra="   21, 111111, \n" + link)
+        return t.replace("*MATERIAL", pier + "*MATERIAL").replace("*SECT-PSCVALUE", "*SECTION\n" + PIPE + "*SECT-PSCVALUE")
+    _m, report, case, row = _model(text(), tmp_path, name="apart")
+    assert report["nodes"] == 9 + 2 and report["rigid_arms"] == 0
+    q_free, _f = _run(case)
+    _m, _r, case, row_a = _model(_box_cantilever("CT", [(4.0 * i, 0.0, 0.0) for i in range(9)]), tmp_path, name="alone")
+    q_alone, _f = _run(case)
+    assert q_free[row[9], 2] == pytest.approx(q_alone[row_a[9], 2], rel=1e-6)       # the pier is not in it
+    _m, report, case, row = _model(text("*ELASTICLINK\n   1, 9, 20, RIGID,     0, NO, 0.5, 0.5, \n"), tmp_path, name="joined")
+    assert report["rigid_arms"] == 1
+    q, _f = _run(case)
+    assert abs(q[row[9], 2]) < 0.05 * abs(q_free[row[9], 2])                         # propped by the pier
 
 
 def test_a_stub_at_a_free_end_and_one_over_a_bearing(tmp_path):
@@ -1053,17 +1085,217 @@ def test_two_tendons_short_say_what_they_share_once(tmp_path):
     assert np.array_equal(qs, ql)
 
 
-def test_the_offset_arms_are_one_rule_and_run_as_their_own_sections(tmp_path):
-    """The short form writes a girder's offset arms as one `offset_arms` rule;
-    read, each arm is the section the converter works out,
-    and the two forms run to the same state, bit for bit."""
+def test_a_girder_set_off_its_nodes_is_written_with_end_offsets(tmp_path):
+    """(1.21) No centroid nodes and no arms: each member's end offsets, the
+    short and the long form alike."""
     text = _box_cantilever("CT")
     _m, rep_s, short, _row = _model(text, tmp_path, name="short", expanded=False)
     _m, rep_l, long_, _row = _model(text, tmp_path, name="long", expanded=True)
-    assert rep_s["offset_arms_ruled"] == rep_s["rigid_arms"] == rep_l["rigid_arms"] == 9
-    assert short["offset_arms"]["regions"] == [f"E{i}" for i in range(2, 11)]
-    assert not any(k.startswith("offset_arm_") for k in short["sections"]) and "offset_arms" not in long_
-    assert sum(1 for k in long_["sections"] if k.startswith("offset_arm_")) >= 1
+    assert rep_s["rigid_arms"] == rep_l["rigid_arms"] == 0 and "offset_arms" not in short
+    assert not any(k.startswith("offset_arm") for k in short["sections"])
+    offs = [a["end_offsets"] for a in short["assign"] if "end_offsets" in a]
+    assert len(offs) == 1 and offs[0]["per"] == "member" and offs[0]["i"] == offs[0]["j"]
+    assert offs[0]["i"][:2] == [0.0, 0.0] and offs[0]["i"][2] < 0.0
     qs, _f = _run(short)
     ql, _f = _run(long_)
     assert np.array_equal(qs, ql)
+
+
+def test_beam_end_offsets_are_rigid_zones(tmp_path):
+    """Midas' *OFFSET (1.21): a rigid zone at the support end of a 4 m
+    cantilever is a cantilever of 3 m; one at the tip carries the load over
+    its lever; TYPE=GLOBAL gives the zone as a vector from the node."""
+    i, _j, _g = _pipe()
+    P = 1.0e5
+    load = "   2, 0, 0, -1.0e5, 0, 0, 0, ,\n"
+    model, report, case, row = _model(_arm(links="*OFFSET\n   1, ELEMENT, 1, 1, 0, 0, \n", loads=load), tmp_path)
+    assert model.offsets == {1: ("ELEMENT", (1.0, 1.0, 0.0, 0.0), "")}
+    assert report["members_with_end_zones"] == 1 and report["end_zone_weight_N"] > 0.0
+    assert report["left_out"] == {}
+    (beam,) = [a for a in case["assign"] if "end_offsets" in a]
+    assert beam["end_offsets"] == {"per": "member", "i": [1.0, 0.0, 0.0], "j": [0.0, 0.0, 0.0], "axial": "full"}
+    q, _f = _run(case)
+    assert q[row[2], 2] == pytest.approx(-P * 3.0 ** 3 / (3 * E * i), rel=1e-3)
+    _m, _r, case, row = _model(_arm(links="*OFFSET\n   1, GLOBAL, 1, 0, 0, 0, 0, 0, \n", loads=load), tmp_path, name="glob")
+    q2, _f = _run(case)
+    assert q2[row[2], 2] == pytest.approx(q[row[2], 2], rel=1e-9)
+    _m, _r, case, row = _model(_arm(links="*OFFSET\n   1, ELEMENT, 0, 0, 1, 1, \n", loads=load), tmp_path, name="tip")
+    q3, _f = _run(case)
+    Lc, a = 3.0, 1.0                    # the elastic end takes P and P a; the node is a further a on, turned
+    assert q3[row[2], 2] == pytest.approx(-P / (E * i) * (Lc ** 3 / 3 + a * Lc ** 2 + a * a * Lc), rel=1e-3)
+    # two different zones for the two bending planes: the one for My, and said
+    _m, report, case, _row = _model(_arm(links="*OFFSET\n   1, ELEMENT, 0.5, 1, 0, 0, \n", loads=load), tmp_path, name="two")
+    assert report["left_out"] == {"beam end offset with different zones for the two bending planes "
+                                  "(the one for My is taken)": 1}
+    (beam,) = [a for a in case["assign"] if "end_offsets" in a]
+    assert beam["end_offsets"]["i"] == [1.0, 0.0, 0.0]
+    # longer than the member: left out
+    _m, report, case, _row = _model(_arm(links="*OFFSET\n   1, ELEMENT, 3, 3, 2, 2, \n", loads=load), tmp_path, name="long")
+    assert report["left_out"] == {"beam end offset longer than its member (left out)": 1}
+    assert not any("end_offsets" in a for a in case["assign"])
+
+
+def test_a_section_set_off_and_an_end_zone_together(tmp_path):
+    """A girder drawn by its top (CT) with a rigid zone at its support: the
+    two offsets add, the zone along the member and the depth across it."""
+    text = _top_aligned(load="   2, 0, 0, -1.0e5, 0, 0, 0, ,\n").replace("*STLDCASE", "*OFFSET\n   1, ELEMENT, 1, 1, 0, 0, \n*STLDCASE")
+    _m, report, case, row = _model(text, tmp_path)
+    offs = sorted((tuple(a["end_offsets"]["i"]), tuple(a["end_offsets"]["j"])) for a in case["assign"] if "end_offsets" in a)
+    assert offs == [((0.0, 0.0, -0.5), (0.0, 0.0, -0.5)), ((1.0, 0.0, -0.5), (0.0, 0.0, -0.5))]
+    q, _f = _run(case)
+    I_ = 0.5 / 12
+    assert q[row[3], 2] == pytest.approx(-1.0e5 * 7.0 ** 3 / (3 * E * I_), rel=0.01)
+
+
+def test_a_beam_end_offset_in_a_staged_model_is_its_boundary_groups(tmp_path):
+    """*OFFSET is a boundary condition: in a model with stages it is there
+    when a stage activates its boundary group, as a support is -- one in no
+    group, or in one no stage activates, is left out, and said."""
+    nodes = {1: (0, 0, 0), 2: (4, 0, 0), 3: (8, 0, 0)}
+    elems = {1: (1, 2), 2: (2, 3)}
+
+    def text(group, on):
+        t = _staged_girder(nodes, elems, {"g": [1, 2]}, [("1", "111111", "P")], [(["g"], on, [])])
+        t = t.replace("*BNDR-GROUP\n   P\n", "*BNDR-GROUP\n   P\n   Z\n")
+        return t.replace("*STAGE\n", f"*OFFSET\n   1, ELEMENT, 1, 1, 0, 0, {group}\n*STAGE\n")
+    _m, report, case, _row = _model(text("", ["P"]), tmp_path, name="none")
+    assert report["left_out"] == {"beam end offset whose boundary group no stage activates (left out)": 1}
+    assert not any("end_offsets" in a for a in case["assign"])
+    _m, report, case, _row = _model(text("Z", ["P"]), tmp_path, name="off")
+    assert report["left_out"] == {"beam end offset whose boundary group no stage activates (left out)": 1}
+    _m, report, case, _row = _model(text("Z", ["P", "Z"]), tmp_path, name="on")
+    assert report["left_out"] == {} and report["members_with_end_zones"] == 1
+    assert [a["end_offsets"]["i"] for a in case["assign"] if "end_offsets" in a] == [[1.0, 0.0, 0.0]]
+    _run(case)
+
+
+def test_offsets_the_reader_and_converter_do_not_take(tmp_path):
+    """A GLOBAL offset that leaves no length is left out and counted; a row
+    whose values are not numbers is not read (found in review)."""
+    load = "   2, 0, 0, -1.0e5, 0, 0, 0, ,\n"
+    _m, report, case, _row = _model(_arm(links="*OFFSET\n   1, GLOBAL, 2, 0, 0, -2.5, 0, 0, \n", loads=load), tmp_path)
+    assert report["left_out"] == {"beam end offset longer than its member (left out)": 1}
+    assert not any("end_offsets" in a for a in case["assign"])
+    model, report, case, _row = _model(_arm(links="*OFFSET\n   1, ELEMENT, 0.4, 0.4, G, \n", loads=load), tmp_path, name="odd")
+    assert model.offsets == {} and model.other == {"OFFSET (not read)": 1}
+    assert report["left_out"] == {"beam end offset whose row is not in the form this reads": 1}
+
+
+# ---- 1.21: what the file says that was read and not followed ----------------
+
+def _solver(case):
+    from vfife.api import run_case
+    got = {}
+    out = run_case(case, on_ready=lambda s, _p: got.__setitem__("s", s))
+    assert out.status == "CONVERGED", out.message
+    return got["s"]
+
+
+def _cable(row, extra=""):
+    """`_arm` and, beside it, a cable from node 3 to node 4 (10 m), both held."""
+    return _arm("   3, 0, 5, 0\n   4, 10, 5, 0\n",
+                links="*CONSTRAINT\n   3 4, 111111, \n" + extra).replace(
+        "*MATERIAL", "   2, TENSTR,    1,     2,     3,     4,     0, " + row + "\n*MATERIAL")
+
+
+def test_a_cable_s_own_unstressed_length_or_tension(tmp_path):
+    """A Midas cable (TENSTR iSUB 3) says its unstressed length (EXVAL2 3) or
+    its tension in the drawn geometry (EXVAL2 1) on its own row: tension only,
+    and held between two supports it pulls with EA (L - Lu) / Lu, or T."""
+    i, _j, _g = _pipe()
+    A = math.pi / 4 * (1.3 ** 2 - 1.256 ** 2)
+    model, report, case, row = _model(_cable("3, 9.99, 3"), tmp_path)
+    assert (model.elements[2].sub, model.elements[2].exval, model.elements[2].exval2) == (3, 9.99, 3)
+    (bar,) = [a for a in case["assign"] if case["sections"][a["section"]]["type"] == "bar"]
+    assert bar["tension_only"] is True and bar["unstressed_lengths"] == [pytest.approx(9.99)]
+    assert not any("TENSTR" in k for k in report["left_out"])
+    s = _solver(case)
+    assert float(s.last_reaction_force[row[3], 0]) == pytest.approx(-E * A * 0.01 / 9.99, rel=1e-6)
+    _m, report, case, row = _model(_cable("3, 1.0e5, 1"), tmp_path, name="t")
+    (bar,) = [a for a in case["assign"] if case["sections"][a["section"]]["type"] == "bar"]
+    assert bar["prestress"] == pytest.approx(1.0e5 / A) and bar["tension_only"] is True
+    s = _solver(case)
+    assert float(s.last_reaction_force[row[3], 0]) == pytest.approx(-1.0e5, rel=1e-6)
+    # a pretension load as well: the cable's own state is taken, and said
+    text = _cable("3, 9.99, 3").replace("*USE-STLD, P\n", "*USE-STLD, P\n*PRETENSION\n   2, 5.0e4, \n")
+    _m, report, _case, _row = _model(text, tmp_path, name="both")
+    assert report["left_out"] == {"pretension load on a cable with its own length or tension (the cable's own taken)": 1}
+    # a hook's gap is not followed (a tension-only bar), and said
+    _m, report, case, _row = _model(_cable("2, 0.01, 0"), tmp_path, name="hook")
+    assert report["left_out"] == {"hook's gap (TENSTR iSUB 2): a tension-only bar without it": 1}
+
+
+def test_section_scale_factors(tmp_path):
+    """`*SECT-SCALE`: the bending constant times its factor (a cantilever
+    deflects twice as much at half Iyy), the weight times its own factor
+    whatever the area's."""
+    load = "   2, 0, 0, -1.0e5, 0, 0, 0, ,\n"
+    _m, _r, case, row = _model(_arm(loads=load), tmp_path)
+    q0 = _run(case)[0][row[2], 2]
+    scale = "*SECT-SCALE\n    2, 1, 1, 1, 1, 0.5, 1, 1, , 1, NO\n"
+    model, report, case, row = _model(_arm(links=scale, loads=load), tmp_path, name="half")
+    assert model.section_scales == {2: ((1.0, 1.0, 1.0, 1.0, 0.5, 1.0, 1.0), "", 1, False)}
+    assert _run(case)[0][row[2], 2] == pytest.approx(2.0 * q0, rel=1e-6)
+    # weight: twice, with the area unchanged
+    weigh = lambda t: t.replace("*USE-STLD, P\n*CONLOAD\n", "*USE-STLD, P\n*SELFWEIGHT\n0, 0, -1, \n*CONLOAD\n")
+    _m, _r, case, row = _model(weigh(_arm()), tmp_path, name="w1")
+    r1 = float(_solver(case).last_reaction_force[row[1], 2])
+    scale = "*SECT-SCALE\n    2, 1, 1, 1, 1, 1, 1, 2, , 1, NO\n"
+    _m, report, case, row = _model(weigh(_arm(links=scale)), tmp_path, name="w2")
+    assert float(_solver(case).last_reaction_force[row[1], 2]) == pytest.approx(2.0 * r1, rel=1e-9)
+    assert any(k.endswith("w2") for k in case["materials"])
+    # different factors at the J end: the I end's, and said
+    scale = "*SECT-SCALE\n    2, 1, 1, 1, 1, 0.5, 1, 1, , 1, YES\n      1, 1, 1, 1, 0.25, 1, 1\n"
+    model, report, _case, _row = _model(_arm(links=scale), tmp_path, name="ij")
+    assert model.section_scales[2][0][4] == 0.5
+    assert report["left_out"] == {"section scale factors different at the J end (the I end's taken)": 1}
+    # a later part of a composite section has a row of its own: not read, and said; the first part's kept
+    scale = "*SECT-SCALE\n    2, 1, 1, 1, 1, 0.5, 1, 1, , 1, NO\n    2, 1, 1, 1, 1, 0.8, 1, 1, , 2, NO\n"
+    model, report, case, row = _model(_arm(links=scale, loads=load), tmp_path, name="parts")
+    assert model.section_scales[2][0][4] == 0.5
+    assert report["left_out"] == {"section scale factors of a later part of a composite section (left out)": 1}
+    assert _run(case)[0][row[2], 2] == pytest.approx(2.0 * q0, rel=1e-6)
+
+
+def _loaded(n2, rows):
+    """A member from node 1 to node 2, both held, with member loads `rows`."""
+    return (HEAD + "*NODE\n   1, 0, 0, 0\n   2, " + n2 + "\n*ELEMENT\n   1, BEAM  ,    1,     2,     1,     2,     0,     0\n"
+            + MAT + "*SECTION\n" + PIPE + "*STLDCASE\n   P , D,\n*CONSTRAINT\n   1 2, 111111, \n*USE-STLD, P\n*BEAMLOAD\n"
+            + rows + "*ENDDATA\n")
+
+
+def _beamload(direction, w1, w2, proj="NO"):
+    return f"   1, BEAM   , UNILOAD, {direction}, {proj} , NO, LY, , , , 0, {w1}, 1, {w2}, 0, 0, 0, 0, , NO, 0, 0, NO, \n"
+
+
+def test_member_loads_varying_projected_and_in_the_member_s_axes(tmp_path):
+    """A member load from w1 to w2 reaches the two ends as (2 w1 + w2) L / 6
+    and (w1 + 2 w2) L / 6; a projected one is per unit of the length normal
+    to it; one in the member's own axes (LX, LY, LZ) along them."""
+    _m, report, case, row = _model(_loaded("3, 0, 4", _beamload("GZ", -10.0, -20.0)), tmp_path)
+    s = _solver(case)
+    R = s.last_reaction_force
+    assert float(R[row[1], 2]) == pytest.approx(5.0 * 40.0 / 6.0) and float(R[row[2], 2]) == pytest.approx(5.0 * 50.0 / 6.0)
+    _m, report, case, row = _model(_loaded("3, 0, 4", _beamload("GZ", -10.0, -20.0, "YES")), tmp_path, name="proj")
+    R = _solver(case).last_reaction_force
+    assert float(R[row[1], 2] + R[row[2], 2]) == pytest.approx(3.0 * 15.0)
+    for direction, axis, sign in (("LZ", 2, 1.0), ("LY", 1, 1.0), ("LX", 0, 1.0)):
+        _m, report, case, row = _model(_loaded("4, 0, 0", _beamload(direction, -10.0, -10.0)), tmp_path, name=direction)
+        assert report["left_out"] == {}
+        R = _solver(case).last_reaction_force
+        assert float(R[row[1], axis] + R[row[2], axis]) == pytest.approx(sign * 40.0)
+
+
+def test_a_rigid_link_comes_and_goes_with_its_boundary_group(tmp_path):
+    """A *RIGIDLINK of the group 扣地锚 (on in the second stage, off in the
+    third) is made in the second step and released in the third, by name;
+    one on a slave its support holds in a tied direction is left out."""
+    a = MCT.index("*USE-STLD, 自重")
+    text = MCT[:a] + "*RIGIDLINK\n   1, 111000, 3, 扣地锚\n   2, 111000, 4, 扣地锚\n" + MCT[a:]
+    _m, report, case, _row = _model(text, tmp_path)
+    assert report["rigid_link_slaves"] == 1
+    assert report["left_out"]["*RIGIDLINK slave held by a support in a tied direction (held or tied, not both)"] == 1
+    assert "rigid_links" not in case
+    (link,) = case["steps"][1]["rigid_links"]
+    assert link["dofs"] == [1, 1, 1, 0, 0, 0]
+    assert link["name"] in case["steps"][2]["release"]

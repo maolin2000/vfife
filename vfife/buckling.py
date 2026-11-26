@@ -350,13 +350,29 @@ def increment_forces(solver, p, xb, u, family):
     return (Np - Nm) / (2.0 * e)
 
 
-def _cr_stress_stiffness(x, T, R0, f, scale):
+def _at_ends(xx, TT, off):
+    """The elastic ends of members whose nodes are at xx (ne, 2, 3) with
+    triads TT, and the offsets now (Q e), for offsets `off` (ne, 2, 3)
+    (core/member_geometry); (xx, None) without them."""
+    if off is None:
+        return xx, None
+    r = np.einsum("enij,enj->eni", TT, off)
+    return xx + r, r
+
+
+def _cr_stress_stiffness(x, T, R0, f, scale, off=None):
     """The stress part of the co-rotational tangent, per member: d(R^T f)/d
     (state) with the end actions f (ne, 12) held, R the member frames of
     `rotations.beam_frames_from_triads` at end positions x (ne, 2, 3) and
     triads T (ne, 2, 3, 3) -- the frame every line solver's member forces
     are rotated back with. Differenced along the probe's coordinates:
-    translations, and spatial spins T <- exp(h e) T. (ne, 12, 12)."""
+    translations, and spatial spins T <- exp(h e) T. (ne, 12, 12).
+
+    With end offsets `off` the state is the NODES': the frame is the
+    elastic ends', and the moments at the nodes take the levers r x f with
+    r = Q e turned by the spin -- so the derivative carries B^T (.) B and
+    the lever's own term (d theta x r) x f, the rigid stretch's string
+    stiffness."""
     from .core.rotations import beam_frames_from_triads, exp_map
     ne = len(f)
     fb = f.reshape(ne, 4, 3)
@@ -372,13 +388,18 @@ def _cr_stress_stiffness(x, T, R0, f, scale):
             else:
                 w = np.zeros(3); w[comp] = sgn * hr
                 TT[:, node] = np.einsum("ij,ejk->eik", exp_map(w), T[:, node])
-            R, _theta, _L = beam_frames_from_triads(xx, TT, R0)
-            out.append(np.einsum("eji,ekj->eki", R, fb).reshape(ne, 12))
+            xe, r = _at_ends(xx, TT, off)
+            R, _theta, _L = beam_frames_from_triads(xe, TT, R0)
+            g = np.einsum("eji,ekj->eki", R, fb).reshape(ne, 12)
+            if r is not None:
+                g[:, 3:6] += np.cross(r[:, 0], g[:, 0:3])
+                g[:, 9:12] += np.cross(r[:, 1], g[:, 6:9])
+            out.append(g)
         K[:, :, col] = (out[0] - out[1]) / (2.0 * (ht if kind == 0 else hr))
     return K
 
 
-def _cr_local_jacobian(x, T, R0, L0, scale):
+def _cr_local_jacobian(x, T, R0, L0, scale, off=None):
     """d(local deformation)/d(state) of each member at (x, T): the twelve
     local quantities of `f = k d` -- the elongation at index 6, the two
     ends' local rotations at 3:6 and 9:12, the rest zero (the frame passes
@@ -397,7 +418,7 @@ def _cr_local_jacobian(x, T, R0, L0, scale):
             else:
                 w = np.zeros(3); w[comp] = sgn * hr
                 TT[:, node] = np.einsum("ij,ejk->eik", exp_map(w), T[:, node])
-            _R, theta, L = beam_frames_from_triads(xx, TT, R0)
+            _R, theta, L = beam_frames_from_triads(_at_ends(xx, TT, off)[0], TT, R0)
             d = np.zeros((ne, 12))
             d[:, 6] = L - L0
             d[:, 3:6], d[:, 9:12] = theta[:, 0], theta[:, 1]
@@ -487,6 +508,9 @@ def stress_stiffness(solver, p, N, family=None, x=None):
     orient = _orient_of(solver, x) if solver.dofs.stride == 6 else np.repeat(np.eye(3)[None], solver.nn, 0)
     c = conn[beams]
     xe, Te = pos[c], orient[c]
+    from .core import member_geometry
+    geometry = member_geometry.of(solver)
+    off = None if not geometry.any else np.asarray(geometry.offset, float)[beams]
     scale = float(np.median(lengths[beams]))
     # the end actions in four groups, K_G being linear in them: the axial
     # force, the torque, and the two planes' bending (shear and moment) --
@@ -503,8 +527,8 @@ def stress_stiffness(solver, p, N, family=None, x=None):
         elif name == "z":
             part *= cyz[:, 1:]
         if np.any(part):
-            Kcr += _cr_stress_stiffness(xe, Te, R0[beams], part, scale)
-    Bl = _cr_local_jacobian(xe, Te, R0[beams], lengths[beams], scale)
+            Kcr += _cr_stress_stiffness(xe, Te, R0[beams], part, scale, off)
+    Bl = _cr_local_jacobian(xe, Te, R0[beams], lengths[beams], scale, off)
     for k, e in enumerate(beams):
         L = float(lengths[e])
         f = ends[e]
@@ -528,7 +552,9 @@ def analyse(solver, n_modes=6, state=None, max_dofs=6000, h=None) -> BucklingRes
     loads, from its reference configuration -- or, with `state` (the solver
     already holding it, as `modal.restore_state` leaves it), from that state."""
     import scipy.linalg
-    from .modal import _diaphragm_map, physical_mass
+    from .modal import physical_mass
+    from .core import constraints
+    ties = constraints.of(solver)
     family = _family(solver)
     p = make_probe(solver)
     if p.n > max_dofs:
@@ -558,7 +584,19 @@ def analyse(solver, n_modes=6, state=None, max_dofs=6000, h=None) -> BucklingRes
     # degrees of freedom that carry no stiffness at all (a spare particle
     # kept for a split, a node no member reaches) are no part of it
     live = free[np.abs(Kb[np.ix_(free, free)]).max(axis=1) > 1e-12 * scale]
-    if not np.any(F[live]):
+    T = None
+    if ties is not None and not ties.empty():
+        # WITH MULTI-POINT CONSTRAINTS LIVENESS IS THE REDUCED SYSTEM'S: a
+        # link's master reached only through its slaves has no stiffness of
+        # its own, and dropping its dof locked the slaves in it and lost their
+        # loads -- a cantilever whose tip is a slave "had no positive factor"
+        # (found in review, 1.21). The map is taken over every free dof, and
+        # the masters that carry nothing in T^T K T are dropped there.
+        live = free
+        T = ties.free_map(p, live, physical_mass(solver, p))
+        Kr = np.asarray(T.T @ np.asarray((T.T @ Kb[np.ix_(live, live)]).T))
+        T = T[:, np.flatnonzero(np.abs(Kr).max(axis=1) > 1e-12 * scale)].tocsr()
+    if not np.any(F[live] if T is None else T.T @ F[live]):
         if np.any(F[free]):
             raise ValueError("the loads act where the model has no stiffness at its base state (a slack "
                              "cable, a tension-only member): ask at a loaded state with --result")
@@ -577,7 +615,6 @@ def analyse(solver, n_modes=6, state=None, max_dofs=6000, h=None) -> BucklingRes
                     "prestress, an imposed strain or a temperature",
                     "run the case to the state it is in under them and ask there: `vfife buckling <case> "
                     "--result <result.h5>` (the factor is then on the loads added to that state)")
-    T = _diaphragm_map(solver, p, live, physical_mass(solver, p)) if hasattr(solver, "_setup_diaphragms") else None
 
     def reduce(M):
         M = M[np.ix_(live, live)]

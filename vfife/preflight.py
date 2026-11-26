@@ -103,7 +103,22 @@ def _diaphragms(case, mesh, items):
                    region=d.region, nodes=int(held.any(axis=1).sum()))
 
 
-def _mesh_checks(mesh, element, items):
+def _linked_pairs(case, mesh):
+    """The (master, slave) node pairs of the case's rigid links (1.21): a
+    slave on its master's position is an equalDOF joint, not two parts
+    left unjoined."""
+    out = set()
+    links = list(getattr(case, "rigid_links", None) or []) + [
+        lk for st in (getattr(case, "steps", None) or []) for lk in getattr(st, "rigid_links", None) or []]
+    for lk in links:
+        if lk.master in mesh.regions and lk.slaves in mesh.regions:
+            for m in np.asarray(mesh.regions[lk.master]).ravel():
+                for n in np.asarray(mesh.regions[lk.slaves]).ravel():
+                    out.add(frozenset((int(m), int(n))))
+    return out
+
+
+def _mesh_checks(mesh, element, items, joined=frozenset()):
     x, conn = np.asarray(mesh.nodes), np.asarray(mesh.elements)
     if not np.isfinite(x).all():
         _issue(items, "ERROR", "NONFINITE_COORDINATE", "mesh contains non-finite coordinates")
@@ -134,6 +149,8 @@ def _mesh_checks(mesh, element, items):
     # an exact duplicate was refused
     from scipy.spatial import cKDTree
     pairs = cKDTree(x).query_pairs(r=1e-8 * diag, output_type="ndarray")
+    if len(pairs) and joined:
+        pairs = np.array([p for p in pairs if frozenset((int(p[0]), int(p[1]))) not in joined]).reshape(-1, 2)
     if len(pairs):
         _issue(items, "ERROR", "DUPLICATE_NODE",
                f"distinct nodes share the same position (within {1e-8 * diag:.3g}): "
@@ -237,6 +254,17 @@ def _constraint_mask(case, mesh, ndof, soil=False):
         axes = [i for i in range(3) if i != up] if spec.direction == "horizontal" else ["xyz".index(spec.direction)]
         for a in axes:
             mask[nodes, a] = True
+    # A RIGID LINK OF SOME DIRECTIONS (1.21) holds its slave in them from its
+    # master, as a support does: a stay hung on a tower by its translations
+    # alone is no free body. (One of all six joins its nodes to their master's
+    # part instead, `_components`.) For the rigid-mode check only.
+    links = list(getattr(case, "rigid_links", None) or []) + [
+        lk for st in (getattr(case, "steps", None) or []) for lk in getattr(st, "rigid_links", None) or []]
+    for lk in links if soil else []:
+        if lk.slaves not in mesh.regions or all(lk.dofs):
+            continue
+        dofs = np.asarray(lk.dofs, dtype=bool)[:ndof]
+        mask[np.asarray(mesh.regions[lk.slaves]), :len(dofs)] |= dofs
     return mask
 
 
@@ -284,7 +312,7 @@ def _solid_blocks(mesh):
     return solid or [np.asarray(mesh.elements)]
 
 
-def _components(mesh, blocks=None):
+def _components(mesh, blocks=None, case=None):
     """Connected components over `blocks`, or over the solid blocks.
 
     `blocks` is how a mixed-dimensional model asks the question it actually
@@ -306,6 +334,24 @@ def _components(mesh, blocks=None):
             for node in row[1:]:
                 a, b = root, find(int(node))
                 if a != b: parent[b] = a
+    # a rigid link of all six components joins its slaves to its master
+    # (1.21), as a member does; a partial one leaves the slave's part its
+    # own mechanism, which the check below is to find
+    # (a step's too: the members a step builds are joined here as well -- the
+    # check is of the model, not of one stage; 1.21)
+    links = [] if case is None else list(getattr(case, "rigid_links", None) or []) + [
+        lk for st in (getattr(case, "steps", None) or []) for lk in getattr(st, "rigid_links", None) or []]
+    for lk in links:
+        if lk.master not in mesh.regions or lk.slaves not in mesh.regions or not all(lk.dofs):
+            continue
+        m = np.asarray(mesh.regions[lk.master]).ravel()
+        if not len(m):
+            continue
+        # a master of several nodes is refused by the solver, with its own
+        # message; joined here to its first so that message is the one met
+        for node in np.asarray(mesh.regions[lk.slaves]).ravel():
+            a, b = find(int(m[0])), find(int(node))
+            if a != b: parent[b] = a
     groups = {}
     for node in range(mesh.n_nodes): groups.setdefault(find(node), []).append(node)
     return [np.asarray(nodes, dtype=int) for nodes in groups.values()]
@@ -392,7 +438,7 @@ def _rotating_nodes(case, mesh, element):
 def _rigid_modes(case, mesh, element, items, blocks=None):
     ndof = 6 if element in _SIX_DOF_TYPES else 3
     fixed = _constraint_mask(case, mesh, ndof, soil=True)
-    components = _components(mesh, blocks)
+    components = _components(mesh, blocks, case)
     for c, nodes in enumerate(components):
         centre = mesh.nodes[nodes].mean(axis=0); r = mesh.nodes[nodes] - centre
         modes = np.zeros((len(nodes), ndof, 6))
@@ -1349,8 +1395,9 @@ _MONITOR_KINDS = {
 #: frame models whose solver records member-force monitors (`kind: element`,
 #: v1.0); the shells do not
 _ELEMENT_MONITOR_FRAMES = {"beam2", "beam2_timoshenko", "mixed_line", "coupled"}
-#: where rigid diaphragms are applied (BeamSolver.run's projection)
-_DIAPHRAGM_ELEMENTS = {"beam2", "beam2_timoshenko", "mixed_line", "shell3", "shell4", "shell_line", "coupled"}
+#: where rigid diaphragms are applied (core/constraints)
+_DIAPHRAGM_ELEMENTS = {"beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber", "shell3", "shell4", "shell_line",
+                       "coupled"}
 _STATIC_ELEMENTS = {"beam2", "beam2_timoshenko", "mixed_line", "beam2_fiber"}
 
 
@@ -1385,7 +1432,7 @@ def _scope(case, element, items):
     if getattr(case, "diaphragms", None) and (element not in _DIAPHRAGM_ELEMENTS
                                                or case.solver.backend == "warp"):
         _issue(items, "ERROR", "DIAPHRAGM_UNSUPPORTED",
-               f"diaphragms are applied to beam, shell and coupled models on the numpy/numba backends; "
+               f"diaphragms are applied to beam, fibre-beam, shell and coupled models on the numpy/numba backends; "
                f"this is a {element} model on {case.solver.backend}, where they would be ignored")
     loads = list(case.loads) + [l for st in case.steps for l in st.loads]
     if element not in _SOLID_TYPES and any(getattr(l, "follower", False) for l in loads):
@@ -1697,7 +1744,7 @@ def check(case, mesh, element: str) -> dict[str, Any]:
     from .core.mesh import Mesh as _Mesh
     for _name in _blocks:
         if _name == element:
-            _mesh_checks(mesh, element, items)
+            _mesh_checks(mesh, element, items, _linked_pairs(case, mesh))
         else:
             # each block gets its own Jacobian / degeneracy check; ORPHAN_NODE
             # is dropped because a node is only an orphan of the WHOLE model,

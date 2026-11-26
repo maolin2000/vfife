@@ -77,7 +77,7 @@ def _solver(diaphragm=True, mass=1.0e4):
 
 def _accel(s, force):
     """The acceleration field the solver would use for `force`."""
-    return s._project_diaphragms(force / s.mass)
+    return s.constraint_layer().project(force / s.mass)
 
 
 def _rigid_residual(x, acc, idx):
@@ -170,9 +170,9 @@ def test_a_floor_that_is_also_held_by_a_support_is_refused():
     s, mesh, floors = _solver()
     # the solver's case is read-only (core/problem.py): a changed copy
     s.p = s.p.derive(diaphragms=[{"region": "base", "normal": "z"}])
-    s._diaphragms = None
+    s.ties = None
     with pytest.raises(ValueError, match="constrained"):
-        s._project_diaphragms(np.zeros(s.ndof))
+        s.constraint_layer().project(np.zeros(s.ndof))
 
 
 def test_a_load_on_one_corner_moves_the_whole_storey():
@@ -194,3 +194,31 @@ def test_a_load_on_one_corner_moves_the_whole_storey():
         out[tag] = speed.min() / speed.max()
     assert out[False] < 1e-12, out
     assert out[True] > 0.2, out
+
+
+@pytest.mark.parametrize("mode", ["static", "relaxation"])
+def test_a_fibre_models_floor_moves_as_one_in_its_plane(tmp_path, mode):
+    """The storey of tests/test_static_fallback on fibre beams: the floors
+    are the beam family's since the constraint layer (1.21), and the fibre
+    solver -- the frame solver's sibling -- takes them, in the Newton
+    system and in the relaxation alike."""
+    from test_static_fallback import _run, _storey
+    d = _storey(tmp_path, mode=mode)
+    d["sections"]["s"] = {"type": "fiber", "material": "c", "shape": "tube", "diameter": 0.4, "t": 0.05, "nt": 16}
+    if mode == "relaxation":
+        d["solver"].update({"n_steps": 200000, "max_steps_per_load": 100000, "tolerance": 1e-7})
+    o, s = _run(d)
+    assert o.status == "CONVERGED", o.message
+    assert type(s).__name__ == "FiberBeamSolver"
+    q = s.q.reshape(-1, 6)
+    floor = np.asarray(s.mesh.regions["floor"]).ravel()
+    x = s.mesh.nodes[floor]
+    rz = q[floor, 5]
+    # (the floor ties the spins; the logged rotations agree to the second
+    # order of the bending rotations, larger on these softer tubes: 1e-4)
+    assert np.allclose(rz, rz[0], rtol=5e-4, atol=0) and abs(rz[0]) > 1e-6
+    c = x[:, :2].mean(axis=0)
+    ux = q[floor, 0]; uy = q[floor, 1]
+    assert np.allclose(ux - ux.mean(), -rz[0] * (x[:, 1] - c[1]), rtol=0, atol=1e-4 * abs(ux).max())
+    assert np.allclose(uy - uy.mean(), rz[0] * (x[:, 0] - c[0]), rtol=0, atol=1e-4 * abs(ux).max())
+    assert np.isclose(float(np.asarray(o.monitors["Rx"])[-1]), -2.0e5, rtol=1e-6)

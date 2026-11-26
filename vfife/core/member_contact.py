@@ -149,6 +149,7 @@ class MemberContact:
         self.nodal_force = np.zeros((solver.nn, 3))
         self.nodal_moment = np.zeros((solver.nn, 3))
         self.penetration = np.zeros(solver.nn)
+        self._ends = None                     # (connectivity it was built for, _ElasticEnds)
 
     # ----------------------------------------------------------------- setup
     def _region_members(self, region):
@@ -265,6 +266,12 @@ class MemberContact:
         One probe with the girder lifted 0.3 m cut its allowance by 0.3 m,
         and the force at the state it came back to was 4e11 N (found in
         review). A relaxation's are written when its level is committed."""
+        ends = self._elastic_ends()
+        if ends is not None:
+            # members with end offsets: their capsules are on their elastic
+            # axes, between points carried by the nodes (`_ElasticEnds`)
+            x, v, w, node_mass, node_inertia = ends.extend(x, v, w, node_mass, node_inertia,
+                                                           self.solver.orient)
         ids, conn, rad, gids = self.prepare(x)
         x = np.ascontiguousarray(x, dtype=float)
         if commit:
@@ -286,7 +293,22 @@ class MemberContact:
         if not commit:
             self._pending = (self.keys, vals)
         self.book()
+        if ends is not None:
+            self.nodal_force, self.nodal_moment, self.penetration = ends.back(
+                self.nodal_force, self.nodal_moment, self.penetration)
         return self.nodal_force, self.nodal_moment
+
+    def _elastic_ends(self):
+        """The `_ElasticEnds` of the contact's members for the connectivity
+        now, or None when none of them has an end offset."""
+        from . import member_geometry
+        geometry = member_geometry.of(self.solver)
+        if not geometry.any or not np.any(self.body[geometry.members] >= 0):
+            return None
+        elements = np.asarray(self.solver.mesh.elements)[:, :2]
+        if self._ends is None or not np.array_equal(self._ends[0], elements):
+            self._ends = (elements.copy(), _ElasticEnds(elements, geometry.offset, self.body, self.solver.nn))
+        return self._ends[1]
 
     def prepare(self, x):
         """What an evaluation needs before the kernel, and the events only
@@ -299,7 +321,8 @@ class MemberContact:
         s = self.solver
         ids = self._active()
         elements = np.asarray(s.mesh.elements)
-        conn = np.ascontiguousarray(elements[ids][:, :2], dtype=np.int64)
+        ends = self._elastic_ends()
+        conn = np.ascontiguousarray((elements[:, :2] if ends is None else ends.conn)[ids], dtype=np.int64)
         rad = np.ascontiguousarray(self.radius[ids])
         gids = np.ascontiguousarray(ids, dtype=np.int64)
         x = np.ascontiguousarray(x, dtype=float)
@@ -426,6 +449,52 @@ class MemberContact:
                 f"stiffness {'auto' if self.k_user == 0.0 else self.k_user}")
 
 
+
+
+class _ElasticEnds:
+    """The capsules of members with end offsets (1.21): on the ELASTIC axis,
+    between points the nodes carry rigidly -- x + Q e, moving with
+    v + w x (Q e) and spinning with the node -- so the kernel sees
+    points and members as ever. A force f and a couple m on such a point
+    reach its node as f and m + (Q e) x f. Two members meeting at a node
+    with the same offset there share the point, so they are neighbours,
+    not a contact; an end without an offset is its node."""
+
+    def __init__(self, elements, offset, body, nn):
+        self.nn = int(nn)
+        conn = np.array(elements, dtype=np.int64, copy=True)
+        rows = {}
+        node, vec = [], []
+        for e in np.flatnonzero(body >= 0):
+            for k in range(2):
+                ev = offset[e, k]
+                if not np.any(ev):
+                    continue
+                # to a nanometre: offsets given in each member's local axes
+                # come back from its rotation 1e-16 apart at a shared node
+                key = (int(conn[e, k]),) + tuple(float(c) for c in np.round(ev, 9))
+                if key not in rows:
+                    rows[key] = self.nn + len(node)
+                    node.append(int(conn[e, k])); vec.append(ev)
+                conn[e, k] = rows[key]
+        self.conn = conn
+        self.node = np.asarray(node, np.int64)
+        self.vec = np.asarray(vec, float).reshape(-1, 3)
+        self.r = np.zeros_like(self.vec)
+
+    def extend(self, x, v, w, mass, inertia, orient):
+        n = self.node
+        self.r = r = np.einsum("nij,nj->ni", orient[n], self.vec)
+        return (np.vstack([x, x[n] + r]), np.vstack([v, v[n] + np.cross(w[n], r)]), np.vstack([w, w[n]]),
+                np.concatenate([mass, mass[n]]), np.concatenate([inertia, inertia[n]]))
+
+    def back(self, f, mom, pen):
+        nn, n = self.nn, self.node
+        fn = f[:nn].copy(); mn = mom[:nn].copy(); pn = pen[:nn].copy()
+        np.add.at(fn, n, f[nn:])
+        np.add.at(mn, n, mom[nn:] + np.cross(self.r, f[nn:]))
+        np.maximum.at(pn, n, pen[nn:])
+        return fn, mn, pn
 
 
 class MemberContactComponent:

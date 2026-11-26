@@ -240,6 +240,20 @@
           "type": "array",
           "description": "梁端释放，取自 i_rx, i_ry, i_rz, j_rx, j_ry, j_rz（i 为第一个节点）；两端铰接写 [i_ry, i_rz, j_ry, j_rz]\n\nbeam end releases, from i_rx, i_ry, i_rz, j_rx, j_ry, j_rz (i = first node); a pin at both ends is [i_ry, i_rz, j_ry, j_rz]"
         },
+        "end_offsets": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Offsets",
+          "description": "梁端刚性偏移（1.21）：{i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}，弹性段两端离节点的向量（`local` 是构件按节点连线和 `orientation` 定的轴）。梁端刚域沿构件给，截面偏心（形心在节点下方）横向给。`axial: full` 让框架梁的轴向和扭转刚度按节点间的长度算；默认 `elastic` 按弹性段\n\nrigid end offsets (1.21): {i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}, the vectors from the nodes to the ends of the member's elastic part (`local`: the member's axes from its nodes' chord and `orientation`). A rigid end zone is an offset along the member, a section whose centroid is below its nodes one across it. `axial: full` takes a frame beam's axial and torsional stiffness over the length between the nodes; `elastic`, the default, over the elastic part"
+        },
         "coordinate_system": {
           "anyOf": [
             {
@@ -462,11 +476,12 @@
             "bilinear",
             "friction",
             "damper",
-            "pendulum"
+            "pendulum",
+            "material"
           ],
           "title": "Type",
           "type": "string",
-          "description": "律的种类：`gap` 间隙/限位，`bilinear` 双线性滞回（隔震支座、屈服耗能装置），`friction` 库仑摩擦滑动，`damper` 非线性粘滞阻尼器 F = c·sign(v)·|v|^α（1.10），`pendulum` 摩擦摆支座（1.10）\n\n`gap`, `bilinear`, `friction`, `damper` (a fluid viscous damper, F = c sign(v) |v|^alpha; 1.10) or `pendulum` (a friction pendulum bearing; 1.10)"
+          "description": "律的种类：`gap` 间隙/限位，`bilinear` 双线性滞回（隔震支座、屈服耗能装置），`friction` 库仑摩擦滑动，`damper` 非线性粘滞阻尼器 F = c·sign(v)·|v|^α（1.10），`pendulum` 摩擦摆支座（1.10），`material` 材料表里的一维材料，F = area·σ(d/length)（1.21）\n\n`gap`, `bilinear`, `friction`, `damper` (a fluid viscous damper, F = c sign(v) |v|^alpha; 1.10), `pendulum` (a friction pendulum bearing; 1.10) or `material` (a one-dimensional law of the material table, F = area sigma(d / length); 1.21)"
         },
         "lo": {
           "anyOf": [
@@ -636,6 +651,51 @@
           "default": null,
           "title": "Normal",
           "description": "friction：压紧力从哪来——`ux`（同一连接器局部 ux 线性弹簧当前的压力；只有它的正负与节点顺序无关），或一个常数（N）\n\nfriction: where the compression comes from -- `ux` (the current compression of this connector's local ux spring, the one component whose sign does not depend on the node order) or a constant force"
+        },
+        "material": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Material",
+          "description": "material：`materials` 里一维材料的名字（可以是 parallel、series、gap）\n\nmaterial: the name of a one-dimensional law in `materials` (parallel, series and gap included)"
+        },
+        "area": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Area",
+          "description": "material：力 = area × 应力；不写为 1（材料表即力–变形关系）\n\nmaterial: force = area x stress; 1 when left out (the table is then the force-deformation relation)"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length",
+          "description": "material：应变 = 变形 / length；不写为 1\n\nmaterial: strain = deformation / length; 1 when left out"
         }
       },
       "required": [
@@ -2941,6 +3001,57 @@
       "title": "ResponseSpectrumSpec",
       "type": "object"
     },
+    "RigidLinkSpec": {
+      "additionalProperties": false,
+      "description": "A master-slave rigid link (1.21): the slaves' tied components follow\nthe master as a rigid body does, in large rotation (core/constraints).\nMidas' *RIGIDLINK, OpenSees' rigidLink and (with `arm: false`) equalDOF.",
+      "properties": {
+        "master": {
+          "title": "Master",
+          "type": "string",
+          "description": "主节点：恰好一个节点的区域\n\nthe master: a region of exactly one node"
+        },
+        "slaves": {
+          "title": "Slaves",
+          "type": "string",
+          "description": "从节点：一个或多个节点的区域\n\nthe slaves: a region of one or more nodes"
+        },
+        "dofs": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "title": "Dofs",
+          "type": "array",
+          "description": "跟着主节点的分量，整体轴的 ux uy uz rx ry rz，1 为跟随（Midas 的 6 位标记）\n\nthe components that follow the master, in the global axes ux uy uz rx ry rz, 1 = tied (Midas' six flags)"
+        },
+        "arm": {
+          "default": true,
+          "title": "Arm",
+          "type": "boolean",
+          "description": "true：平动按主从之间的力臂随主节点转动（rigidLink）；false：从节点平动等于主节点平动（equalDOF）\n\ntrue: the translations carry the arm between master and slave, turning with the master (rigidLink); false: the slave's translation is the master's (equalDOF)"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name",
+          "description": "名字（报错和输出里用）\n\na name (for messages)"
+        }
+      },
+      "required": [
+        "master",
+        "slaves"
+      ],
+      "title": "RigidLinkSpec",
+      "type": "object"
+    },
     "RigidSurfaceSpec": {
       "additionalProperties": false,
       "description": "One rigid, immovable surface the nodes of `region` cannot pass through:\na penalty spring on the penetration along the normal,\nand Coulomb friction against the tangential velocity in a dynamic run.\ncore/rigid_contact.py has the mechanics and the sizing of `auto`.",
@@ -4633,7 +4744,16 @@
           },
           "title": "Release",
           "type": "array",
-          "description": "解除这些区域节点上继承下来的约束（模型级与 keep 的）：支反力在本步内卸到零；本步自己的约束照常施加\n\nfrees the inherited constraints (model-level and kept ones) on these regions' nodes: the reaction is taken off over the step; the step's own constraints still apply"
+          "description": "解除这些区域节点上继承下来的约束（模型级与 keep 的）：支反力在本步内卸到零；本步自己的约束照常施加。也可以写主从刚性连接的 `name`（1.21）：连接拆除，它的约束力在本步内卸到零\n\nfrees the inherited constraints (model-level and kept ones) on these regions' nodes: the reaction is taken off over the step; the step's own constraints still apply. A rigid link's `name` frees that link (1.21): the force it carried is taken off over the step"
+        },
+        "rigid_links": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RigidLinkSpec"
+          },
+          "title": "Rigid Links",
+          "type": "array",
+          "description": "本步开始时建立的主从刚性连接（1.21），按这时节点所在的位置和转角建立，建立时不受力；写法同模型级的 `rigid_links`\n\nmaster-slave rigid links made at this step's start (1.21), where their nodes then stand and free of force; written as the model's `rigid_links`"
         }
       },
       "title": "StepSpec",
@@ -5459,11 +5579,14 @@
               "chaboche",
               "concrete01",
               "concrete02",
+              "gap",
               "j2",
               "linear_elastic",
               "orthotropic",
+              "parallel",
               "piecewise_uniaxial",
               "rebar",
+              "series",
               "steel02",
               "steel_cyclic",
               "viscoelastic"
@@ -5476,11 +5599,14 @@
               "parameters: E, nu, rho, yield_strength, Q_inf, b, H_iso, C1, gamma1, C2, gamma2, damage_initiation_strain, damage_evolution_rate, damage_max, damage_viscosity, n_newton",
               "parameters: fpc, epsc0, fpcu, epscu, fc, eps_c0, fcu, eps_cu, E, rho, nu",
               "parameters: fpc, epsc0, fcu, epscu, rat, ft, Ets, fc, eps_c0, fcu2, eps_cu, rho, nu, strain_scale, fpcu",
+              "parameters: E, rho, lo, hi",
               "parameters: E, nu, rho, hardening, yield_strength, kinematic, n_newton",
               "parameters: E, nu, rho",
               "parameters: E1, E2, E3, nu12, nu13, nu23, G12, G13, G23, rho",
+              "parameters: of, factors, rho",
               "parameters: E, rho, tension, compression, hardening_mode, kinematic_fraction, nu",
               "parameters: E, rho, yield_strength, hardening, kinematic_fraction, nu, rupture_strain",
+              "parameters: of, max_iterations, tolerance, rho",
               "parameters: E, E0, rho, Fy, yield_strength, b, R0, cR1, cR2, a1, a2, a3, a4, nu, strain_scale, rupture_strain",
               "parameters: E, rho, nu, grade, fy, fu, f_uf, k1, k2, k3, a, b0, b1, b2, eps_cri, lambda_dsps, skeleton_fit",
               "parameters: E, nu, rho, g, tau"
@@ -5855,6 +5981,15 @@
       "title": "Diaphragms",
       "type": "array",
       "description": "刚性隔板：区域内节点在某个平面内作刚体运动"
+    },
+    "rigid_links": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/RigidLinkSpec"
+      },
+      "title": "Rigid Links",
+      "type": "array",
+      "description": "主从刚性连接：从节点的指定分量按刚体跟随主节点，大转动（1.21；框架、纤维梁、壳和壳线模型；部分约束转动时相对转角要小）\n\nmaster-slave rigid links: the slaves' tied components follow the master as a rigid body, in large rotation (1.21; frame, fibre-beam, shell and shell-line models)"
     },
     "amplitudes": {
       "additionalProperties": true,

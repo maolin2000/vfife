@@ -609,7 +609,7 @@ LINE_ELEMENTS: Dict[str, ElementCapability] = {
         # a steel02 bar the solver would have run.
         ("solid_3d", "uniaxial"),
         ("linear_elastic", "rebar", "piecewise_uniaxial", "steel02", "steel_cyclic",
-         "concrete01", "concrete02"),
+         "concrete01", "concrete02", "parallel", "series", "gap"),
         ("numpy",), ("dynamic", "relaxation"),
         ("nodal_force", "gravity", "body_force", "ground_motion"),
         ("displacement", "axial_force", "axial_force_max_abs",
@@ -649,7 +649,8 @@ LINE_ELEMENTS: Dict[str, ElementCapability] = {
     "beam2_fiber": ElementCapability(
         "beam2_fiber", "line", ("line2",),
         ("ux", "uy", "uz", "rx", "ry", "rz"), ("fiber_euler_bernoulli_3d",),
-        ("uniaxial",), ("linear_elastic", "rebar", "steel02", "steel_cyclic", "piecewise_uniaxial", "concrete01", "concrete02"),
+        ("uniaxial",), ("linear_elastic", "rebar", "steel02", "steel_cyclic", "piecewise_uniaxial", "concrete01", "concrete02",
+                        "parallel", "series", "gap"),
         # `numpy` is the readable path, promoted to the fused numba kernel
         # whenever the section qualifies and numba is installed; `numba`
         # REQUIRES the kernel and is refused with the kernel's own reason

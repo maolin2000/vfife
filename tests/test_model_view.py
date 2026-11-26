@@ -270,3 +270,118 @@ def test_one_symbol_each_with_its_code_and_the_one_clicked_in_full(tmp_path):
     # arms reach (arm_a's middle) and the connectors' ends too; with the arms hidden, not the middle one
     assert dots == len(np.unique(data["arrays"]["conn"]))
     assert dots_no_arms == dots - 1
+
+
+def _offset_frame(tmp_path):
+    """A girder drawn by its top line, its centroid 0.6 m below (end
+    offsets), a rectangular section 0.9 x 0.5, on two columns of a round
+    section; a rigid arm between, drawn as a line."""
+    import yaml
+    d = {"version": 1, "name": "sized", "units": {"length": "m", "force": "N", "stress": "Pa"},
+         "mesh": {"type": "lines", "points": {"A": [0, 0, 0], "B": [0, 0, 5], "C": [8, 0, 5], "D": [8, 0, 0], "E": [8, 0, 6]},
+                  "lines": {"col1": {"through": ["A", "B"], "size": 2.5}, "girder": {"through": ["B", "C"], "size": 2.0},
+                            "col2": {"through": ["D", "C"], "size": 2.5}, "arm": {"through": ["C", "E"], "size": 1.0}}},
+         "materials": {"c": {"type": "linear_elastic", "E": 3.0e10, "nu": 0.2, "rho": 2500.0},
+                       "rigid": {"type": "linear_elastic", "E": 3.0e12, "nu": 0.2, "rho": 1e-6}},
+         "sections": {"g": {"type": "beam", "material": "c", "shape": "rect", "height": 0.9, "width": 0.5},
+                      "p": {"type": "beam", "material": "c", "shape": "circle", "diameter": 0.8},
+                      "r": {"type": "beam", "material": "rigid", "shape": "general", "area": 1.0, "iy": 1.0, "iz": 1.0, "j": 2.0}},
+         "assign": [{"region": "girder", "section": "g", "orientation": [0, 1, 0],
+                     "end_offsets": {"i": [0, 0, -0.6], "j": [0, 0, -0.6], "per": "member"}},
+                    {"region": "col1", "section": "p", "orientation": [1, 0, 0]},
+                    {"region": "col2", "section": "p", "orientation": [1, 0, 0]},
+                    {"region": "arm", "section": "r", "orientation": [1, 0, 0]}],
+         "constraints": [{"region": "A", "dofs": [1, 1, 1, 1, 1, 1]}, {"region": "D", "dofs": [1, 1, 1, 1, 1, 1]}],
+         "loads": [{"region": "all", "gravity": [0, 0, -9.81]}], "solver": {"mode": "static"}}
+    p = tmp_path / "sized.yaml"
+    p.write_text(yaml.safe_dump(d), encoding="utf-8")
+    return p
+
+
+def test_sections_at_their_size_between_the_elastic_ends(tmp_path):
+    """(1.21) The switch "sections at size": each member's elastic ends (its
+    nodes moved by its end offsets), depth along its local z and width
+    along y; a rigid arm has none (a line)."""
+    data = model_view.load(str(_offset_frame(tmp_path)))
+    a, m = data["arrays"], data["meta"]
+    assert m["sized"] and m["offset_members"] == 4
+    centre = np.asarray(m["centre"])
+    ends = a["ends"].reshape(-1, 6) + np.tile(centre, 2)
+    size, yz = a["size"].reshape(-1, 2), a["yz"].reshape(-1, 6)
+    conn = a["conn"].reshape(-1, 2)
+    nodes = a["nodes"].reshape(-1, 3) + centre
+    girder = np.flatnonzero(np.isclose(nodes[conn[:, 0], 2], 5.0) & np.isclose(nodes[conn[:, 1], 2], 5.0))
+    assert len(girder) == 4
+    np.testing.assert_allclose(ends[girder, 2], 4.4, atol=1e-6)
+    np.testing.assert_allclose(ends[girder, 5], 4.4, atol=1e-6)
+    np.testing.assert_allclose(size[girder], [[0.9, 0.5]] * 4, atol=1e-6)
+    np.testing.assert_allclose(yz[girder], [[0, 1, 0, 0, 0, 1]] * 4, atol=1e-6)
+    cols = np.flatnonzero(np.isclose(np.abs(nodes[conn[:, 1], 0] - nodes[conn[:, 0], 0]), 0.0)
+                          & (np.abs(nodes[conn[:, 1], 2] - nodes[conn[:, 0], 2]) > 1.5))
+    assert len(cols) == 4 and np.allclose(size[cols], 0.8)
+    arm = np.flatnonzero(a["kind"] == 3)
+    assert len(arm) == 1 and np.all(size[arm] == 0.0)
+
+
+def test_the_size_switch_in_a_browser(tmp_path):
+    three = os.environ.get("VFIFE_THREE_DIR")
+    pw = pytest.importorskip("playwright.sync_api")
+    if not three:
+        pytest.skip("VFIFE_THREE_DIR not set")
+    page = model_view.write(str(_offset_frame(tmp_path)), scripts=three)
+    errors = []
+    with pw.sync_playwright() as p:
+        try:
+            b = p.chromium.launch()
+        except Exception as e:                      # no browser installed
+            pytest.skip(f"no Chromium: {e}")
+        pg = b.new_page(viewport={"width": 1280, "height": 760})
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto("file://" + os.path.abspath(page))
+        pg.wait_for_timeout(800)
+        off = pg.evaluate("window.__vfife_model.sized()")
+        pg.check("#sizes"); pg.wait_for_timeout(200)
+        on = pg.evaluate("window.__vfife_model.sized()")
+        stubs = pg.evaluate("window.__vfife_model.stubs()")
+        girder = pg.evaluate("Array.from({length: 9}, (_, e) => e).find(e => window.__vfife_model.pick_at(...window.__vfife_model.box_at(e)) !== null)")
+        x, y = pg.evaluate(f"window.__vfife_model.box_at({girder})")
+        picked = pg.evaluate(f"window.__vfife_model.pick_at({x}, {y})")
+        pg.uncheck("#arms"); pg.wait_for_timeout(100)
+        after = pg.evaluate("window.__vfife_model.sized()")
+        b.close()
+    assert not errors, errors
+    assert off == 0 and on == 8 and stubs == 8          # 4 girder members and 4 of the columns; two stretches each girder member
+    assert picked == {"member": girder}                  # a box picked where it is drawn
+    assert after == 8                                    # hiding the arms hides no box
+
+
+def test_offsets_the_page_cannot_draw_and_a_connector_on_the_line(tmp_path):
+    """Found in review: offsets the solver refuses do not stop the page (it
+    is drawn without them, and says why); in a fibre model a connector
+    listed before the fibre assignment that holds it stays a connector and
+    is not one of the line's members, as the fibre solver has it."""
+    import yaml
+    p = _offset_frame(tmp_path)
+    d = yaml.safe_load(p.read_text(encoding="utf-8"))
+    d["assign"][0]["end_offsets"] = {"i": [3.0, 0, 0], "j": [-3.0, 0, 0], "per": "member"}     # longer than a member
+    p.write_text(yaml.safe_dump(d), encoding="utf-8")
+    m = model_view.load(str(p))["meta"]
+    assert m["offset_members"] == 0 and "no elastic length" in m["offset_note"]
+    d = {"version": 1, "name": "bear", "units": {"length": "m", "force": "N", "stress": "Pa"},
+         "mesh": {"type": "lines", "points": {"A": [0, 0, 0], "B": [4, 0, 0], "C": [4, 0, -0.5]},
+                  "lines": {"beam": {"through": ["A", "B"], "size": 2.0}, "bear": {"through": ["B", "C"], "size": 0.5}}},
+         "materials": {"c": {"type": "linear_elastic", "E": 3.0e10, "nu": 0.2, "rho": 2500.0}},
+         "sections": {"g": {"type": "fiber", "material": "c", "shape": "rect", "height": 0.6, "width": 0.4},
+                      "k": {"type": "connector", "stiffness": [1e9, 1e9, 1e9, 0, 0, 0]}},
+         "assign": [{"region": "bear", "section": "k"},
+                    {"region": "all", "section": "g", "orientation": [0, 1, 0],
+                     "end_offsets": {"i": [0, 0, -0.3], "j": [0, 0, -0.3]}}],
+         "constraints": [{"region": "A", "dofs": [1, 1, 1, 1, 1, 1]}], "loads": [], "solver": {"mode": "static"}}
+    q = tmp_path / "bear.yaml"
+    q.write_text(yaml.safe_dump(d), encoding="utf-8")
+    data = model_view.load(str(q))
+    a, m = data["arrays"], data["meta"]
+    ends = a["ends"].reshape(-1, 6) + np.tile(m["centre"], 2)
+    beams = np.flatnonzero(a["kind"] != 4)
+    assert m["offset_members"] == 2 and m["offset_note"] == ""
+    np.testing.assert_allclose(ends[beams][:, [2, 5]], -0.3, atol=1e-6)

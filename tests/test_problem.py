@@ -143,7 +143,7 @@ def test_a_derived_half_changes_both_forms():
 #: write (`p["element"] = ...`, on the dict `_with_element` builds) is not one
 DICT_READS = re.compile(r"\b(?:self\.p|solver\.p|s\.p|problem|prob)(?:\[\s*[\"']|\.get\(\s*[\"'])("
                         + "|".join(schema.Case.model_fields) + r")[\"'](?!\s*\]\s*=[^=])")
-DICT_READS_LEFT = 68
+DICT_READS_LEFT = 66
 #: the drivers that EDIT an input case's plain dict between the solvers they
 #: build on it (formfind; `Problem` keeps the very dict it is given), or before
 #: any solver holds it (the test fixtures): their reads are of that dict as

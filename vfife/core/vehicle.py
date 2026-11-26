@@ -307,8 +307,9 @@ class Vehicle:
             from ..kernels.numba_loads import vehicle_step as _vs
         except ImportError:                                   # pragma: no cover
             _vs = None
-        if _vs is not None:
+        if _vs is not None and self.path.drawn is None:
             # the compiled version (1.6), which the compiled step runs too
+            # (a path with end offsets is Python's: `LoadPath._shape_drawn`)
             on = (s >= 0.0) & (s <= self.path.total)
             k, a = self.path.place(s)
             rough = self.rough(s) if self.rough is not None else np.zeros(self.na)

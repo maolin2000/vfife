@@ -164,7 +164,7 @@ def cmd_init(args):
                                 "choose another name, or add --overwrite to replace it")
         report = midas_case.convert(midas.read(mesh_path), folder, name=stem)
         print(f"wrote {out} (+ {stem}.msh, {stem}.map.json)")
-        for key in ("nodes", "members", "rigid_arms", "connectors", "regions", "sections", "steps",
+        for key in ("nodes", "members", "rigid_arms", "rigid_link_slaves", "connectors", "regions", "sections", "steps",
                     "jacked_cables", "cables_cut_to_length", "stubs_made_joints", "links_made_to_turn_with_their_ends"):
             print(f"  {key.replace('_', ' '):<36}{report[key]}")
         for what, n in report["left_out"].items():

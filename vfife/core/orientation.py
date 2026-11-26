@@ -29,6 +29,10 @@ class OrientedPoints(HasComponents):
     """Requires self.nn, self.dofs (a six-dof DofLayout), self.q, self.v,
     self.dt on the host class."""
 
+    #: the multi-point constraints (`core.constraints.ConstraintLayer`, 1.21),
+    #: made by `constraint_layer()` the first time they are asked for; None until then
+    ties = None
+
     def internal_force(self):
         """The members' internal force (`_member_forces`, each solver's own)
         and what the attached components add to it (contact; core/components)."""
@@ -392,6 +396,10 @@ class OrientedPoints(HasComponents):
             # a prescribed rotation component: the orientation is rebuilt
             # from the vector it was written into
             self.orient[touched] = exp_map(qv[touched, 3:])
+        if self.ties is not None:
+            # a rigid link's slaves' tied components set from their masters,
+            # which a support may just have moved (core/constraints)
+            self.ties.correct(fixed)
 
     def _ledger_force(self, F, fint, damp):
         """The external force the energy ledger books. At a

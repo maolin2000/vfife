@@ -123,3 +123,73 @@ def test_the_tolerance_classes_a_monitor_by_its_kind_and_holds_a_state_exactly(t
     assert not ok and any("member_failed" in x and "held exactly" in x for x in lines)
     ok, lines = state_baseline.within_tolerance((c, c + ".ck"), (str(tmp_path / "none.h5"), b + ".ck"))
     assert ok and "q alone" in lines[0]
+
+
+def _history(path, t, w):
+    with h5py.File(path, "w") as f:
+        f["monitors/time"] = t
+        d = f.create_dataset("monitors/w_mid", data=w)
+        d.attrs["kind"] = "displacement"
+        f["monitors/residual"] = np.ones_like(t)
+
+
+def test_a_collapse_case_is_judged_up_to_the_collapse_and_not_after(tmp_path):
+    t = np.arange(0.0, 61.0)
+    w = np.where(t <= 54.0, -0.01 * t, -0.5 * t)                 # the collapse after 54 s
+    after = w.copy()
+    after[t > 54.0] *= 1.08                                     # 8 % apart after it
+    before = w.copy()
+    before[30] *= 1.001                                         # 0.1 % apart before it
+    base, run_after, run_before, kept = (str(tmp_path / n) for n in ("b.h5", "a.h5", "c.h5", "k.h5"))
+    _history(base, t, w)
+    _history(run_after, t, after)
+    _history(run_before, t, before)
+    ok, lines = state_baseline.within_tolerance_until(run_after, base, 54.0)
+    assert ok, lines
+    assert "up to t = 54 s" in lines[0]
+    ok, lines = state_baseline.within_tolerance_until(run_before, base, 54.0)
+    assert not ok
+    assert any("**OUT** `monitors/w_mid[t<=54]`" in s for s in lines)
+    # judged on the time line too: a run with other frames is not the baseline's
+    _history(run_after, t[:-1] + 0.5, after[:-1])
+    ok, lines = state_baseline.within_tolerance_until(run_after, base, 54.0)
+    assert not ok
+    # --write keeps the monitors, and nothing else, for every case
+    assert state_baseline.keep_monitors(base, kept)
+    with h5py.File(kept, "r") as f:
+        assert sorted(f) == ["monitors"] and np.array_equal(f["monitors/w_mid"][()], w)
+    assert not state_baseline.keep_monitors(str(tmp_path / "none.h5"), str(tmp_path / "x.h5"))
+
+
+def test_every_collapse_case_is_a_case():
+    for stem, until in state_baseline.COLLAPSES.items():
+        assert os.path.exists(os.path.join(ROOT, "cases", stem + ".yaml"))
+        assert 0.0 < until
+
+
+def test_a_strain_is_its_own_class_not_held_to_the_size_of_a_stress():
+    assert state_baseline._tolerance("strain")[0] == "strain"
+    assert state_baseline._tolerance("eps_mid_bot")[0] == "strain"
+    assert state_baseline._tolerance("fiber_stress")[0] == "stress"
+    assert state_baseline._tolerance("sig_mid_bot")[0] == "stress"
+    a = {"monitors/eps": (np.array([1.1e-2]), "strain"), "monitors/sig": (np.array([3.0e7]), "stress")}
+    b = {"monitors/eps": (np.array([1.0e-2]), "strain"), "monitors/sig": (np.array([3.0e7]), "stress")}
+    ok, lines = state_baseline._judge(a, b, 0.0, [])
+    assert not ok and any("**OUT** `monitors/eps`" in s for s in lines)
+
+
+def test_a_collapse_case_is_cut_at_the_baselines_frame_not_by_rounding(tmp_path):
+    t = np.arange(0.0, 61.0)
+    w = -0.01 * t
+    late = t.copy()
+    late[54] += 1e-12                                       # the frame at 54 s reads a hair later
+    base, run = str(tmp_path / "b.h5"), str(tmp_path / "a.h5")
+    _history(base, t, w)
+    _history(run, late, w)
+    ok, lines = state_baseline.within_tolerance_until(run, base, 54.0)
+    assert ok, lines
+    assert "each of the 55 frames" in lines[0]
+    with h5py.File(base, "w") as f:                         # no time line: not judged as the same
+        f["monitors/w_mid"] = w
+    ok, lines = state_baseline.within_tolerance_until(run, base, 54.0)
+    assert not ok

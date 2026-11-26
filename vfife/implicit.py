@@ -158,6 +158,9 @@ class Newton:
     """Load-controlled Newton-Raphson with a sparse finite-difference tangent."""
 
     def __init__(self, solver, spec: Dict):
+        from .core import constraints
+        #: the solver's multi-point constraints (core/constraints), None for one outside the beam family
+        self.ties = constraints.of(solver)
         self.s = solver
         self.spec = spec
         s = solver
@@ -208,60 +211,46 @@ class Newton:
         self._now = 0.0
         #: whether the last failed `solve_level` stalled at round-off
         self.stalled = False
-        #: the rigid diaphragms' transformation q = T q_m (None without any)
-        self.T = self._diaphragm_map()
+        #: the multi-point constraints' transformation q = T q_m, while it
+        #: does not change (floors alone); see `T`
+        self._T_held = None
         #: how many increments fell back to relaxation (1.7)
         self.fallbacks = 0
 
-    def _diaphragm_map(self):
-        """The multi-point constraint of the rigid floors as a transformation
-        (1.7): every dof is its own master, except a floor's
-        two in-plane translations and its rotation about the normal, which
-        are three masters per floor -- u_a = U_a - alpha r_b, u_b = U_b +
-        alpha r_a, theta_n = alpha, about the floor's mean point in its
-        reference geometry: the same linear constraint `_project_diaphragms`
-        applies to the accelerations of a relaxation. None without floors."""
+    @property
+    def T(self):
+        """The multi-point constraints as a transformation of the Newton
+        system, q = T q_m (`ConstraintLayer.map`, 1.7 for the floors, 1.21
+        for the rigid links); None without any. The floors' is linear and
+        kept; with rigid links it is the current configuration's, made
+        again each time it is asked for."""
+        ties = self.ties
+        if ties is None or self.stride != 6 or ties.empty():
+            return None
+        if self._T_held is not None:
+            return self._T_held
         s = self.s
-        setup = getattr(s, "_setup_diaphragms", None)
-        if setup is None or self.stride != 6:
-            return None
-        if getattr(s, "_diaphragms", None) is None:
-            setup()
-        floors = s._diaphragms
-        if not floors:
-            return None
-        n = s.ndof
-        slave = np.zeros(n, bool)
-        for d in floors:
-            for c in (d["a"], d["b"], 3 + d["n"]):
-                slave[6 * d["idx"] + c] = True
-        own = np.flatnonzero(~slave)
-        rows = [own]; cols = [np.arange(len(own))]; vals = [np.ones(len(own))]
-        m = len(own)
-        for d in floors:
-            idx, a, b, nrm = d["idx"], d["a"], d["b"], d["n"]
-            x = np.asarray(d["x"], float)
-            centre = x[:, (a, b)].mean(axis=0)
-            ra = x[:, a] - centre[0]; rb = x[:, b] - centre[1]
-            k = len(idx)
-            rows += [6 * idx + a, 6 * idx + b, 6 * idx + a, 6 * idx + b, 6 * idx + 3 + nrm]
-            cols += [np.full(k, m), np.full(k, m + 1), np.full(k, m + 2), np.full(k, m + 2), np.full(k, m + 2)]
-            vals += [np.ones(k), np.ones(k), -rb, ra, np.ones(k)]
-            m += 3
-        T = sp.coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
-                          shape=(n, m)).tocsc()
+        T, own, m, slave = ties.map(s.ndof, s.physical_mass)
         self._master_of_own = (own, m)
         self._slave = slave
+        if ties.links is None:
+            self._T_held = T
         return T
+
+    def move(self, dx: np.ndarray):
+        """`advance`, then a rigid link's slaves set exactly from their
+        masters (the update is the linear map's, the constraint is not)."""
+        self.advance(dx)
+        if self.ties is not None and self.ties.links is not None:
+            self.ties.correct()
 
     def _free_master(self, free):
         """The free mask on the master dofs: a floor's masters are free (its
-        in-plane dofs may not be held: `_setup_diaphragms` refuses the
+        in-plane dofs may not be held: `BeamFamily._tie_floors` refuses the
         always-held ones, and a step's own constraint is refused here)."""
         own, m = self._master_of_own
         if not np.all(free[self._slave]):
-            raise ValueError("a diaphragm's in-plane dof is held or driven in this step; a floor is "
-                             "either held by a support or moved by a diaphragm, not both")
+            self.ties.check_free(free)
         fm = np.ones(m, bool)
         fm[:len(own)] = free[own]
         return fm
@@ -270,9 +259,10 @@ class Newton:
         """|r| over the free dofs -- of the master system when there are
         diaphragms: at a floor's node the nodal residual is the constraint
         force, and only the floor's resultants have to vanish."""
-        if self.T is None:
+        T = self.T
+        if T is None:
             return float(np.linalg.norm(r[free]))
-        rm = self.T.T @ r
+        rm = T.T @ r
         return float(np.linalg.norm(rm[self._free_master(free)]))
 
     # ------------------------------------------------------------ measure
@@ -517,7 +507,7 @@ class Newton:
             return K
         dx = fac.solve(rhs)
         if np.all(np.isfinite(dx)):
-            self.advance(np.where(free, dx, 0.0))
+            self.move(np.where(free, dx, 0.0))
         return K
 
     # --------------------------------------------------------- increment
@@ -602,7 +592,7 @@ class Newton:
                 s0 = abs(float(np.dot(dx, r)))
                 alpha, best = 1.0, (np.inf, 1.0)
                 for _ls in range(6):
-                    self.put(base); self.advance(alpha * dx)
+                    self.put(base); self.move(alpha * dx)
                     Ft = F_of(); ft = self.force(); rt = Ft - ft; rt[fixed] = 0.0
                     nt = self.residual_norm(rt, free)
                     if np.isfinite(nt) and nt < best[0]:
@@ -611,11 +601,11 @@ class Newton:
                         break
                     alpha *= 0.5
                 else:
-                    self.put(base); self.advance(best[1] * dx)
+                    self.put(base); self.move(best[1] * dx)
                 if _DEBUG:
                     print(f"        line search alpha {alpha if alpha >= 1/64 else best[1]:.4f}")
             else:
-                self.advance(dx)
+                self.move(dx)
             # fail fast: a Newton that has not halved the residual in eight
             # iterations is not going to converge from here; a smaller
             # increment is cheaper than the remaining iterations
@@ -728,7 +718,7 @@ def relax_increment(newton, fixed, moving, prescribed, groups, ground, target, t
     physical mass, step, damping, counters) are put back afterwards."""
     s = newton.s
     # rigid diaphragms are taken since 1.9: the relaxation's residual is the
-    # floors' own equations (`BeamSolver._residual_norm`), as
+    # floors' own equations (`ConstraintLayer.residual_norm`), as
     # Newton's is (`residual_norm`)
     sol = s.p.solver
     step = step or {}
@@ -1009,6 +999,9 @@ def arc_length_step(newton, k, fixed, moving, prescribed, groups, ground, spec, 
         s._force(groups, ground, c)
         s._apply_bc(fixed, moving, prescribed, c)
         s.q[drive] = u0[drive] + lam * du[drive]
+        if newton.ties is not None and newton.ties.links is not None:
+            # a driven link master's slaves follow it where it now is
+            newton.ties.correct()
 
     def solve_both(K):
         lu = newton.factor(K, free)
@@ -1137,7 +1130,7 @@ def arc_length_step(newton, k, fixed, moving, prescribed, groups, ground, spec, 
             continue
         Dx = dlam * dxt
         Dlam = dlam
-        newton.advance(np.where(free, Dx, 0.0)); set_lambda(lam + Dlam)
+        newton.move(np.where(free, Dx, 0.0)); set_lambda(lam + Dlam)
         converged, res, its = False, np.inf, 0
         history = []
         for it in range(max_it):
@@ -1184,7 +1177,7 @@ def arc_length_step(newton, k, fixed, moving, prescribed, groups, ground, spec, 
             d = dr + pick * dxt
             Dx = Dx + d; Dlam += pick
             newton.iterations += 1
-            newton.advance(np.where(free, d, 0.0)); set_lambda(lam + Dlam)
+            newton.move(np.where(free, d, 0.0)); set_lambda(lam + Dlam)
             its = it + 1
         turned = False
         if converged and prev is not None and float(np.dot(W * Dx, W * prev)) <= 0.0:

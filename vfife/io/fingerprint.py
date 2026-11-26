@@ -111,6 +111,8 @@ def _split(x, mesh, materials, settings, where, detail=None):
         for k, v in x.items():
             if k in _NAME_KEYS:
                 continue
+            if k == "end_offsets" and v is None:       # 1.21: a member without them is as before
+                continue
             if k in _MATERIAL_KEYS:
                 if v not in (None, {}, []):
                     materials[f"{where}.{k}"] = _canon(_plain(v, mesh))
@@ -138,7 +140,7 @@ def _split(x, mesh, materials, settings, where, detail=None):
 #: the new key is a different model and fingerprints differently.
 _STEP_CHANGE_KEYS = ("procedure", "total_time", "activate", "birth", "activate_age",
                      "deactivate", "release")
-_ADDED_SINCE_1_0 = {"with_mass": False, "keep": False}
+_ADDED_SINCE_1_0 = {"with_mass": False, "keep": False, "end_offsets": None}
 
 
 def _plain(x, mesh):

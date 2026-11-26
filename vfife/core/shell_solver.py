@@ -58,6 +58,9 @@ class ShellSolver(BeamSolver):
         self.q=np.zeros(self.ndof); self.v=np.zeros(self.ndof); self.ke_prev=0.; self.n_resets=0
         self.orient=np.tile(np.eye(3),(self.nn,1,1)); self._rot_scratch=np.zeros((self.nn,3))
         self.step=self.step_index=self.step_start=0; self.rebar=[]
+        if self.p.case.rigid_links or any(st.rigid_links for st in self.p.case.steps):
+            # made where the nodes stand, as the frame solver's (core/constraints)
+            self.constraint_layer()
 
     def _assemble_reference(self):
         e=self.p.case.element; assembly=SparseAssembler(self.ndof); self.data=[]

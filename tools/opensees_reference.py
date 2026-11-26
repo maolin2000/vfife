@@ -11,6 +11,7 @@ vfife laws against them. OpenSees' source is not used.
 
     pip install openseespy numpy
     python tools/opensees_reference.py        # -> tests/data/opensees_uniaxial.npz
+    python tools/opensees_reference.py --composite   # -> tests/data/opensees_composite.npz (1.21)
 
 The stored file is what the tests read, so the suite does not need OpenSees.
 """
@@ -75,9 +76,60 @@ def run(material, args, history):
     return out
 
 
+#: the composite laws (1.21) against OpenSees' Parallel and Series wrappers,
+#: and `gap` against ElasticPPGap with a yield force out of reach: name ->
+#: (wrapper, [(part, part arguments), ...], wrapper arguments, history).
+#: Series is run with its own iteration to 1e-14 (its default is a single
+#: pass); vfife's series iterates to its tolerance at every point.
+COMPOSITE = {
+    "parallel_steel02_elastic": ("Parallel", [("Steel02", [400e6, 200e9, 0.01, 20.0, 0.925, 0.15]),
+                                              ("Elastic", [20e9])], [], _history(30, 2000, -0.02, 0.025)),
+    "series_elastic_steel02": ("Series", [("Elastic", [400e9]),
+                                          ("Steel02", [400e6, 200e9, 0.01, 20.0, 0.925, 0.15])],
+                               ["-iter", 200, 1.0e-14],
+                               # a growing cycle in small steps: OpenSees' iteration from the
+                               # last split does not survive a jump of 0.013 in one step (its
+                               # stress went to -1.75 GPa there and never came back)
+                               0.02 * np.linspace(0.0, 1.0, 4001) * np.sin(np.linspace(0.0, 10.0 * np.pi, 4001))),
+    "gap_elastic_pp_gap": ("ElasticPPGap", [], [2.0e9, 1.0e15, 0.002], _history(32, 1000, -0.004, 0.01)),
+}
+
+OUT_COMPOSITE = os.path.join(os.path.dirname(OUT), "opensees_composite.npz")
+
+
+def run_composite(wrapper, parts, wargs, history):
+    import openseespy.opensees as ops
+    ops.wipe()
+    for i, (material, args) in enumerate(parts):
+        ops.uniaxialMaterial(material, i + 1, *args)
+    tag = len(parts) + 1
+    if parts:
+        ops.uniaxialMaterial(wrapper, tag, *range(1, len(parts) + 1), *wargs)
+    else:
+        ops.uniaxialMaterial(wrapper, tag, *wargs)
+    ops.testUniaxialMaterial(tag)
+    out = np.empty(len(history))
+    for i, e in enumerate(history):
+        ops.setStrain(float(e))
+        out[i] = ops.getStress()
+    return out
+
+
 def main():
+    import sys
     from importlib.metadata import version
     data = {"openseespy_version": np.array(version("openseespy"))}
+    if "--composite" in sys.argv:
+        for name, (wrapper, parts, wargs, history) in COMPOSITE.items():
+            for i, (material, args) in enumerate(parts):
+                data[f"{name}/part{i}"] = np.array(material)
+                data[f"{name}/part{i}_args"] = np.asarray(args, float)
+            data[name + "/args"] = np.asarray([a for a in wargs if not isinstance(a, str)], float)
+            data[name + "/strain"] = history
+            data[name + "/stress"] = run_composite(wrapper, parts, wargs, history)
+        np.savez_compressed(OUT_COMPOSITE, **data)
+        print("wrote", os.path.normpath(OUT_COMPOSITE))
+        return
     for name, (material, args, history) in CASES.items():
         data[name + "/args"] = np.asarray(args, float)
         data[name + "/strain"] = history

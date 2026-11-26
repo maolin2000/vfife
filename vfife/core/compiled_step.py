@@ -56,7 +56,7 @@ MAX_CHUNK = 4096
 #: the methods of one step; any of them replaced on the solver itself is
 #: code the compiled step would not run
 _HOOKS = ("internal_force", "_member_forces", "_internal_force_numba", "_force", "_advance", "_apply_bc",
-          "commit_state", "_commit_members", "_project_diaphragms", "_check_failure", "apply_pending_splits",
+          "commit_state", "_commit_members", "constraint_layer", "_check_failure", "apply_pending_splits",
           "_carry_appendages", "_ledger_force", "_stacked_groups", "_beam_forces_batched",
           "_truss_forces_batched", "kernel_members", "_kernel_dth")
 
@@ -157,6 +157,8 @@ def refusal(solver, fixed, moving, prescribed, groups, ground):
     comp = _components_refusal(solver)
     if hooked or comp is not None or getattr(solver, "contact", None) is not None:
         return refuse("hooked", what=", ".join(hooked) or comp or refuse("rigid_contact"))
+    if solver.constraint_layer().links is not None:
+        return refuse("rigid_links")
     if not fiber and getattr(solver, "backend", "numpy") != "numba":
         return refuse("backend")
     if solver.dofs.stride != 6 or solver.q.size != 6 * solver.nn:
@@ -183,6 +185,8 @@ def refusal(solver, fixed, moving, prescribed, groups, ground):
     if getattr(solver, "_thermal", None) or solver.time_dependent:
         return refuse("thermal")
     if fiber:
+        if solver.constraint_layer().diaphragms is not None:
+            return refuse("diaphragms")
         why = _fiber_refusal(solver)
         if why is None and not forced():
             left = int(solver.n_steps) - (int(solver.step) - int(getattr(solver, "step_start", 0)))
@@ -192,10 +196,10 @@ def refusal(solver, fixed, moving, prescribed, groups, ground):
         return why
     if getattr(solver, "_thermal_d", None) is not None:
         return refuse("imposed")
-    if getattr(solver, "_diaphragms", None) is None:
-        solver._setup_diaphragms()
-    if solver._diaphragms:
+    if solver.constraint_layer().diaphragms is not None:
         return refuse("diaphragms")
+    if solver.geometry.any:
+        return refuse("end_offsets")
     # plastic hinges, breaking and split-off members are taken (1.6): the
     # hinge update and the failure criterion run in the step, a break is an
     # event the loop takes, parked particles and appendages are carried;
@@ -260,8 +264,15 @@ def _fiber_refusal(s):
     soil = getattr(s, "soil", None)
     if soil is not None and len(soil):
         return refuse("soil")
+    if s.geometry.any:
+        return refuse("end_offsets")
     if s.staging.birth_d is not None:
         return refuse("born")
+    live, _kinds, ck = s.kernel_connectors()
+    if len(live) and ck is None:
+        # a connector law with no compiled form (a `material` law, 1.21):
+        # the compiled step would carry its forces as nothing
+        return refuse("connectors")
     return _arrays_refusal(s)
 
 
@@ -1039,6 +1050,8 @@ def relax_refusal(solver, prescribed, start):
     if hooked or solver.components or getattr(solver, "contact", None) is not None:
         # any component: the relaxation chunk runs no contact at all
         return refuse("hooked", what=", ".join(hooked) or "contact")
+    if solver.constraint_layer().links is not None:
+        return refuse("rigid_links")
     if solver.dofs.stride != 6 or solver.q.size != 6 * solver.nn:
         return refuse("six_dofs")
     if solver.plan is not None:
@@ -1055,13 +1068,13 @@ def relax_refusal(solver, prescribed, start):
         return refuse("thermal")
     if getattr(solver, "_plastic_d", None) is not None:
         return refuse("hinges")
-    if getattr(solver, "_diaphragms", None) is None:
-        solver._setup_diaphragms()
-    if solver._diaphragms:
+    if solver.constraint_layer().diaphragms is not None:
         return refuse("diaphragms")
     soil = getattr(solver, "soil", None)
     if soil is not None and len(soil):
         return refuse("soil")
+    if solver.geometry.any:
+        return refuse("end_offsets")
     kv = getattr(solver, "_kinematic_v", None)
     if kv is not None and kv.shape != solver.v.shape:
         return refuse("grown")

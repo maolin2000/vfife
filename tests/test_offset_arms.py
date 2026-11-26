@@ -97,24 +97,3 @@ def test_the_limit_is_in_the_cases_units(tmp_path):
     d["materials"]["c"]["E"] = 3.0e20                 # a girder so stiff that the limit (1e10 N/mm) holds it
     got = offsets.arm_sections(d, mesh)[0][1]
     assert got["area"] == pytest.approx(30.0 * 1.0e10 * 0.5 / 3.0e12)
-
-
-def test_an_arm_the_rule_cannot_give_keeps_its_own_section(tmp_path):
-    """The converter's fall-back: an arm left out of the rule keeps its
-    section, renamed so that the rule's names stay its own."""
-    import importlib
-    convert = importlib.import_module("vfife.io.midas_case.convert")
-    mesh = _mesh(tmp_path)
-    d = _case()
-    arms = d.pop("offset_arms")
-    made = offsets.arm_sections(dict(d, offset_arms=arms), mesh)
-    d["sections"] = dict(d["sections"], **{f"offset_arm_{i + 1}": dict(s) for i, (_r, s, _o) in enumerate(made)})
-    d["sections"]["offset_arm_3"]["area"] *= 1.001          # not what the rule gives
-    d["assign"] = d["assign"] + [{"region": r, "section": f"offset_arm_{i + 1}", "orientation": o}
-                                 for i, (r, _s, o) in enumerate(made)]
-    case, ruled, own = convert._rule_offset_arms(d, mesh, 30.0, 1.0e13)
-    assert (ruled, own) == (2, 1) and case["offset_arms"]["regions"] == ["a1", "a2"]
-    assert "offset_arm_own_1" in case["sections"] and not any(k.startswith("offset_arm_") and k[11:].isdigit()
-                                                              for k in case["sections"])
-    x = offsets.expand(case, mesh)                          # and it reads
-    assert {a["region"]: a["section"] for a in x["assign"]}["a3"] == "offset_arm_own_1"

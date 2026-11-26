@@ -58,6 +58,11 @@ class Element:
     section: int
     nodes: Tuple[int, ...]
     angle: float = 0.0
+    #: a tension- or compression-only truss's iSUB (TENSTR: 1 truss, 2 hook,
+    #: 3 cable; COMPTR: 1 truss, 2 gap), EXVAL and EXVAL2 as the row has them
+    sub: int = 0
+    exval: Optional[float] = None
+    exval2: int = 0
 
 
 @dataclass
@@ -220,15 +225,30 @@ class MidasModel:
     self_weight: List[Tuple[str, Tuple[float, float, float], str]] = field(default_factory=list)   # (case, factors, group)
     pretension: List[Tuple[str, int, float, str]] = field(default_factory=list)    # (case, element, tension, group)
     nodal_loads: List[Tuple[str, int, Tuple[float, ...], str]] = field(default_factory=list)       # (case, node, 6 values, group)
-    beam_loads: List[Tuple[str, int, str, float, float, str]] = field(default_factory=list)        # (case, element, dir, w1, w2, group)
+    #: (case, element, dir, w1 at the I end, w2 at the J end, group, projected): uniform or linearly
+    #: varying over the whole member; `projected` (bPROJ) -- per unit of the length projected normal to dir
+    beam_loads: List[Tuple[str, int, str, float, float, str, bool]] = field(default_factory=list)
+    #: `*SECT-SCALE` by section: (AREA, ASy, ASz, Ixx, Iyy, Izz, weight factors, group, part, J end differs)
+    section_scales: Dict[int, Tuple[Tuple[float, ...], str, int, bool]] = field(default_factory=dict)
     temperatures: List[Tuple[str, float, str]] = field(default_factory=list)       # (case, rise, group)
     stages: List[Stage] = field(default_factory=list)
     #: the structure group whose new members are assembled along the tangent
     #: of what stands (`*STAGE-CTRL`: initial tangent displacement), "ALL",
     #: or "" for none
     tangent_group: str = ""
+    #: how the stages hold a pretension (`*STAGE-CTRL`, CPFC): "INTERNAL"
+    #: (a lack of fit the structure then shares out), "EXTERNAL" (a force
+    #: held in its stage), "" when the file does not say, or the word it
+    #: writes there (upper case) when that is neither
+    pretension_control: str = ""
     #: plate thicknesses by id (`*THICKNESS`, TYPE=VALUE), in the file's length unit
     thicknesses: Dict[int, float] = field(default_factory=dict)
+    #: `*OFFSET` (beam end offsets) by element: ("ELEMENT", (RGDyi, RGDzi,
+    #: RGDyj, RGDzj), group) -- rigid lengths along the member at its two
+    #: ends, for bending about z and about y -- or ("GLOBAL", (RGDXi, RGDYi,
+    #: RGDZi, RGDXj, RGDYj, RGDZj), group), vectors from the nodes; in the
+    #: file's length unit
+    offsets: Dict[int, Tuple[str, Tuple[float, ...], str]] = field(default_factory=dict)
     #: `*TS-GROUP`: the elements, in order, one tapered section runs over
     taper_groups: List[Tuple[str, List[int]]] = field(default_factory=list)
     other: Dict[str, int] = field(default_factory=dict)      # blocks not read: keyword -> data lines
@@ -341,8 +361,14 @@ def read(path: str) -> MidasModel:
                 p = _fields(r)
                 kind = p[1].upper()
                 if kind in _LINE:
-                    m.elements[int(p[0])] = Element(kind, int(p[2]), int(p[3]), (int(p[4]), int(p[5])),
-                                                    _num(p[6]) if len(p) > 6 else 0.0)
+                    el = Element(kind, int(p[2]), int(p[3]), (int(p[4]), int(p[5])), _num(p[6]) if len(p) > 6 else 0.0)
+                    if kind in ("TENSTR", "COMPTR"):
+                        # ..., ANGLE, iSUB, EXVAL, EXVAL2, bLMT
+                        el.sub = int(_num(p[7])) if len(p) > 7 else 0
+                        if len(p) > 8 and p[8] != "":
+                            el.exval = _num(p[8])
+                        el.exval2 = int(_num(p[9])) if len(p) > 9 else 0
+                    m.elements[int(p[0])] = el
                 else:
                     n = [int(x) for x in p[4:12] if x.lstrip("-").isdigit() and int(x) > 0][:8]
                     if kind == "PLATE":
@@ -451,6 +477,41 @@ def read(path: str) -> MidasModel:
                     link.stiffness = tuple(_num(x) for x in p[11:17])
                     link.rigid = tuple(x.strip().upper() == "YES" for x in p[5:11])
                 m.links.append(link)
+        elif key == "SECT-SCALE":
+            # iSEC, AREA_SF, ASY_SF, ASZ_SF, IXX_SF, IYY_SF, IZZ_SF, WGT_SF, GROUP, iPart, bDiffIJ (and a J line)
+            j_line = False
+            for r in rows:
+                p = _fields(r)
+                if j_line:                                # the J end's factors of the row before
+                    j_line = False
+                    continue
+                if len(p) >= 8 and p[0].isdigit():
+                    j_line = len(p) > 10 and p[10].upper() == "YES"
+                    if len(p) > 9 and p[9] and int(_num(p[9], 1.0)) != 1:
+                        # a part of a composite section other than the first: its own row, not read
+                        m.other["SECT-SCALE (a later part of a composite section)"] = \
+                            m.other.get("SECT-SCALE (a later part of a composite section)", 0) + 1
+                        continue
+                    m.section_scales[int(p[0])] = (tuple(_num(x, 1.0) for x in p[1:8]), p[8] if len(p) > 8 else "",
+                                                   int(_num(p[9], 1.0)) if len(p) > 9 and p[9] else 1,
+                                                   len(p) > 10 and p[10].upper() == "YES")
+        elif key == "OFFSET":
+            # ELEM_LIST, TYPE, then RGDXi, RGDYi, RGDZi, RGDXj, RGDYj, RGDZj, GROUP (TYPE=GLOBAL)
+            # or RGDyi(Mzi), RGDzi(Myi), RGDyj(Mzj), RGDzj(Myj), GROUP (TYPE=ELEMENT)
+            for r in rows:
+                p = _fields(r)
+                kind = p[1].upper() if len(p) > 1 else ""
+                n = {"GLOBAL": 6, "ELEMENT": 4}.get(kind)
+                if n is None or len(p) < 2 + n:
+                    m.other["OFFSET (not read)"] = m.other.get("OFFSET (not read)", 0) + 1
+                    continue
+                try:
+                    values = tuple(float(x) for x in p[2:2 + n])
+                except ValueError:                        # a field that is not a number: another layout
+                    m.other["OFFSET (not read)"] = m.other.get("OFFSET (not read)", 0) + 1
+                    continue
+                for e in expand(p[0]):
+                    m.offsets[e] = (kind, values, p[2 + n] if len(p) > 2 + n else "")
         elif key == "RIGIDLINK":
             for r in rows:
                 p = _fields(r)
@@ -532,9 +593,12 @@ def read(path: str) -> MidasModel:
         elif key == "BEAMLOAD":
             for r in rows:
                 p = _fields(r)
-                if len(p) > 18 and p[2].upper() == "UNILOAD":
+                # ELEM_LIST, CMD, TYPE, DIR, bPROJ, bECCEN, ECCDIR, I-END, J-END, bJ-END, D1, P1, D2, P2, D3, P3, D4, P4, GROUP
+                if len(p) > 18 and p[2].upper() == "UNILOAD" and p[5].upper() != "YES" \
+                        and _num(p[10]) == 0.0 and _num(p[12]) == 1.0:
                     for e in expand(p[0]):
-                        m.beam_loads.append((case, e, p[3].upper(), _num(p[11]), _num(p[13]), p[18]))
+                        m.beam_loads.append((case, e, p[3].upper(), _num(p[11]), _num(p[13]), p[18],
+                                             p[4].upper() == "YES"))
                 else:
                     m.other["BEAMLOAD (not uniform)"] = m.other.get("BEAMLOAD (not uniform)", 0) + 1
         elif key == "SYSTEMPER":
@@ -587,6 +651,10 @@ def read(path: str) -> MidasModel:
             if rows:
                 m.other[key] = m.other.get(key, 0) + len(rows)
                 if key == "STAGE-CTRL" and rows:
+                    # line 1: bLAST-FINAL, FINAL-STAGE, CPFC, bEXT_REPL, ...
+                    first = [x.strip().upper() for x in rows[0].split(",")]
+                    if len(first) > 2:
+                        m.pretension_control = first[2]
                     # ..., bITD, iITD, GROUP, ...: "YES, GROUP, <name>" or "YES, ALL"
                     p = [x.strip() for x in ",".join(rows).split(",")]
                     for i in range(len(p) - 1):
@@ -678,6 +746,8 @@ def summary(m: MidasModel) -> str:
     link_kinds: Dict[str, int] = {}
     for k in m.links:
         link_kinds[k.kind] = link_kinds.get(k.kind, 0) + 1
+    if m.offsets:
+        lines.append(f"  offsets     {len(m.offsets)} beam end offset(s)")
     lines.append(f"  supports    {sum(len(c[0]) for c in m.constraints)} nodes in {len(m.constraints)} constraint(s)")
     lines.append("  links       " + (", ".join(f"{n} {k}" for k, n in sorted(link_kinds.items())) or "none")
                  + (f"; {len(m.rigid_links)} rigid link(s)" if m.rigid_links else ""))

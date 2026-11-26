@@ -8,6 +8,8 @@ A step of a line model may say
     birth:     tangent | design
     deactivate: [regions]    members removed in this step
     release:   [regions]     inherited constraints on these nodes freed
+               [link names]  rigid links freed (1.21)
+    rigid_links: [...]       rigid links made at the step's start (1.21)
 
 and its own loads and constraints may say `keep: true`. A case that says
 none of this runs exactly as before: `plan` returns None and nothing here is
@@ -58,6 +60,8 @@ class Plan:
         self.activate: List[np.ndarray] = [np.zeros(0, np.int64)] * n_steps
         self.deactivate: List[np.ndarray] = [np.zeros(0, np.int64)] * n_steps
         self.release: List[np.ndarray] = [np.zeros(0, np.int64)] * n_steps
+        #: the rigid links each step's `release` names (1.21)
+        self.release_links: List[List[str]] = [[] for _ in range(n_steps)]
         self.procedure: List[str] = []
         self.built0 = np.ones(nel, bool)
         #: nodes freed by a release at or before step k (cumulative): what a
@@ -75,7 +79,7 @@ def plan(solver) -> Optional[Plan]:
         base = "static"
     any_change = False
     for st in steps:
-        if (st.get("activate") or st.get("deactivate") or st.get("release")
+        if (st.get("activate") or st.get("deactivate") or st.get("release") or st.get("rigid_links")
                 or (st.get("procedure") and st.get("procedure") != base)
                 or st.get("total_time") is not None
                 or any(x.get("keep") for x in list(st.get("loads") or []) + list(st.get("constraints") or []))):
@@ -88,6 +92,14 @@ def plan(solver) -> Optional[Plan]:
     nel, nn = solver.nel, solver.nn
     pl = Plan(nel, nn, len(steps))
     first: Dict[int, str] = {}
+    # the rigid links by name, and the step each is made in (-1: the model's)
+    case = solver.p.case
+    link_born = {lk.name: -1 for lk in case.rigid_links if lk.name}
+    for k, st in enumerate(case.steps):
+        for lk in st.rigid_links:
+            if lk.name:
+                link_born[lk.name] = k
+    link_freed: Dict[str, int] = {}
     for k, st in enumerate(steps):
         pl.procedure.append(st.get("procedure") or base)
         for key in ("activate", "deactivate"):
@@ -103,7 +115,20 @@ def plan(solver) -> Optional[Plan]:
             getattr(pl, key)[k] = arr.astype(np.int64)
             for e in arr:
                 first.setdefault(int(e), key)
-        rel = [np.asarray(solver._region(r), np.int64) for r in st.get("release") or []]
+        names = [r for r in st.get("release") or [] if r in link_born]
+        for r in names:
+            if r in solver.mesh.regions:
+                raise ValueError(f"steps[{k}].release names {r!r}, a region and a rigid link both: "
+                                 "rename one")
+            if link_born[r] >= k:
+                raise ValueError(f"steps[{k}].release frees rigid link {r!r}, which is made "
+                                 + ("in a later step" if link_born[r] > k else "in this step"))
+            if r in link_freed:
+                raise ValueError(f"steps[{k}].release frees rigid link {r!r}, already freed in "
+                                 f"steps[{link_freed[r]}]")
+            link_freed[r] = k
+        pl.release_links[k] = names
+        rel = [np.asarray(solver._region(r), np.int64) for r in st.get("release") or [] if r not in link_born]
         pl.release[k] = np.unique(np.concatenate(rel)) if rel else np.zeros(0, np.int64)
     for e, kind in first.items():
         if kind == "activate":
@@ -153,7 +178,8 @@ def plan(solver) -> Optional[Plan]:
                                  "constraint is that step's alone and needs no release")
         acc[pl.release[k]] = True
         pl.released_by.append(np.flatnonzero(acc))
-    pl.changes = bool(any(len(x) for x in pl.activate + pl.deactivate + pl.release))
+    pl.changes = bool(any(len(x) for x in pl.activate + pl.deactivate + pl.release + pl.release_links)
+                      or any(st.rigid_links for st in case.steps))
     return pl
 
 
@@ -177,7 +203,8 @@ def install(solver) -> None:
     solver.staging.born_now = np.zeros(0, np.int64)
     solver.staging.clock = 0.0
     solver.staging.base_mode = solver.mode
-    if pl.changes and _is_fibre(solver) and getattr(solver, "_relax", None):
+    if any(len(x) for x in pl.activate + pl.deactivate + pl.release) and _is_fibre(solver) \
+            and getattr(solver, "_relax", None):
         # creep and shrinkage on a fibre section run on each segment's own
         # clock since 1.8; a tendon's relaxation does not:
         # it is dated from the model's stressing age
@@ -329,8 +356,9 @@ def _mass(solver, ids, sign):
         full = solver._element_mass_share(int(e))
         share = full[:3]
         lm = float(line[e]) if line is not None and e < len(line) else 0.0
-        for n in solver.mesh.elements[e, :2]:
-            pm[n, :3] = np.maximum(pm[n, :3] + sign * (share + lm), 0.0)
+        zone = solver.member_zone_mass(int(e)) if hasattr(solver, "member_zone_mass") else np.zeros(2)
+        for k, n in enumerate(solver.mesh.elements[e, :2]):
+            pm[n, :3] = np.maximum(pm[n, :3] + sign * (share + lm + zone[k]), 0.0)
             if stride > 3:
                 # the rotary inertia goes and comes with the member (review, 1.2)
                 pm[n, 3:6] = np.maximum(pm[n, 3:6] + sign * full[3:6], 0.0)
@@ -397,7 +425,13 @@ def _dynamic_step(solver, total_time):
     free &= moving
     if not free.any():
         return
-    root = float(np.sqrt(np.min(mass[free] / row[free])))
+    ratio = mass[free] / row[free]
+    tie = solver.constraint_layer().carried if hasattr(solver, "constraint_layer") else None
+    if tie is not None:
+        # the members' mass set off their nodes: the full mass's bound there
+        # (`CarriedMass.step_ratio`, as the setup's `_carried_step`)
+        ratio = np.minimum(ratio, tie.step_ratio(mass, row, free)[free])
+    root = float(np.sqrt(np.min(ratio)))
     dt = float(sol.dt_safety) * root
     f = solver._damping_step_factor(1.0 / root) if hasattr(solver, "_damping_step_factor") else 1.0
     dt *= f
@@ -527,10 +561,22 @@ def begin_step(solver, k: int, resumed: bool = False) -> None:
     rel = pl.release[k]
     if len(rel):
         extra.append(_release_force(solver, rel, k))
+    ties = solver.ties
+    if ties is not None and pl.release_links[k]:
+        # a released rigid link's force, taken off over the step as a
+        # support's reaction is -- in the release's slot, the same amplitude
+        # (the checkpoint keeps two slots)
+        F = ties.release(pl.release_links[k])
+        if extra and extra[-1] is not None and len(rel):
+            extra[-1] = extra[-1] + F
+        else:
+            extra.append(F)
     a = pl.activate[k]
     solver.staging.born_now = a
     if len(a):
         _build(solver, a, solver.steps[k].get("birth") or "tangent")
+    if ties is not None:
+        ties.birth(k)                     # the step's own links, where the built members put their nodes
     solver.staging.step_extra[k] = [F for F in extra if F is not None]
     configure(solver, k)
 
@@ -576,7 +622,7 @@ def _member_loads_at_end(solver, ids, j):
     """(ndof,) the gravity and line loads members ids carried at the end of
     step j -- what leaves with them when they are removed (review, 1.2: the
     line loads and the kept gravity were missing)."""
-    from .dof import TRANSLATION, repeated_rotation
+    from .dof import TRANSLATION
     out = np.zeros(solver.ndof)
     ids = np.asarray(ids, int)
     for ld in _step_loads(solver, j):
@@ -589,9 +635,10 @@ def _member_loads_at_end(solver, ids, j):
             g = np.asarray(ld["gravity"], float) * f
             for e in ids:
                 share = solver._element_mass_share(int(e))[:3]
-                for n in solver.mesh.elements[e, :2]:
+                zone = solver.member_zone_mass(int(e)) if hasattr(solver, "member_zone_mass") else np.zeros(2)
+                for k, n in enumerate(solver.mesh.elements[e, :2]):
                     if inside[n]:
-                        solver.dofs.add_nodal(out, np.array([n]), share * g, TRANSLATION)
+                        solver.dofs.add_nodal(out, np.array([n]), (share + zone[k]) * g, TRANSLATION)
         elif ld.get("line_load") is not None:
             q = np.asarray(ld["line_load"], float) * f
             kinds = getattr(solver, "member_kind", None)
@@ -600,18 +647,8 @@ def _member_loads_at_end(solver, ids, j):
                     continue
                 if kinds is not None and kinds[e] not in solver.BEAM_TYPES:
                     continue
-                L, R = solver.length[e], solver.R0[e]
-                ql = q if ld.get("coordinate_system", "global") == "local" else R @ q
-                fl = np.zeros(12)
-                fl[[0, 6]] = ql[0] * L / 2
-                fl[[1, 7]] = ql[1] * L / 2
-                fl[5], fl[11] = ql[1] * L ** 2 / 12, -ql[1] * L ** 2 / 12
-                fl[[2, 8]] = ql[2] * L / 2
-                fl[4], fl[10] = -ql[2] * L ** 2 / 12, ql[2] * L ** 2 / 12
-                props = solver.member_props[e] if hasattr(solver, "member_props") else solver.p["element"]
-                fl = solver._apply_load_releases(fl, L, props, solver._material_of(e))
-                dof = solver.dofs.element_dofs(solver.mesh.elements[e])
-                out[dof] += repeated_rotation(R).T @ fl
+                _fl, g = solver.member_line_load(int(e), q, ld.get("coordinate_system", "global") == "local")
+                out[solver.dofs.element_dofs(solver.mesh.elements[e])] += g
     return out
 
 
@@ -715,6 +752,8 @@ def _connector_birth(solver, ids):
         solver._conn_birth[e] = d
     solver._conn_committed[cs] = 0.0
     solver._conn_slip[cs] = 0.0
+    if solver.connector_materials:
+        solver.connector_materials.reset(cs)            # a `material` law's history starts at its birth
     # the row a bar's stretch offset takes means nothing to a connector
     solver.staging.birth_d[cs] = 0.0
     solver._birth_raw[1][np.isin(solver._birth_raw[0], cs)] = 0.0
@@ -732,6 +771,11 @@ def _fresh_fibres(solver, ids):
     for a, a0 in zip(getattr(solver, "fiber_committed", []), solver.staging.fcom0):
         if a.shape == a0.shape and a.shape[:1] == (solver.nel,):
             a[ids] = a0[ids]
+    if solver.connector_materials:
+        # a connector's `material` law starts from its first state too, as its
+        # slips do above (found in review: `_connector_birth` returns before
+        # its reset on a fibre model)
+        solver.connector_materials.reset(ids)
 
 
 def birth_offsets(solver):
@@ -970,6 +1014,7 @@ def raw_local(solver, ids) -> np.ndarray:
     dofs = np.array([solver.dofs.element_dofs(c) for c in conn]).reshape(len(ids), 12)
     q = solver.q[dofs].reshape(len(ids), 2, 6)
     x = solver.mesh.nodes[conn] + q[:, :, :3]
+    x = solver.geometry.ends(ids, x, solver.orient)
     R0 = np.asarray(solver.R0)[ids]
     _R, th, L = beam_frames_from_triads(x, solver.orient[conn], R0)
     Lu = getattr(solver, "member_Lu", None)
@@ -1042,9 +1087,11 @@ def newborn_weight(solver, idx, g) -> Optional[np.ndarray]:
     out = np.zeros(solver.ndof)
     for e in born:
         share = solver._element_mass_share(int(e))[:3]
-        for n in solver.mesh.elements[e, :2]:
+        zone = solver.member_zone_mass(int(e)) if hasattr(solver, "member_zone_mass") else np.zeros(2)
+        for k, n in enumerate(solver.mesh.elements[e, :2]):
             if inside[n]:
-                solver.dofs.add_nodal(out, np.array([n]), share * np.asarray(g, float), TRANSLATION)
+                solver.dofs.add_nodal(out, np.array([n]), (share + zone[k]) * np.asarray(g, float),
+                                      TRANSLATION)
     return out
 
 

@@ -44,6 +44,17 @@ answer is defined to that, and carries it through its history. The path a relaxa
 residual and kinetic series, its fictitious mass) is not judged. A case
 within tolerance is reported WITHIN, and does not fail the compare.
 
+A case loaded to collapse (COLLAPSES) is judged on its history up to the
+collapse instead: every monitor at every frame up to that time, against the
+same rows. What follows the collapse -- a structure falling apart -- moves
+under any change of round-off and is not judged (case_24d: 1e-11 up to
+t = 54 s, 1% after). This needs the baseline's monitors: `--write` keeps
+them for every case (`<case>.monitors.h5`, small even when the result file
+is not kept); for a baseline written before that, `--backfill-monitors NAME
+--tree DIR --cases ...` solves the cases again with a checkout of the
+baseline's commit in DIR, checks that the result and the checkpoint hash
+to the baseline's, and keeps the monitors.
+
 Every compare also reports the cases that ran more than SLOWER (20 %) and
 more than SLOWER_S (5 s) longer than the baseline did: the performance
 gate. It fails the compare only with `--perf-gate` (a shared machine's
@@ -96,12 +107,23 @@ TOLERANCES = [
     ("displacement", ("displacement", "checkpoint/q", "deflection", "velocity", "acceleration"),
      1e-5, 1e-5),
     ("classes", ("damage", "crack"), 1e-3, None),
-    ("stress", ("stress", "strain", "von_mises", "sig", "eps"), 1e-3, 1e-3),
+    # strain before stress, and its own class: a strain held to a floor set by the
+    # largest STRESS (1e7 Pa) would never be judged
+    ("strain", ("strain", "eps"), 1e-3, 1e-3),
+    ("stress", ("stress", "von_mises", "sig"), 1e-3, 1e-3),
     ("force", ("force", "moment", "shear", "bending", "axial", "torsion", "reaction", "section"),
      1e-4, 1e-4),
     ("energy", ("energy", "work"), 1e-3, 1e-3),
     ("other", ("",), 1e-5, 1e-5),
 ]
+#: cases loaded to collapse: {case: the time up to which they are judged}.
+#: The time is the last frame before the collapse, read off the run (the
+#: midspan deflection jumps within a second of it); what follows is a
+#: structure falling apart, which no change of round-off leaves in place.
+COLLAPSES = {
+    "case_24c_hzb_girder_collapse": 46.0,   # w_mid_middle 0.29 m at 46 s, 0.81 m at 47 s
+    "case_24d_hzb_girder_piers": 54.0,   # w_mid_middle 0.71 m at 54 s, 3.9 m at 55 s
+}
 #: the performance gate: slower than the baseline by this fraction AND these seconds
 SLOWER, SLOWER_S = 0.20, 5.0
 
@@ -280,11 +302,59 @@ def within_tolerance(a_files, b_files, relaxed=0.0):
     tolerance the case relaxes to (`relaxed_to`); no row is then tighter
     than RELAXED times it. A baseline that kept no copy of its result file
     (larger than COPY_LIMIT) is judged on q alone, and says so."""
-    import numpy as np
     b_result = b_files[0] if b_files[0] and os.path.exists(b_files[0]) else None
     a = final_state(a_files[0] if b_result else None, a_files[1])
     b = final_state(b_result, b_files[1])
     lines = [] if b_result else ["- (the baseline kept no copy of the result file: q alone is judged)"]
+    return _judge(a, b, relaxed, lines)
+
+
+def monitor_history(path, until, frames=None):
+    """{name: (array, what)} like `final_state`, but each monitor's values at
+    every frame up to the time `until` (the frames of `monitors/time`), and
+    nothing else: what a collapse case is judged on. `frames`: take this many
+    frames instead (the baseline's count, so that a run whose frame at
+    `until` reads 1e-12 later is cut at the same frame and its time line is
+    judged by value)."""
+    import h5py
+    import numpy as np
+    out = {}
+    if not path or not os.path.exists(path):
+        return out
+    with h5py.File(path, "r") as f:
+        m = f.get("monitors")
+        if m is None or "time" not in m:
+            return out
+        t = np.asarray(m["time"][()], float)
+        n = int(np.searchsorted(t, until, side="right")) if frames is None else min(int(frames), len(t))
+        for k, d in m.items():
+            if (isinstance(d, h5py.Dataset) and d.dtype.kind in "fiub" and len(d) == len(t)
+                    and k not in ("residual", "kinetic_energy", "time", "step")):
+                kind = d.attrs.get("kind", "")
+                kind = kind.decode() if isinstance(kind, bytes) else str(kind)
+                if kind in ("fiber", "fibre", "section"):
+                    field = d.attrs.get("field", "")
+                    kind = field.decode() if isinstance(field, bytes) else str(field or k)
+                out[f"monitors/{k}[t<={until:g}]"] = (np.asarray(d[()])[:n], kind or k)
+        out["monitors/time[frames]"] = (t[:n], "time")
+    return out
+
+
+def within_tolerance_until(a_result, b_monitors, until, relaxed=0.0):
+    """(ok, lines): a collapse case's monitors up to `until` against the
+    baseline's (its kept `<case>.monitors.h5`), quantity by quantity."""
+    b = monitor_history(b_monitors, until)
+    if "monitors/time[frames]" not in b:
+        return False, ["- **OUT**: loaded to collapse, but the baseline's monitors have no time line"]
+    n = len(b["monitors/time[frames]"][0])
+    a = monitor_history(a_result, until, frames=n)
+    lines = [f"- (loaded to collapse: every monitor at each of the {n} frames up to t = {until:g} s is judged, "
+             "the state after the collapse is not)"]
+    return _judge(a, b, relaxed, lines)
+
+
+def _judge(a, b, relaxed, lines):
+    import numpy as np
     size = {}
     for n, (y, what) in b.items():
         c = _tolerance(what)[0]
@@ -351,6 +421,70 @@ def run_case(stem, tmp, env, timeout):
             "result": digests(h5), "checkpoint": digests(ckpt), "_h5": h5, "_ckpt": ckpt}
 
 
+def keep_monitors(result, dest):
+    """Copy the `monitors` group of a result file to `dest` (a small file,
+    kept for every case even when the result file is not). False when the
+    result has no monitors."""
+    import h5py
+    if not os.path.exists(result):
+        return False
+    with h5py.File(result, "r") as f:
+        if "monitors" not in f:
+            return False
+        tmp = str(dest) + ".part"
+        with h5py.File(tmp, "w") as g:
+            f.copy("monitors", g)
+    os.replace(tmp, dest)
+    return True
+
+
+def backfill(name, tree, stems, home, timeout):
+    """Keep the monitors of a baseline written before `--write` kept them:
+    solve each case with the checkout of the baseline's commit in `tree`
+    (its own `tools/state_baseline.py --one`), check that its result and
+    checkpoint hash to what the baseline recorded -- the same answer, to
+    the bit -- and keep its monitors beside the baseline's files."""
+    base = home / name
+    old = json.loads((base / "index.json").read_text(encoding="utf-8"))
+    tree = pathlib.Path(tree).resolve()
+    tool = tree / "tools" / "state_baseline.py"
+    if not tool.exists():
+        print(f"no {tool}: --tree is a checkout of the baseline's commit ({old['commit']})")
+        return 2
+    env = check_all._single_threaded()
+    bad = 0
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        for stem in stems:
+            o = old["cases"][stem]
+            n = int(o.get("threads", 1))
+            h5 = os.path.join(tmp, stem + ".h5")
+            ckpt = os.path.splitext(h5)[0] + ".ckpt.h5"
+            t0 = time.perf_counter()
+            for attempt in (1, 2):           # a cold numba cache in a fresh checkout: once more, warm
+                try:
+                    p = subprocess.run([sys.executable, str(tool), "--one", stem, "--out", h5], cwd=tree,
+                                       env={**(check_all._threaded(env, n) if n > 1 else env),
+                                            "PYTHONPATH": str(tree), "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+                                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                       timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    p = subprocess.CompletedProcess([], 1, "", f"TIMEOUT after {timeout} s")
+                same = (p.returncode == 0 and digests(h5) == o["result"] and digests(ckpt) == o["checkpoint"])
+                if same or p.returncode:
+                    break
+            dest = base / "files" / (stem + ".monitors.h5")
+            if same and keep_monitors(h5, dest):
+                print(f"  {stem}: the same as the baseline to the bit; kept {dest.name} "
+                      f"({time.perf_counter() - t0:.0f} s)", flush=True)
+            else:
+                bad += 1
+                why = "failed" if p.returncode else "not the baseline's answer (another machine or commit?)"
+                print(f"  {stem}: {why}, nothing kept\n{check_all._tail((p.stdout or '') + (p.stderr or ''), 20)}",
+                      flush=True)
+            _drop(h5, ckpt)
+    return 1 if bad else 0
+
+
 def _drop(*paths):
     for p in paths:
         for q in (p, os.path.splitext(p)[0] + ".xdmf", os.path.splitext(p)[0] + "_last.xdmf"):
@@ -382,7 +516,10 @@ def main(argv=None):
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--write", metavar="NAME", help="solve and keep the baseline NAME")
     g.add_argument("--compare", metavar="NAME", help="solve and compare with the baseline NAME")
+    g.add_argument("--backfill-monitors", metavar="NAME",
+                   help="keep the monitors of baseline NAME, solving --cases with the checkout in --tree")
     g.add_argument("--one", metavar="CASE", help=argparse.SUPPRESS)
+    ap.add_argument("--tree", help="--backfill-monitors: a checkout of the baseline's commit")
     ap.add_argument("--out", help=argparse.SUPPRESS)
     ap.add_argument("--force", action="store_true", help="--write over an existing baseline NAME")
     ap.add_argument("--cases", nargs="+", default=None, help="only these cases (a prefix such as case_24g works)")
@@ -399,8 +536,23 @@ def main(argv=None):
     if args.one:
         return solve_one(args.one, args.out)
 
-    name = args.write or args.compare
     home = ROOT / "results" / "state_baseline"
+    if args.backfill_monitors:
+        name = args.backfill_monitors
+        if not (home / name / "index.json").exists() or not args.tree or not args.cases:
+            print("--backfill-monitors NAME needs the baseline NAME, --tree DIR and --cases")
+            return 2
+        known = json.loads((home / name / "index.json").read_text(encoding="utf-8"))["cases"]
+        unknown = [c for c in args.cases if not any(s == c or s.startswith(c + "_") for s in known)]
+        if unknown:
+            print("no such case in the baseline: " + ", ".join(unknown))
+            return 2
+        stems = sorted(s for s in known if any(s == c or s.startswith(c + "_") for c in args.cases))
+        return backfill(name, args.tree, stems, home, args.case_timeout)
+    if args.tree:
+        print("--tree goes with --backfill-monitors")
+        return 2
+    name = args.write or args.compare
     base = home / name
     index = base / "index.json"
     old = None
@@ -476,6 +628,7 @@ def main(argv=None):
                     shutil.copy(r["_ckpt"], staging / "files" / (stem + ".ckpt.h5"))
                 if os.path.exists(r["_h5"]) and os.path.getsize(r["_h5"]) <= COPY_LIMIT:
                     shutil.copy(r["_h5"], staging / "files" / (stem + ".h5"))
+                keep_monitors(r["_h5"], staging / "files" / (stem + ".monitors.h5"))
             else:
                 o = old["cases"][stem]
                 r["same"] = (r["ok"] and o.get("ok", True)
@@ -484,9 +637,19 @@ def main(argv=None):
                     details[stem] = _differences(r, o, kept)
                     if args.tolerance:
                         tol = relaxed_to(stem)
-                        ok, lines = within_tolerance(
-                            (r["_h5"], r["_ckpt"]),
-                            (str(kept / (stem + ".h5")), str(kept / (stem + ".ckpt.h5"))), tol)
+                        mon = kept / (stem + ".monitors.h5")
+                        if not mon.exists():               # a kept result file has its monitors too
+                            mon = kept / (stem + ".h5")
+                        if stem in COLLAPSES and mon.exists():
+                            ok, lines = within_tolerance_until(r["_h5"], str(mon), COLLAPSES[stem], tol)
+                        else:
+                            ok, lines = within_tolerance(
+                                (r["_h5"], r["_ckpt"]),
+                                (str(kept / (stem + ".h5")), str(kept / (stem + ".ckpt.h5"))), tol)
+                            if stem in COLLAPSES:
+                                lines.insert(0, f"- (loaded to collapse at t = {COLLAPSES[stem]:g} s, but the "
+                                                "baseline kept no monitors: its final state is judged; "
+                                                "--backfill-monitors keeps them)")
                         if tol:
                             lines.insert(0, f"- (relaxed to {tol:g}: no row tighter than {RELAXED * tol:g})")
                         r["within"] = ok

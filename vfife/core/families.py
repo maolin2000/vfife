@@ -61,6 +61,8 @@ class FrameMembers:
 
     #: every member of the solver, read live (`whole`)
     is_whole = False
+    #: the members' end offsets gathered for the kernel (core/member_geometry), at first use
+    _offs = None
     #: what a member that collapses to a point is told
     collapse = COLLAPSED
 
@@ -117,6 +119,8 @@ class FrameMembers:
         if not len(ids):
             return
         whole = self.is_whole
+        geometry = s.geometry
+        offset = geometry.any
         if getattr(s, "backend", "numpy") == "numba":
             from ..kernels.numba_frame import frame_forces_subset, frame_forces_subset_threaded
             dth = (s._frame_eigen_d() if whole else s._eigen_d())
@@ -124,6 +128,14 @@ class FrameMembers:
             args = (self.ids64, s.mesh.nodes, self.conn64,
                     s.dofs.view(s.q), s.orient, self.R0c, self.kc,
                     self.L0c, self.dofs64, dth, out, end_actions, actions)
+            if offset:
+                # members with end offsets (1.21): their own kernel, serial
+                from ..kernels.numba_frame import frame_forces_offset
+                if self._offs is None:
+                    self._offs = geometry.kernel_arrays(ids)
+                if frame_forces_offset(*args, *self._offs):
+                    raise ValueError(self.collapse)
+                return
             n = getattr(s, "_threads", 1)
             # threads: the same sum, to the bit
             if n > 1:
@@ -143,6 +155,7 @@ class FrameMembers:
             conn, R0, L0, k = self.conn, self.R0, self.L0, self.k
         q = s.q[dofs].reshape(-1, 2, 6)
         x = s.mesh.nodes[conn] + q[:, :, :3]
+        x = geometry.ends(ids, x, s.orient)
         R, theta_loc, L = beam_frames_from_triads(x, s.orient[conn], R0)
         if np.any(L < 1e-14):
             raise ValueError(self.collapse)
@@ -158,6 +171,7 @@ class FrameMembers:
         end_actions[ids] = fl
         # T.T @ fl with T = blockdiag(R, R, R, R): each 3-block is R.T @ block
         contrib = np.einsum("eji,ekj->eki", R, fl.reshape(-1, 4, 3)).reshape(-1, 12)
+        geometry.forces_to_nodes(ids, contrib, s.orient)
         np.add.at(out, dofs, contrib)
         actions[ids] = np.maximum(np.abs(fl[:, :6]), np.abs(fl[:, 6:]))
 
@@ -166,6 +180,7 @@ class FrameMembers:
         frame the force evaluation uses, without the forces."""
         q = s.q[self.dofs].reshape(-1, 2, 6)
         x = s.mesh.nodes[self.conn] + q[:, :, :3]
+        x = s.geometry.ends(self.ids, x, s.orient)
         return beam_frames_from_triads(x, s.orient[self.conn], self.R0)[0]
 
     def turned_blocks(self, s):
@@ -178,8 +193,10 @@ class FrameMembers:
         for blk in range(4):
             T[:, 3*blk:3*blk+3, 3*blk:3*blk+3] = R
         kg = np.einsum("eji,ejk,ekl->eil", T, self.k, T)     # T^T k T
+        geometry = s.geometry
+        r = geometry.now(ids, s.orient)
         for i, e in enumerate(ids):
-            yield i, int(e), kg[i]
+            yield i, int(e), (kg[i] if r is None else geometry.stiffness_to_nodes(int(e), kg[i], r[i]))
 
 
 class AxialMembers:
@@ -294,6 +311,8 @@ class ConnectorMembers:
     def __init__(self, s):
         self.ids = np.flatnonzero((s.member_kind == "connector2") & _active(s))
         self._kernel = None
+        #: a connector of these has a law the kernel has no code for
+        self._declined = False
 
     def kernel(self, s):
         """The compiled connectors' arrays under `backend: numba`, or None:
@@ -303,6 +322,12 @@ class ConnectorMembers:
             return None
         if self._kernel is not None:
             return self._kernel
+        if self._declined:
+            return None
+        from ..elements import connector as _c
+        if any(_c.has_material_law(s.member_props[e]) for e in ids):
+            self._declined = True              # a `material` law (1.21) has no compiled form
+            return None
         try:
             from ..kernels import numba_connector as nc
         except ImportError:                                   # pragma: no cover
@@ -344,7 +369,8 @@ class ConnectorMembers:
                 qe[:, :3], s.orient[conn], s.v[dof], s.mesh.nodes[conn],
                 s.R0[e], s.member_props[e], include_damping=s.mode == "dynamic",
                 slip_committed=s._conn_committed[e], slip_out=s._conn_slip[e],
-                offset=None if s._conn_birth is None else s._conn_birth[e])
+                offset=None if s._conn_birth is None else s._conn_birth[e],
+                materials=s.connector_materials.of(e) if s.connector_materials else None)
             out[dof] += fe; actions[e] = np.abs(act)
             end_actions[e, :6] = -act; end_actions[e, 6:] = act
             deformation[e] = deform

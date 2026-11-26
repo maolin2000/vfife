@@ -9,6 +9,7 @@ from .member_failure import Breaking
 from . import mass_scaling
 from . import member_axes
 from . import added_mass
+from . import member_geometry
 from .dof import SparseAssembler, TRANSLATION, repeated_rotation
 from ..elements import connector
 from . import families
@@ -89,17 +90,23 @@ class MixedStructuralSolver(BeamSolver):
         assembly = SparseAssembler(self.ndof)
         self.T, self.R0, self.k_local, self.length, self._kg_ref = [], [], [], [], []
         self.member_kind, self.member_props = [], []
+        for spec, ids in zip(specs, assigned):
+            if spec.get("end_offsets") is not None and spec["type"] not in self.BEAM_TYPES:
+                raise ValueError(f"member group {spec['region']!r}: end_offsets are for beams, "
+                                 f"not {spec['type']}")
+        self.geometry = geometry = member_geometry.MemberGeometry.build(
+            self.mesh, self.nel, [(ids, spec.get("end_offsets"), spec.get("orientation"), spec["region"])
+                                  for spec, ids in zip(specs, assigned)])
         for e, conn in enumerate(self.mesh.elements):
             props = specs[owner[e]]; kind = props["type"]
             reference = props.get("orientation")
             if kind in {"truss2", "connector2"} and reference is None:
                 axis = self.mesh.nodes[conn[1]]-self.mesh.nodes[conn[0]]
                 basis = np.eye(3); reference = basis[np.argmin(np.abs(basis@(axis/np.linalg.norm(axis))))]
-            R, L = self._frame(self.mesh.nodes[conn[0]], self.mesh.nodes[conn[1]],
-                               reference)
+            R, L = self._frame(*geometry.reference_ends(e), reference)
             if kind in self.BEAM_TYPES:
-                kl = self._local_stiffness(L, props, material=group_materials[owner[e]])
-                T = repeated_rotation(R); kg = T.T@kl@T
+                kl = geometry.full_axial(e, self._local_stiffness(L, props, material=group_materials[owner[e]]), L)
+                T = repeated_rotation(R); kg = geometry.stiffness_to_nodes(e, T.T@kl@T)
             elif kind == "connector2":
                 kl = connector.reference_stiffness(self.mesh.nodes[conn], R, props)
                 T = repeated_rotation(R); kg = kl
@@ -222,6 +229,10 @@ class MixedStructuralSolver(BeamSolver):
         #: (nel, 6) the deformation each connector was born with, once an
         #: analysis step has built one; None before
         self._conn_birth = None
+        #: the history of the connectors' `material` laws (1.21)
+        self.connector_materials = connector.MaterialStates(
+            [e for e in range(self.nel) if self.member_kind[e] == "connector2"],
+            lambda e: self.member_props[e])
         for g, spec in enumerate(specs):
             self.breaking.add(np.flatnonzero(owner == g), spec.get("failure"), spec, spec["type"])
         # a breakable beam twisted a quarter turn is torn: its G J / L
@@ -293,6 +304,8 @@ class MixedStructuralSolver(BeamSolver):
         """What a member carries beyond the shared particles: slip, hinges,
         and (for a solver nested in another) the broken members."""
         ck = {"connector_slip": self._conn_committed.copy()}
+        if self.connector_materials:
+            ck["connector_material_state"] = self.connector_materials.checkpoint()
         if getattr(self, "_plastic_d", None) is not None:
             ck["plastic_rotation"] = self._plastic_d.copy()
             ck["hinge_rotation"] = self._hinge_rotation.copy()
@@ -313,6 +326,9 @@ class MixedStructuralSolver(BeamSolver):
         if "connector_slip" in ck:               # and a slid bearing stays slid
             self._conn_committed = np.asarray(ck["connector_slip"], float).copy()
             self._conn_slip = self._conn_committed.copy()
+        if self.connector_materials and "connector_material_state" in ck:
+            # (a checkpoint from before 1.21 has none: the laws start afresh)
+            self.connector_materials.restore(ck["connector_material_state"])
         if getattr(self, "_plastic_d", None) is not None and "plastic_rotation" in ck:
             self._plastic_d = np.asarray(ck["plastic_rotation"], float).copy()
             self._hinge_rotation = np.asarray(ck["hinge_rotation"], float).copy()
@@ -400,6 +416,8 @@ class MixedStructuralSolver(BeamSolver):
         """The connector laws' history the next evaluation starts from: called
         by the solver loops at equilibrium (relaxation) or every step (dynamic)."""
         self._conn_committed[...] = self._conn_slip
+        if self.connector_materials:
+            self.connector_materials.commit()
 
     def _truss_force(self, e, L):
         """Axial force of truss member e at current length L: E A times the
@@ -449,6 +467,7 @@ class MixedStructuralSolver(BeamSolver):
             self.p.get("loads"), self._region, self.mesh.nodes[:self.nn], self.mesh.elements[:, :2],
             kinds != "connector2", self.p.case.units)
         m[:, :3] += add; m[:, 3:] += rot; self.additional_mass = add
+        self._add_zone_mass(m)                      # the rigid zones' own (1.21)
         true_rot += rot
         self.physical_mass=m.reshape(-1); row=np.asarray(abs(self.K).sum(axis=1)).ravel()
         # selective mass scaling, before anything reads the mass
@@ -546,6 +565,8 @@ class MixedStructuralSolver(BeamSolver):
     frame_family = None
     bar_family = None
     connector_family = None
+    #: the history of the connectors' `material` laws (`connector.MaterialStates`, 1.21)
+    connector_materials = None
 
     def rebatch(self, frames=True, axial=True):
         """The members changed (a step built or removed some, a split moved
@@ -700,6 +721,9 @@ class MixedStructuralSolver(BeamSolver):
             if len(b):
                 d.update(b_ids=c(self.frame_family.ids64[b]), b_conn=c(self.frame_family.conn64[b]), b_R0=c(self.frame_family.R0c[b]),
                          b_k=c(self.frame_family.kc[b]), b_L0=c(self.frame_family.L0c[b]), b_dofs=c(self.frame_family.dofs64[b]))
+                if self.geometry.any:
+                    # end offsets (1.21): the members' own kernel, as `FrameMembers.forces` runs it
+                    d["b_offs"] = self.geometry.kernel_arrays(d["b_ids"])
             if len(t):
                 d.update(t_ids=c(np.asarray(tids, np.int64)[t]), t_conn=c(np.asarray(self.bar_family.conn, np.int64)[t]))
             if len(k):
@@ -740,13 +764,13 @@ class MixedStructuralSolver(BeamSolver):
         """The forces of the members `pick` (one entry of `_tangent_picks`)
         added into `out`, by the kernels `internal_force` runs, member for
         member the same arithmetic."""
-        from ..kernels.numba_frame import frame_forces_subset, truss_forces
+        from ..kernels.numba_frame import frame_forces_offset, frame_forces_subset, truss_forces
         actions, end_actions, deformation = self._pick_scratch
         qv = self.dofs.view(self.q)
         if len(pick["b"]):
-            if frame_forces_subset(pick["b_ids"], self.mesh.nodes, pick["b_conn"], qv, self.orient, pick["b_R0"],
-                                   pick["b_k"], pick["b_L0"], pick["b_dofs"], pick["b_dth"],
-                                   out, end_actions, actions):
+            args = (pick["b_ids"], self.mesh.nodes, pick["b_conn"], qv, self.orient, pick["b_R0"],
+                    pick["b_k"], pick["b_L0"], pick["b_dofs"], pick["b_dth"], out, end_actions, actions)
+            if (frame_forces_offset(*args, *pick["b_offs"]) if "b_offs" in pick else frame_forces_subset(*args)):
                 raise ValueError("mixed structural member collapsed to zero length")
         if len(pick["t"]):
             if self._pick_jack:
@@ -797,13 +821,18 @@ class MixedStructuralSolver(BeamSolver):
                     qe[:,:3], self.orient[conn], self.v[dof], self.mesh.nodes[conn],
                     self.R0[e], self.member_props[e], include_damping=self.mode=="dynamic",
                     slip_committed=self._conn_committed[e], slip_out=self._conn_slip[e],
-                    offset=None if self._conn_birth is None else self._conn_birth[e])
+                    offset=None if self._conn_birth is None else self._conn_birth[e],
+                    materials=self.connector_materials.of(e) if self.connector_materials else None)
                 out[dof]+=fe; actions[e]=np.abs(act)
                 end_actions[e,:6]=-act; end_actions[e,6:]=act
                 connector_deformation[e]=deform
                 continue
             # the same kinematics as `rotations.beam_frames`, written with
             # scipy's rotations so the two are independent implementations
+            off = self.geometry.offset
+            if off is not None:
+                r1 = self.orient[conn[0]] @ off[e, 0]; r2 = self.orient[conn[1]] @ off[e, 1]
+                axis = (x[1] + r2) - (x[0] + r1); L = np.linalg.norm(axis)
             T0 = self.R0[e].T
             T1 = self.orient[conn[0]]; T2 = self.orient[conn[1]]
             Tm = T1 @ Rotation.from_rotvec(0.5 * Rotation.from_matrix(T1.T @ T2).as_rotvec()).as_matrix()
@@ -813,7 +842,10 @@ class MixedStructuralSolver(BeamSolver):
             local=np.zeros(12); local[6]=L-self.length[e]
             local[3:6]=Rotation.from_matrix(Te.T @ T1 @ T0).as_rotvec()
             local[9:12]=Rotation.from_matrix(Te.T @ T2 @ T0).as_rotvec()
-            fl=self.k_local[e]@local; end_actions[e]=fl; T=repeated_rotation(R); out[dof]+=T.T@fl
+            fl=self.k_local[e]@local; end_actions[e]=fl; T=repeated_rotation(R); g=T.T@fl
+            if off is not None:                       # m + r x f at the nodes (end_offsets)
+                g[3:6] += np.cross(r1, g[0:3]); g[9:12] += np.cross(r2, g[6:9])
+            out[dof]+=g
             actions[e]=[max(abs(fl[i]),abs(fl[i+6])) for i in range(6)]
         return out,actions
 

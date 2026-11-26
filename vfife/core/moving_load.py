@@ -78,7 +78,7 @@ class LoadPath:
     positive speed drives it towards the right.
     """
 
-    def __init__(self, mesh, elements: Sequence[int], what: str = "moving_load"):
+    def __init__(self, mesh, elements: Sequence[int], what: str = "moving_load", geometry=None):
         elements = np.asarray(sorted(int(e) for e in elements), int)
         if not len(elements):
             raise ValueError(f"{what} region contains no complete members")
@@ -118,6 +118,14 @@ class LoadPath:
         self.lengths = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
         self.stations = np.concatenate([[0.0], np.cumsum(self.lengths)])
         self.total = float(self.stations[-1])
+        # members with end offsets (1.21): the load is on the DRAWN line,
+        # the line between the nodes the stations are measured along, and
+        # reaches the elastic part through the offsets (core/member_geometry)
+        self.drawn = None
+        if geometry is not None and geometry.any and np.any(np.isin(self.elements, geometry.members)):
+            conn = mesh.elements[self.elements][:, :2]
+            self.drawn = (mesh.nodes[conn[:, 0]].astype(float), mesh.nodes[conn[:, 1]].astype(float),
+                          np.asarray(geometry.offset, float)[self.elements])
 
     def locate(self, s: float) -> Optional[Tuple[int, float]]:
         """`(element, xi)` for arc length `s`, or None when `s` is off the
@@ -149,6 +157,8 @@ class LoadPath:
         `releases` (npath, 12, 12), from `path_releases`, condenses the local
         vector of a member with end releases, as a `line_load`'s is."""
         k, a = self.place(s)
+        if self.drawn is not None:
+            return (k,) + self._shape_drawn(k, a, R, L, p, releases)
         try:
             from ..kernels.numba_loads import path_actions as _pa
         except ImportError:                                   # pragma: no cover
@@ -183,6 +193,28 @@ class LoadPath:
             fl = np.einsum("nij,nj->ni", releases[k], fl)
         fg = np.einsum("nji,nbj->nbi", Rk, fl.reshape(-1, 4, 3)).reshape(-1, 12)   # T^T fl
         return k, fl, fg
+
+    def _shape_drawn(self, k, a, R, L, p, releases):
+        """`shape` on a path with end offsets: each force where it is on
+        its member's drawn line (`member_geometry.drawn_loads`), the
+        elastic part's share condensed through the releases and taken to
+        the nodes with the levers of the offsets as drawn."""
+        from .member_geometry import drawn_loads
+        x1, x2, off = self.drawn
+        n = len(k)
+        P = np.broadcast_to(np.asarray(p, float), (n, 3))
+        fl = np.zeros((n, 12)); fg = np.zeros((n, 12))
+        for i in range(n):
+            j = int(k[i])
+            f, g = drawn_loads(x1[j], x2[j], off[j, 0], off[j, 1], R[j], float(L[j]),
+                               [float(a[i])], P[i:i + 1])
+            if releases is not None:
+                f = releases[j] @ f
+            fb = np.einsum("ji,bj->bi", R[j], f.reshape(4, 3)).reshape(12)       # T^T f
+            fb[3:6] += np.cross(off[j, 0], fb[0:3])
+            fb[9:12] += np.cross(off[j, 1], fb[6:9])
+            fl[i] = f; fg[i] = g + fb
+        return fl, fg
 
 
 def path_releases(solver, elements) -> Optional[np.ndarray]:

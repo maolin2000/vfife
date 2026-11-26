@@ -109,57 +109,10 @@ def _shorten_tendons(entries: List[dict], folder: str, name: str) -> Tuple[dict,
     return defaults, entries
 
 
-def _rule_offset_arms(case: dict, mesh, factor: float, limit: float) -> Tuple[dict, int, int]:
-    """(the case with its offset arms as one `offset_arms` rule, arms in the
-    rule, arms left as their own sections) -- v1.20. The rule works
-    each arm out from the mesh as written (coordinates to 12 digits); an arm
-    whose own section it does not give to 1e-9, or the orientation of -- a
-    member set off that is a stub, or one end of it not set off -- keeps its
-    section (renamed `offset_arm_own_K`: the rule's names are its own), and
-    the rule is worked out again without it."""
-    from ...prep import offsets as prep_offsets
-    own = {a["region"]: a for a in case["assign"] if str(a.get("section", "")).startswith("offset_arm_")}
-    if not own:
-        return case, 0, 0
-    ruled = list(own)
-    while ruled:
-        block = {"material": "rigid", "factor": factor, "limit": limit, "regions": ruled}
-        probe = dict(case, offset_arms=block, assign=[a for a in case["assign"] if a["region"] not in set(ruled)])
-        off: List[str] = []
-        try:
-            made = prep_offsets.arm_sections(probe, mesh, bad=off)
-        except ValueError:
-            return case, 0, len(own)
-        for region, sec, orient in made:
-            mine = case["sections"][own[region]["section"]]
-            if list(own[region].get("orientation") or []) != orient or any(
-                    abs(sec[q] - mine[q]) > 1.0e-9 * abs(mine[q]) for q in ("area", "iy", "iz", "j")):
-                off.append(region)
-        if not off:
-            break
-        ruled = [r for r in ruled if r not in set(off)]
-    if not ruled:
-        return case, 0, len(own)
-    gone = set(ruled)
-    kept = {a["section"] for a in case["assign"] if a["region"] in own and a["region"] not in gone}
-    rename = {q: f"offset_arm_own_{i + 1}" for i, q in enumerate(sorted(kept, key=lambda q: int(q.rsplit("_", 1)[1])))}
-    out = {}
-    for k, v in case.items():
-        if k == "sections":
-            v = {rename.get(q, q): s_ for q, s_ in v.items()
-                 if not (q.startswith("offset_arm_") and q not in kept)}
-        elif k == "assign":
-            v = [dict(a, section=rename.get(a["section"], a["section"])) for a in v if a["region"] not in gone]
-        out[k] = v
-        if k == "assign":
-            out["offset_arms"] = {"material": "rigid", "factor": factor, "limit": limit, "regions": ruled}
-    return out, len(ruled), len(own) - len(ruled)
-
-
 def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure: str = "static",
             rigid: float = 100.0, stiffest: float = 1.0e13, stub: float = 0.05, link_rotation: float = 1.0e9,
             link_rigid: float = 1.0e10, offset_rigid: float = 30.0, shear: bool = True,
-            birth: str = "auto", jack_which: str = "one", stages: int = 0, cases: Tuple[str, ...] = (),
+            birth: str = "auto", jack_which: str = "switch", stages: int = 0, cases: Tuple[str, ...] = (),
             expanded: bool = False) -> dict:
     """Write `<name>.msh`, `<name>.yaml` and `<name>.map.json` into `folder`;
     returns the report (also the map file's `report`). The tendons are the
@@ -177,7 +130,7 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
     def leave(what, n=1):
         left[what] = left.get(what, 0) + n
 
-    model, all_links, tied, drawn, six = prepare(model, leave, notes, f, length, link_rigid, cases)
+    model, all_links, tied, drawn, six, rlinks = prepare(model, leave, notes, f, length, link_rigid, cases)
 
     # ---------------------------------------------------------------- nodes
     node_ids = sorted(model.nodes)
@@ -281,10 +234,42 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             # cable is built in: here a cable has one designed length, from birth
             leave("pretension applied in another stage than the cable is built in (taken at its birth)")
         pretension[e] = pretension.get(e, 0.0) + t * f
-    # WHICH OF A CABLE'S ELEMENTS THE JACK IS ON. Midas takes every pretension
-    # as a force held in its stage, and a model gives the same one to each
-    # element of a cable that runs over saddles -- the anchor cable, the
-    # short piece between two saddles, the buckle cable. Their horizontal
+    # A TENSION-ONLY ELEMENT'S OWN STATE (`*ELEMENT`, TENSTR). A cable (iSUB
+    # 3) says its unstressed length (EXVAL2 3) or its tension in the drawn
+    # geometry (EXVAL2 1) on its own row: the bar's `unstressed_lengths` or
+    # its `prestress`, from the start -- a cable's length, not a jack in a
+    # stage. Every TENSTR is `tension_only`; what a hook's gap or a truss's
+    # allowed compression says is not followed, and counted.
+    own_state: Dict[int, tuple] = {}
+    for eid_, el_ in model.elements.items():
+        if el_.kind == "TENSTR":
+            if el_.sub == 3 and el_.exval:
+                if el_.exval2 == 3 and el_.exval > 0.0:
+                    own_state[eid_] = ("lu", el_.exval * length)
+                elif el_.exval2 == 1:
+                    own_state[eid_] = ("cut", el_.exval * f)
+                else:
+                    leave(f"cable given by EXVAL2 = {el_.exval2} (its horizontal force?): not followed")
+            elif el_.sub == 2 and el_.exval:
+                leave("hook's gap (TENSTR iSUB 2): a tension-only bar without it")
+            elif el_.sub == 1 and el_.exval:
+                leave("tension-only truss's allowed compression (TENSTR iSUB 1): not followed")
+    for eid_ in own_state:
+        if eid_ in pretension:
+            leave("pretension load on a cable with its own length or tension (the cable's own taken)")
+            del pretension[eid_]
+    # HOW A PRETENSION IS HELD: as the model's construction-stage control
+    # says (`*STAGE-CTRL`, CPFC). External -- the force held in its stage --
+    # is a `jack` on every element given one; Internal -- a lack of fit the
+    # structure then shares out -- is each element cut to the length of its
+    # force (`prestress`). A compression (a negative pretension) is a
+    # length, never a jack. A model that does not say is taken as External.
+    #
+    # `jack_which="one"` or `"ends"` asks instead for the rule this converter
+    # used before 1.21, whatever the switch says: Midas takes every
+    # pretension as a force held in its stage, and a model gives the same one
+    # to each element of a cable that runs over saddles -- the anchor cable,
+    # the short piece between two saddles, the buckle cable. Their horizontal
     # parts do not balance at a sliding saddle (a tenth of the force is
     # ordinary), and in a geometrically linear solution nothing follows from
     # that. Here the saddle would slide until the geometry balanced it:
@@ -295,8 +280,30 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
     # A run ends at a node a beam or a rigid link reaches, at one a support
     # holds in position (two stays from one anchor are two cables), and at
     # one where more than two line elements meet. Only an element with a
-    # tension, built by some stage, is jacked; a compression (a negative
-    # pretension) is a length, never a jack.
+    # tension, built by some stage, is jacked. It is a choice for one model
+    # (the real arch, whose saddles are soft springs), not a translation:
+    # the report says when it was made.
+    if jack_which not in ("switch", "one", "ends"):
+        raise ValueError(f"jack_which is 'switch', 'one' or 'ends', not {jack_which!r}")
+    control = model.pretension_control
+    if control not in ("INTERNAL", "EXTERNAL", ""):
+        leave(f"pretension control {control!r} in *STAGE-CTRL (neither INTERNAL nor EXTERNAL): taken as External")
+        control = ""
+    if pretension and jack_which == "switch":
+        if control == "INTERNAL":
+            notes.append("pretensions are Midas' Internal kind (*STAGE-CTRL): each element is cut to the length "
+                         "of its force (prestress) and shares what the structure gives")
+        elif control == "EXTERNAL":
+            notes.append("pretensions are Midas' External kind (*STAGE-CTRL): each element in tension is jacked "
+                         "to its force in the step that builds it, a compression cut to its length")
+        else:
+            notes.append("the model does not say how its pretensions are held (no CPFC in *STAGE-CTRL): "
+                         "taken as External, each element in tension jacked to its force in the step that builds it")
+    elif pretension:
+        notes.append(f"jack_which={jack_which!r}: of each cable run over saddles "
+                     + ("the elements reaching out of it are" if jack_which == "ends" else "one element is")
+                     + " jacked and the rest cut to length, whatever *STAGE-CTRL says"
+                     + (f" ({control})" if control else ""))
     line_kinds = ("TRUSS", "TENSTR", "COMPTR")
     beam_stages: Dict[int, List[int]] = {}
     for eid, el in model.elements.items():
@@ -307,6 +314,10 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         if link.kind == "RIGID" and (not staged or link.group in b_on):
             for n in link.nodes:
                 beam_stages.setdefault(n, []).append(b_on.get(link.group, 0))
+    for master_, flags_, slaves_, g_ in rlinks:      # ...and a master and its slaves tied in position (not a saddle)
+        if flags_[:3] == "111" and (not staged or g_ in b_on):
+            for n in [master_] + list(slaves_):
+                beam_stages.setdefault(n, []).append(b_on.get(g_, 0))
     pinned = {n for nodes, flags, g in model.constraints if "1" in flags[:3] and (not staged or g in b_on)
               for n in nodes}
     # ...and at one an elastic link holds in every direction (an anchorage:
@@ -345,6 +356,10 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
     for eid in run_of:
         runs.setdefault(find(eid), []).append(eid)
     jacked = set()
+    if jack_which == "switch":
+        if control != "INTERNAL":
+            jacked.update(stressed)
+        runs = {}
     for es in runs.values():
         def reach(eid):
             a, b = model.elements[eid].nodes
@@ -392,6 +407,28 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             return (sid, int(round(1000 * taper_at[eid])))
         return sid
 
+    # A SECTION'S STIFFNESS SCALE FACTORS (`*SECT-SCALE`): its area, shear
+    # areas, torsion and bending constants times the file's factors, its
+    # weight times its own (a material of its own, so the weight does not
+    # follow the scaled area). A boundary condition in Midas: in a model with
+    # stages it is there when a stage activates its boundary group, as a
+    # support is; for the members' whole life.
+    scales: Dict[int, Tuple[float, ...]] = {}
+    for sid_, (fac_, g_, part_, diff_) in model.section_scales.items():
+        if sid_ not in model.sections:
+            continue
+        if staged and g_ not in b_on:
+            leave("section scale factors whose boundary group no stage activates (left out)")
+            continue
+        if staged and (b_on.get(g_, 0) > 0 or g_ in b_off):
+            leave("section scale factors of a boundary group that comes on or goes off in a stage "
+                  "(there for the members' whole life)")
+        if diff_:
+            leave("section scale factors different at the J end (the I end's taken)")
+        if any(v_ <= 0.0 for v_ in fac_):
+            leave("section scale factor of zero or less (left out)")
+            continue
+        scales[sid_] = fac_
     props_cache: Dict[object, dict] = {}
 
     def props(skey):
@@ -400,7 +437,34 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             props_cache[skey] = section_properties(model.sections[sid], length, t)
             if "note" in props_cache[skey]:
                 notes.append(f"section {sid} ({model.sections[sid].name.strip()}): {props_cache[skey]['note']}")
+            if sid in scales:
+                p_ = dict(props_cache[skey])
+                for q, v_ in zip(("area", "ay", "az", "j", "iy", "iz"), scales[sid][:6]):
+                    if q in p_:
+                        p_[q] = p_[q] * v_
+                props_cache[skey] = p_
         return props_cache[skey]
+
+    def weight_ratio(sid):
+        """What a scaled section's area is to multiply by for its weight (its
+        weight factor over its area factor); 1 for any other section."""
+        fac_ = scales.get(sid)
+        return 1.0 if fac_ is None else fac_[6] / fac_[0]
+
+    def material_of(el):
+        """The member's material: its own, or one of a scaled section's whose
+        density keeps the weight the section's weight factor says (the area
+        itself is scaled)."""
+        fac_ = scales.get(el.section)
+        if fac_ is None or el.kind not in ("BEAM", "TRUSS", "TENSTR", "COMPTR"):
+            return el.material
+        ratio = fac_[6] / fac_[0]
+        if ratio == 1.0:
+            return el.material
+        mid_ = f"{el.material}w{el.section}"
+        if f"m{mid_}" not in materials:
+            materials[f"m{mid_}"] = dict(materials[f"m{el.material}"], rho=materials[f"m{el.material}"]["rho"] * ratio)
+        return mid_
 
     # A STUB IS A JOINT, NOT A BEAM. A member stiffer than `stiffest` (N/m, the
     # larger of EA/L and 12EI/L^3) AND shorter than `stub` times its
@@ -439,40 +503,90 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         return E * max(p["iy"], p["iz"]) / (stub * gyration)
 
     groups: Dict[tuple, List[Tuple[int, int, int]]] = {}                   # key -> [(a, b, midas id)]
-    sprung = {frozenset(link.nodes) for link in all_links if link.kind != "RIGID"}    # node pairs an elastic link joins
     set_off = [0]
-    offset_arms: Dict[Tuple[int, int], List] = {}                          # (model node, centroid node) -> [on, off, stiffnesses carried]
-    centroids_at: Dict[int, List[Tuple[tuple, float, int]]] = {}           # model node -> [(place, depth, centroid node)]
-    place_of = {tuple(round(c, 6) for c in v): n for n, v in xyz.items()}
-    next_node = [max(node_ids) + 1]
+    zoned = [0]
+    zone_weight = [0.0]
 
-    def centroid_node(n, vec, k_on, k_off, carried):
-        """The node `vec` from model node n, and its arm's life. ONE for the
-        members that meet at n with the same depth: on a grade or a vertical
-        curve two members' own up differ by a hair, and two nodes a hair
-        apart are two arms in series at every joint (found in review). A
-        model node that is already there -- a pier's top drawn at the
-        girder's centroid -- is the centroid node."""
-        depth = math.sqrt(sum(c * c for c in vec))
-        if depth < 1.0e-6:
-            return n
-        at = tuple(xyz[n][i] + vec[i] for i in range(3))
-        c = next((c_ for p_, d_, c_ in centroids_at.get(n, ()) if math.dist(p_, at) <= 0.02 * max(depth, d_)), None)
-        if c is None:
-            c = place_of.get(tuple(round(q, 6) for q in at))
-            if c is None:
-                c = next_node[0]
-                next_node[0] += 1
-                node_ids.append(c)
-                index[c] = len(node_ids)
-                xyz[c] = at
-                place_of[tuple(round(q, 6) for q in at)] = c
-            centroids_at.setdefault(n, []).append((xyz[c], depth, c))
-        life = offset_arms.setdefault((n, c), [k_on, k_off, 0.0, 0.0])
-        life[0] = min(life[0], k_on)
-        life[1] = -1 if life[1] < 0 or k_off < 0 else max(life[1], k_off)
-        life[2], life[3] = max(life[2], carried[0]), max(life[3], carried[1])
-        return c
+    def offsets_of(eid, el, sec, skey, a, b, orient):
+        """The member's `end_offsets` in its local axes (as the solver will
+        make them, from `orient`), as two rounded triples, or 0: its
+        section set off its nodes, and Midas' *OFFSET."""
+        from ...core.end_offsets import _axes
+        vec = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]               # global, from each node
+        along = [0.0, 0.0]                                       # rigid zones, toward the other end
+        # A SECTION SET OFF ITS NODES (offset CT: the nodes are at the top of
+        # the section, as a girder is drawn). The member stays on its nodes
+        # and its elastic part is on its centroid's line, an end offset down
+        # by the centroid's depth at each end (a tapered girder's two ends
+        # differ) -- as Midas does it. It was a centroid node under each end
+        # and a "rigid" arm to it, which merged the girder with a pier whose
+        # top was drawn at the centroid, and whose stiffness had to be picked
+        # (1.21). Up and down (T, B) is followed; sideways (L, R) is not.
+        if sec.offset not in ("", "CC"):
+            up = sec.offset[1:2]
+            t0, t1 = taper_span.get(eid, (0.0, 1.0)) if sec.kind == "TAPERED" else (0.5, 0.5)
+            try:
+                c0, c1 = section_properties(sec, length, t0), section_properties(sec, length, t1)
+            except ValueError:
+                c0 = c1 = {}
+            if up in ("T", "B") and "czp" in c0 and "czp" in c1 and min(c0["czp"] + c0["czm"], c1["czp"] + c1["czm"]) > 0.0:
+                z_ = _up_of(xyz[a], xyz[b], el.angle)
+                for k_, c_ in enumerate((c0, c1)):
+                    d_ = -c_["czp"] if up == "T" else c_["czm"]
+                    vec[k_] = [d_ * c for c in z_]
+                set_off[0] += 1
+                if sec.offset[:1] in ("L", "R"):
+                    leave(f"section set off sideways ({sec.offset}): only its height is followed")
+            else:
+                leave(f"section offset from the centroid ({sec.offset}) not followed: the member is on its nodes' line")
+        # MIDAS' *OFFSET: rigid zones along the member (TYPE=ELEMENT), or
+        # vectors from the nodes (TYPE=GLOBAL). It is a boundary condition:
+        # in a model with stages it is there only if a stage activates its
+        # boundary group, as a support or a link is (one in no group is not;
+        # on the real truss bridge its eight zones read so moved its
+        # deflection 0.6% away from Midas'). Not staged further: it is there
+        # for the member's whole life.
+        if eid in model.offsets:
+            kind_, v_, g_ = model.offsets[eid]
+            if staged and g_ not in b_on:
+                leave("beam end offset whose boundary group no stage activates (left out)")
+            else:
+                if staged and (b_on.get(g_, 0) > born.get(eid, (0, ""))[0] or g_ in b_off):
+                    leave("beam end offset of a boundary group that comes on or goes off in a stage "
+                          "(there for the member's whole life)")
+                if kind_ == "GLOBAL":
+                    given = [[v_[3 * k_ + i] * length for i in range(3)] for k_ in range(2)]
+                    x_ = [xyz[b][i] - xyz[a][i] for i in range(3)]
+                    el_ = [x_[i] + vec[1][i] + given[1][i] - vec[0][i] - given[0][i] for i in range(3)]
+                    if math.sqrt(sum(c * c for c in el_)) < 1.0e-3 * math.dist(xyz[a], xyz[b]) \
+                            or sum(el_[i] * x_[i] for i in range(3)) <= 0.0:
+                        leave("beam end offset longer than its member (left out)")
+                    else:
+                        for k_ in range(2):
+                            vec[k_] = [vec[k_][i] + given[k_][i] for i in range(3)]
+                else:
+                    # RGDyi (for Mz), RGDzi (for My), RGDyj, RGDzj: one zone per end here
+                    if v_[0] != v_[1] or v_[2] != v_[3]:
+                        leave("beam end offset with different zones for the two bending planes "
+                              "(the one for My is taken)")
+                    along = [v_[1] * length, v_[3] * length]
+                    span_ = math.dist(xyz[a], xyz[b])
+                    if along[0] + along[1] >= 0.999 * span_:
+                        leave("beam end offset longer than its member (left out)")
+                        along = [0.0, 0.0]
+                    elif any(along):
+                        zoned[0] += 1
+                        w_ = _weight(model.materials[el.material], f, length)[0] if el.material in model.materials else 0.0
+                        zone_weight[0] += w_ * props(skey)["area"] * weight_ratio(el.section) * (along[0] + along[1])
+        if not any(vec[0]) and not any(vec[1]) and not any(along):
+            return 0
+        R = _axes(xyz[a], xyz[b], orient)
+        out = []
+        for k_, sign in ((0, 1.0), (1, -1.0)):
+            loc = [sum(R[r][i] * vec[k_][i] for i in range(3)) for r in range(3)]
+            loc[0] += sign * along[k_]
+            out.append(tuple(float(round(c, 6)) + 0.0 for c in loc))
+        return tuple(out) if any(out[0]) or any(out[1]) else 0
 
     pairs = set()
     plates: List[int] = []
@@ -497,59 +611,14 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         if f"m{el.material}" not in materials:
             raise ValueError(f"element {eid} has material {el.material}, which the file does not define "
                              "with an elastic modulus")
-        if el.kind in ("TENSTR", "COMPTR") and (min(a, b), max(a, b)) not in pairs:
-            leave(f"{el.kind} taken as a bar that carries both tension and compression (kept)")
+        if el.kind == "COMPTR" and (min(a, b), max(a, b)) not in pairs:
+            leave("COMPTR taken as a bar that carries both tension and compression (kept)")
         k, g = born.get(eid, (0, ""))
         axial = el.kind != "BEAM"
         sec = model.sections[el.section]
         skey = section_key(eid, el.section)
-        # A SECTION SET OFF ITS NODES (offset CT: the nodes are at the top of
-        # the section, as a girder is drawn). The member is on its centroid's
-        # line: a node of its own under each end, by the centroid's depth
-        # there (a tapered girder's centroid line bends), joined to the
-        # model's node by a rigid arm built and removed with the member.
-        # Midas gives the displacement at the model's node, the top; that
-        # is where the result's row for the node still is. Up and down
-        # (T, B) is followed; a section set off sideways (L, R) is not.
-        orient_set = None                            # a member set off keeps the axes of the line it was drawn on
-        if not axial and sec.offset not in ("", "CC"):
-            up = sec.offset[1:2]
-            t0, t1 = taper_span.get(eid, (0.0, 1.0)) if sec.kind == "TAPERED" else (0.5, 0.5)
-            try:
-                c0, c1 = section_properties(sec, length, t0), section_properties(sec, length, t1)
-            except ValueError:
-                c0 = c1 = {}
-            if (min(a, b), max(a, b)) in pairs and not (up in ("T", "B") and "czp" in c0):
-                pass                                 # (left out below, as a second member on the two nodes)
-            elif up in ("T", "B") and "czp" in c0 and "czp" in c1 and min(c0["czp"] + c0["czm"], c1["czp"] + c1["czm"]) > 0.0 \
-                    and any(frozenset((n, place_of.get(tuple(round(xyz[n][i] + d_ * z0[i], 6) for i in range(3)), -1))) in sprung
-                            for z0 in [_up_of(xyz[a], xyz[b], el.angle)]
-                            for n, d_ in ((a, -c0["czp"] if up == "T" else c0["czm"]), (b, -c1["czp"] if up == "T" else c1["czm"]))):
-                # the centroid is where a node of the model is, and an elastic link joins the two: on that node
-                # the member would be on the far side of its own bearing
-                leave(f"section offset from the centroid ({sec.offset}) not followed: a bearing's other node is at the centroid")
-            elif up in ("T", "B") and "czp" in c0 and "czp" in c1 and min(c0["czp"] + c0["czm"], c1["czp"] + c1["czm"]) > 0.0:
-                x_ = [xyz[b][i] - xyz[a][i] for i in range(3)]
-                n_ = math.sqrt(sum(c * c for c in x_))
-                z_ = _up_of(xyz[a], xyz[b], el.angle)
-                # what the member carries at an end: along (the larger of EA/L and 12EI/L^3) and in turning (4EI/L)
-                e_m, p_m = materials[f"m{el.material}"]["E"], props(skey)
-                # (in the plane of its depth, where the offset is: sideways a wide box is ten times stiffer,
-                # and an arm sized by that is past what the arithmetic resolves)
-                carried = (max(e_m * p_m["area"] / n_, 12.0 * e_m * p_m["iy"] / n_ ** 3), 4.0 * e_m * p_m["iy"] / n_)
-                carried = (min(carried[0], stiffest), min(carried[1], stiffest * n_ * n_ / 3.0))   # (a stub is a joint of that)
-                ends = []
-                for n, c_ in ((a, c0), (b, c1)):
-                    d_ = -c_["czp"] if up == "T" else c_["czm"]
-                    ends.append(centroid_node(n, [d_ * c for c in z_], k, gone.get(eid, -1), carried))
-                round_ = sec.shape in ("P", "SR")
-                orient_set = _free_axis(xyz[a], xyz[b]) if round_ else _key(_local_y(xyz[a], xyz[b], el.angle))
-                a, b = ends
-                set_off[0] += 1
-                if sec.offset[:1] in ("L", "R"):
-                    leave(f"section set off sideways ({sec.offset}): only its height is followed")
-            else:
-                leave(f"section offset from the centroid ({sec.offset}) not followed: the member is on its nodes' line")
+        if axial and eid in model.offsets:
+            leave(f"beam end offset on a {el.kind} element (left out)")
         pair = (min(a, b), max(a, b))
         if pair in pairs or a == b:
             # the Gmsh reader would merge the two, and one would be lost
@@ -558,18 +627,31 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             continue
         pairs.add(pair)
         round_ = sec.shape in ("P", "SR") or (sec.kind == "SRC" and sec.shape == "EPC")
-        orient = None if axial else orient_set if orient_set is not None else _free_axis(xyz[a], xyz[b]) if round_ \
+        if round_ and el.section in scales and (scales[el.section][1] != scales[el.section][2]
+                                                or scales[el.section][4] != scales[el.section][5]):
+            round_ = False                   # its scale factors tell Midas' y from z: Midas' axes, then
+        orient = None if axial else _free_axis(xyz[a], xyz[b]) if round_ \
             else _key(_local_y(xyz[a], xyz[b], el.angle))
-        soft = 0
         if not axial:
             turning = is_stub(materials[f"m{el.material}"]["E"], props(skey), a, b)
             if turning > 0.0:
+                if sec.offset not in ("", "CC") or eid in model.offsets:
+                    leave("end offsets of a member made a joint (a stub): the joint is between its nodes")
                 stubs.append((a, b, k, g, gone.get(eid, -1), turning))
-                stub_weight[0] += _weight(model.materials[el.material], f, length)[0] * props(skey)["area"] * math.dist(xyz[a], xyz[b])
+                stub_weight[0] += _weight(model.materials[el.material], f, length)[0] * props(skey)["area"] \
+                    * weight_ratio(el.section) * math.dist(xyz[a], xyz[b])
                 continue
-        key = ("bar" if axial else "beam", k, g, skey, el.material, orient,
-               (("jack" if eid in jacked else "cut", round(pretension[eid], 3))
-                if axial and pretension.get(eid) else 0.0), gone.get(eid, -1), soft)
+        offs = 0 if axial else offsets_of(eid, el, sec, skey, a, b, orient)
+        if axial and eid in own_state:
+            state = own_state[eid]
+            state = ("lu", 0.0) if state[0] == "lu" else ("cut", round(state[1], 3))
+        elif axial and pretension.get(eid):
+            state = ("jack" if eid in jacked else "cut", round(pretension[eid], 3))
+        else:
+            state = 0.0
+        # (a beam's last slot is its end offsets; a bar's, "T" when it carries tension only)
+        key = ("bar" if axial else "beam", k, g, skey, material_of(el), orient, state, gone.get(eid, -1),
+               "T" if el.kind == "TENSTR" else offs)
         groups.setdefault(key, []).append((a, b, eid))
 
     # the tendons, as the case's own entries: expanded where it is read (vfife/prep)
@@ -591,21 +673,17 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
     beam_nodes = {n for key, members in groups.items() if key[0] == "beam" for a, b, _e in members for n in (a, b)}
     beam_nodes |= {n for link in all_links if link.kind == "RIGID" for n in link.nodes}
     beam_nodes |= {n for nodes, flags, _g in model.constraints if flags[3:6] == "111" for n in nodes}
-    for _pass in range(len(tied)):                 # ...and one made one with such a node by six stiff springs
-        more = {n for pair in tied if (pair[0] in beam_nodes) != (pair[1] in beam_nodes) for n in pair}
+    # ...and one made one with such a node by six stiff springs, or a slave
+    # whose three rotations follow such a master (and the master of such a slave)
+    turned_with = list(tied) + [(m_, s_) for m_, fl_, sl_, _g in rlinks if fl_[3:] == "111" for s_ in sl_]
+    for _pass in range(len(turned_with)):
+        more = {n for pair in turned_with if (pair[0] in beam_nodes) != (pair[1] in beam_nodes) for n in pair}
         if not more:
             break
         beam_nodes |= more
-    beam_nodes |= {n for pair in offset_arms for n in pair}
     beam_nodes |= {n for a_, b_, *_rest in stubs for n in (a_, b_)}       # a stub turns its nodes as a beam does
     stiffened = [0]
     link_groups: Dict[tuple, List[Tuple[int, int, int]]] = {}
-    # AN OFFSET'S ARM IS `offset_rigid` TIMES WHAT IT CARRIES, along and in
-    # turning: the girder's moment passes through it wherever the girder is
-    # held or joined at its drawn node (a pier fixed to it, a clamp), and an
-    # arm of the common stiffness is no stiffer in turning than a few metres
-    # of a 7 m box (found in review: a cantilever clamped at its top node
-    # deflected 12% too much). Its section is its own (`soft` holds its name).
     # WHAT EACH NODE'S MEMBERS CARRY (along, in turning), for the arms: an arm
     # is to be stiffer than what it joins, and a girder's root is stiffer in
     # turning than an arm of the common stiffness a metre or two long.
@@ -622,7 +700,7 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             for n_ in (a_, b_):
                 c_ = carry.setdefault(n_, [0.0, 0.0])
                 c_[0], c_[1] = max(c_[0], got[0]), max(c_[1], got[1])
-    arms_ = list(offset_arms) + [link.nodes for link in all_links if link.kind == "RIGID"]
+    arms_ = [link.nodes for link in all_links if link.kind == "RIGID"]
     for _pass in range(len(arms_) + 1):              # ...and through an arm, what is at its other end
         changed = False
         for a_, b_ in arms_:
@@ -632,18 +710,6 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                 changed = True
         if not changed:
             break
-    for (n, c), (k_on, k_off, along, turning) in offset_arms.items():
-        if (min(n, c), max(n, c)) in pairs:
-            leave("section offset whose centroid is a node already joined to the member's node (no arm added)")
-            continue
-        reach_ = math.dist(xyz[n], xyz[c])
-        i_arm = offset_rigid * max(turning * reach_, along * reach_ ** 3 / 12.0) / e_rigid
-        sname = f"offset_arm_{len([q for q in sections if q.startswith('offset_arm_')]) + 1}"
-        sections[sname] = {"type": "beam", "material": "rigid", "shape": "general",
-                           "area": offset_rigid * along * reach_ / e_rigid, "iy": i_arm, "iz": i_arm, "j": 2.0 * i_arm}
-        key = ("rigid", k_on, "(section offset)", 0, 0, _free_axis(xyz[n], xyz[c]), 0.0, k_off, sname)
-        pairs.add((min(n, c), max(n, c)))
-        link_groups.setdefault(key, []).append((n, c, -1))
     for a, b, k_on, g_, k_off, turning in stubs:
         # (its own kind: it does not wait for what it joins as an elastic link does -- it carries a moment, and
         # what hangs on its far node hangs on it from the stage it is built)
@@ -761,6 +827,9 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         for nodes, _flags, g in model.constraints:
             if b_on.get(g, 0 if not staged else -1) == stage:
                 alive.update(nodes)
+        for master_, _fl, slaves_, g in rlinks:       # a master and its slaves hold one another (1.21)
+            if b_on.get(g, 0 if not staged else -1) == stage:
+                alive.update([master_] + list(slaves_))
         kept = set(born_at) | {ki for ki in every if ki not in born_at and ki[0][1] <= stage
                                 and not (0 <= ki[0][7] <= stage)}
         while True:
@@ -814,7 +883,13 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                 if shear and p.get("ay", 0.0) > 0.0 and p.get("az", 0.0) > 0.0:
                     # Midas' beam gives way in shear too (its ASy, ASz); so does this one where they are known
                     sections[sname].update(theory="timoshenko", ay=p["ay"], az=p["az"])
-            assign.append({"region": region, "section": sname, "orientation": list(orient)})
+            entry = {"region": region, "section": sname, "orientation": list(orient)}
+            if soft:
+                # its end offsets (a section set off its nodes, Midas' *OFFSET), each member its own
+                entry["end_offsets"] = {"per": "member", "i": list(soft[0]), "j": list(soft[1]),
+                                        # Midas' rigid zone is rigid in bending and shear only
+                                        "axial": "full"}
+            assign.append(entry)
             info.update(section=sid_of, material=mid)
         elif kind == "bar":
             tendon_ = isinstance(sid, tuple) and sid[0] == "tdn"
@@ -822,10 +897,15 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             sname = (f"tendon_{area_:.6g}" if tendon_ else f"c{sid[0]}_t{sid[1]}" if isinstance(sid, tuple) else f"c{sid}") + f"_m{mid}"
             sections.setdefault(sname, {"type": "bar", "material": f"m{mid}", "shape": "general", "area": area_})
             entry = {"region": region, "section": sname}
-            if jack and jack[0] == "jack":
+            if jack and jack[0] == "lu":
+                # each element's own unstressed length, in the region's order (its members')
+                entry["unstressed_lengths"] = [own_state[eid_][1] for _a, _b, eid_ in members]
+            elif jack and jack[0] == "jack":
                 entry["jack"] = jack[1]                    # the force, held in the step that builds it
             elif jack:
                 entry["prestress"] = jack[1] / area_  # the length that force gives in the model's geometry
+            if soft == "T":
+                entry["tension_only"] = True
             assign.append(entry)
             info.update(section=sid_of, material=mid, jack=jack[1] if jack and jack[0] == "jack" else 0.0,
                         prestress_force=jack[1] if jack and jack[0] == "cut" else 0.0)
@@ -872,6 +952,7 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         return region
 
     used_nodes = {index_ for _t, a, b in lines_out for index_ in (a, b)}
+    live_links: List[tuple] = []                     # the rigid links made: (master, flags, slaves, on, off)
     constraints, step_constraints, release = [], {}, {}
     held_by: Dict[int, List[Tuple[str, str]]] = {}                        # node -> [(boundary group, flags)]
     for nodes, flags, g in model.constraints:
@@ -926,6 +1007,108 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                     {"region": node_region(held, f"still held after the release of {g}"),
                      "dofs": [int(ch) for ch in union], "keep": True})
 
+    # A MASTER AND ITS SLAVES (`*RIGIDLINK`) ARE RIGID LINKS (1.21): the
+    # slaves' flagged directions follow the master as a rigid body (the
+    # solver's `rigid_links`), made in the stage their boundary group comes
+    # on -- or, when a master or a slave is built later, in the stage that
+    # builds the last of them, as an elastic link waits for its ends -- and
+    # released in the stage it goes off. What the solver cannot take is left
+    # out, slave by slave, and counted: a master or a slave no member reaches
+    # (the mesh has no node that no member uses: a support or a load on such
+    # a slave goes with it -- it was on a rigid arm before 1.21), one held
+    # by a support in a tied direction (a direction is held or tied, not
+    # both), one already the slave of another link, and a chain (a master
+    # that is another link's slave) unless both tie all six and live as long
+    # (then the slave is tied to the first master).
+    node_first: Dict[int, int] = {}
+    for key, members in total.items():
+        for a, b, _e in members:
+            for n in (a, b):
+                node_first[n] = min(node_first.get(n, key[1]), key[1])
+    rl_entries = []                                  # (master, flags, slaves, stage on, stage off)
+    for master_, flags_, slaves_, g_ in rlinks:
+        if staged and g_ not in b_on:
+            leave("*RIGIDLINK whose boundary group no stage activates", len(slaves_))
+            continue
+        if g_ in again:
+            leave("*RIGIDLINK of a boundary group activated again after its removal (made once, released once)",
+                  len(slaves_))
+            continue
+        rl_entries.append([master_, flags_, list(slaves_), b_on.get(g_, 0), b_off.get(g_, -1)])
+    # THE SAME LINK IN THE BOUNDARY GROUP THAT FOLLOWS IS ONE LINK, KEPT (as
+    # an elastic link's is): a master and a slave with the same flags, written
+    # in a group that comes on in the stage the other goes off -- slave by
+    # slave, so that a row split or joined in the next group is followed too.
+    by_slave: Dict[tuple, List[list]] = {}
+    for m_, fl_, sl_, on_, off_ in rl_entries:
+        for s_ in sl_:
+            by_slave.setdefault((m_, fl_, s_), []).append([on_, off_])
+    lives: Dict[tuple, List[int]] = {}
+    for (m_, fl_, s_), ivs in by_slave.items():
+        ivs.sort()
+        cur = ivs[0]
+        for nxt in ivs[1:]:
+            if cur[1] >= 0 and nxt[0] == cur[1]:
+                cur[1] = nxt[1]                          # handed over: on until the later one goes off
+            else:
+                leave("*RIGIDLINK written again while the same one is on, or after a gap (the first kept)")
+        lives.setdefault((m_, fl_, cur[0], cur[1]), []).append(s_)
+    rl_entries = [[m_, fl_, sl_, on_, off_] for (m_, fl_, on_, off_), sl_ in lives.items()]
+    slave_of_: Dict[int, int] = {}
+    for i_, (m_, fl_, sl_, _on, _off) in enumerate(rl_entries):
+        for s_ in sl_:
+            slave_of_.setdefault(s_, i_)
+    for _pass in range(len(rl_entries) + 1):        # a chain of any length, whatever the order written
+        moved = False
+        for i_, entry in enumerate(rl_entries):
+            m_, fl_, sl_, on_, off_ = entry
+            if sl_ and m_ in slave_of_ and slave_of_[m_] != i_:
+                up = rl_entries[slave_of_[m_]]
+                if fl_ == "111111" and up[1] == "111111" and (up[3], up[4]) == (on_, off_) and up[0] != m_:
+                    entry[0] = up[0]                  # tied to the master's master: one rigid body
+                    moved = True
+        if not moved:
+            break
+    for i_, entry in enumerate(rl_entries):
+        m_, fl_, sl_, on_, off_ = entry
+        if sl_ and m_ in slave_of_ and slave_of_[m_] != i_:
+            leave("*RIGIDLINK in a chain (its master is another link's slave): not taken", len(sl_))
+            entry[2] = []
+    rigid_links_out, step_links = [], {}
+    n_rigid_links = [0]
+    for i_, (m_, fl_, sl_, on_, off_) in enumerate(rl_entries):
+        keep_ = []
+        for s_ in sl_:
+            if s_ == m_:
+                continue                              # (a chain's slave that is the first master itself)
+            if slave_of_.get(s_) != i_:
+                leave("*RIGIDLINK slave already the slave of another link (the first kept)")
+            elif index[m_] not in used_nodes:
+                leave("*RIGIDLINK master that no member reaches")
+            elif index[s_] not in used_nodes:
+                leave("*RIGIDLINK slave that no member reaches")
+            elif any(fl[j] == "1" == fl_[j] for _h, fl in held_by.get(s_, ()) for j in range(6)):
+                leave("*RIGIDLINK slave held by a support in a tied direction (held or tied, not both)")
+            else:
+                keep_.append(s_)
+        if not keep_:
+            continue
+        k_ = max([on_] + [node_first.get(n, on_) for n in [m_] + keep_])
+        if off_ >= 0 and k_ >= off_:
+            leave("*RIGIDLINK released before its nodes are built", len(keep_))
+            continue
+        name_ = f"(rigid link {len(rigid_links_out) + sum(len(v) for v in step_links.values()) + 1})"
+        spec_ = {"name": name_, "master": node_region([m_], "rigid link master"),
+                 "slaves": node_region(keep_, "rigid link slaves"), "dofs": [int(c) for c in fl_]}
+        if k_ == 0:
+            rigid_links_out.append(spec_)
+        else:
+            step_links.setdefault(k_, []).append(spec_)
+        if off_ >= 0:
+            release.setdefault(off_, []).append(name_)
+        n_rigid_links[0] += len(keep_)
+        live_links.append((m_, fl_, keep_, k_, off_))
+
     # A PART ON PINS IN ONE LINE SPINS ABOUT THAT LINE. A side span cast on
     # falsework is a few beams in a line, held at its nodes in the three
     # translations: nothing holds its twist. Midas solves it; the Newton
@@ -954,6 +1137,11 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                     reach.setdefault(b, []).append(a)
                     if key[0] == "beam":
                         bent.update((a, b))
+        for m_, fl_, sl_, on_, off_ in live_links:   # a rigid link that ties the rotations holds a twist
+            if fl_[3:] == "111" and on_ <= k and not (0 <= off_ <= k):
+                for s_ in sl_:
+                    reach.setdefault(m_, []).append(s_)
+                    reach.setdefault(s_, []).append(m_)
         pinned_k, turned = set(), set()
         for n, hs in held_by.items():
             for h, fl in hs:
@@ -1090,14 +1278,14 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         for i in range(3):
             acc[i] += v[i] * f
             acc[3 + i] += v[3 + i] * f * length
-    for _case, e, direction, w1, w2, g in model.beam_loads:
+    for _case, e, direction, w1, w2, g, projected in model.beam_loads:
         if e not in model.elements or model.elements[e].kind not in ("BEAM", "TRUSS", "TENSTR", "COMPTR"):
             leave("member load on something that is not a line member")
             continue
         if e not in element_map:
             leave("member load on a member that was left out")
             continue
-        if direction not in ("GX", "GY", "GZ"):
+        if direction not in ("GX", "GY", "GZ", "LX", "LY", "LZ"):
             leave(f"member load in direction {direction}")
             continue
         k = stage_on(g, born.get(e, (0, ""))[0])
@@ -1106,14 +1294,30 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         if e in gone and gone[e] <= k:
             leave("member load on a member removed before the load comes")
             continue
-        a, b = model.elements[e].nodes
+        el_ = model.elements[e]
+        a, b = el_.nodes
         span = math.dist(xyz[a], xyz[b])
-        axis = "XYZ".index(direction[1])
-        # its two end forces, no end moments; over the member's whole length
-        # and per unit of that length (a projected or a partial load is read so too)
-        half = 0.5 * (w1 + w2) * f / length * span / 2.0
-        for n in (a, b):
-            per_node.setdefault((g, k, n), [0.0] * 6)[axis] += half
+        x_ = [(xyz[b][i] - xyz[a][i]) / span for i in range(3)]
+        if direction[0] == "G":
+            d_ = [1.0 if i == "XYZ".index(direction[1]) else 0.0 for i in range(3)]
+        else:
+            # the member's own axes, as Midas has them (`_local_y`, `_up_of`)
+            d_ = {"X": x_, "Y": _local_y(xyz[a], xyz[b], el_.angle), "Z": _up_of(xyz[a], xyz[b], el_.angle)}[direction[1]]
+        reach = span
+        if projected:
+            if direction[0] == "G":
+                # per unit of the length projected on the plane normal to the load: |x cross d| of the member
+                cx = [x_[1] * d_[2] - x_[2] * d_[1], x_[2] * d_[0] - x_[0] * d_[2], x_[0] * d_[1] - x_[1] * d_[0]]
+                reach = span * math.sqrt(sum(c * c for c in cx))
+            else:
+                leave("projected member load in the member's own axes (taken over its length)")
+        # its two end forces, no end moments: the resultant of a load varying
+        # linearly from w1 to w2 split by the lever rule, (2 w1 + w2) / 6 and
+        # (w1 + 2 w2) / 6 of its length at the I and J ends
+        for n, share in ((a, (2.0 * w1 + w2) / 6.0), (b, (w1 + 2.0 * w2) / 6.0)):
+            acc = per_node.setdefault((g, k, n), [0.0] * 6)
+            for i in range(3):
+                acc[i] += share * f / length * reach * d_[i]
     step_loads: Dict[int, List[dict]] = {}
     base_loads = []
     by_group: Dict[Tuple[str, int], Dict[tuple, List[int]]] = {}
@@ -1155,8 +1359,14 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         leave("*PRESSURE", model.other["PRESSURE"])
     if model.other.get("SPRING (not read)"):
         leave("point spring that is not linear, or whose row is not in the form this reads", model.other["SPRING (not read)"])
+    if model.other.get("SECT-SCALE (a later part of a composite section)"):
+        leave("section scale factors of a later part of a composite section (left out)",
+              model.other["SECT-SCALE (a later part of a composite section)"])
+    if model.other.get("OFFSET (not read)"):
+        leave("beam end offset whose row is not in the form this reads", model.other["OFFSET (not read)"])
     if model.other.get("BEAMLOAD (not uniform)"):
-        leave("member load that is not uniform", model.other["BEAMLOAD (not uniform)"])
+        leave("member load that is not uniform over the whole member, or set off it (eccentric)",
+              model.other["BEAMLOAD (not uniform)"])
 
     # each tendon's nodes: the girder's, where its arms go
     for entry, own, _k_t, (mat_t, area_one, type_) in specs:
@@ -1182,19 +1392,11 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             "materials": {k: v for k, v in materials.items()
                           if any(s.get("material") == k for s in sections.values())},
             "sections": sections, "assign": assign, "constraints": constraints, "loads": base_loads}
-    # THE OFFSET ARMS AS ONE RULE: each arm's section worked
-    # out from the mesh where the case is read, as `vfife.prep.offsets` does
+    if rigid_links_out:
+        case["rigid_links"] = rigid_links_out
     from .. import gmsh as gmsh_io
-    from ...prep import offsets as prep_offsets
     msh_path = os.path.join(folder, f"{name}.msh")
-    n_ruled = n_own = 0
-    arm_mesh = None
-    if specs or any(q.startswith("offset_arm_") for q in sections):
-        arm_mesh, _el = gmsh_io.read(msh_path, verify=False)
-        case, n_ruled, n_own = _rule_offset_arms(case, arm_mesh, offset_rigid, stiffest)
-    if n_ruled:
-        notes.append(f"{n_ruled} offset arm(s) written as one rule (`offset_arms`), each worked out on reading"
-                     + (f"; {n_own} keep a section of their own" if n_own else ""))
+    arm_mesh = gmsh_io.read(msh_path, verify=False)[0] if specs else None
     # THE CLOCK: a model that has something time-dependent
     # (for now its tendons' relaxation) runs each stage's duration after the
     # stage, as a step of time with the stage's loads held; Midas' results of
@@ -1260,6 +1462,8 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                     step["birth"] = how
             if deactivate.get(k):
                 step["deactivate"] = grouped(deactivate[k])
+            if step_links.get(k):
+                step["rigid_links"] = step_links[k]
             if release.get(k):
                 step["release"] = release[k]
             if step_constraints.get(k):
@@ -1306,8 +1510,8 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                 entry["stress"] = {"step": model.stages[k_t].name, **entry["stress"]}
         case["tendons"] = [entry for entry, *_rest in specs]
         from ...prep import blocks as prep_blocks
-        # as the case's reading does: its groups first, then the offset arms, then its tendons
-        low, overlay, rep_ = prep_tendons.expand(prep_offsets.expand(prep_blocks.groups(case), mesh_), mesh_,
+        # as the case's reading does: its groups first, then its tendons
+        low, overlay, rep_ = prep_tendons.expand(prep_blocks.groups(case), mesh_,
                                                  warn=lambda _who, t: leave(f"tendon {t}"))
         for nm, t_ in rep_.items():
             tendon_out[nm] = {"stage": stage_of[nm], "count": t_["count"], "area": t_["area"],
@@ -1330,8 +1534,6 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                 items = list(case.items())
                 items[at:at + 1] = [("tendon_defaults", defaults_), ("tendons", short_)]
                 case = dict(items)
-    if expanded and not specs and case.get("offset_arms"):
-        case = prep_offsets.expand(case, arm_mesh)
     with open(os.path.join(folder, f"{name}.yaml"), "w", encoding="utf-8") as out:
         # a list of numbers on one line -- a tendon's profile point, an
         # orientation -- every float still written as it is (repr)
@@ -1353,18 +1555,24 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
     if shear and beams_:
         notes.append(f"{sheared} of {len(beams_)} beam sections give way in shear too (Timoshenko, with the file's or the "
                      "shape's shear areas); the others have none stated and are Euler's")
+    if set_off[0] or zoned[0]:
+        notes.append(f"{set_off[0]} member(s) set off their nodes and {zoned[0]} with rigid end zones (*OFFSET): "
+                     "end offsets (`end_offsets`), the member on its nodes and its elastic part on its centroid's "
+                     "line between the zones; a zone weighs as its member, its axial and torsional stiffness over the "
+                     "length between the nodes (`axial: full`)")
     if stiff_left[0]:
         notes.append(f"{stiff_left[0]} member(s) stiffer than {stiffest:g} N/m (up to {stiff_left[1]:.3g}) are left as they "
                      f"are: lengths of beam, not stubs. If the static solution does not converge, raise `stub`")
     report = {"nodes": len(in_use), "nodes_no_member_reaches": len(node_ids) - len(in_use), "members": n_members,
               "rigid_arms": sum(len(v) for k, v in total.items() if k[0] == "rigid"),
-              "offset_arms_ruled": n_ruled,
+              "rigid_link_slaves": n_rigid_links[0],
               "connectors": sum(len(v) for k, v in total.items() if k[0] in ("link", "stub")),
               "regions": len(names), "sections": len(case["sections"]), "steps": len(model.stages),
               "jacked_cables": sum(len(v) for k, v in total.items() if k[0] == "bar" and k[6] and k[6][0] == "jack" and not str(k[2]).startswith("(tendon")),
               "tendons": len(tendon_out), "tendon_bars": sum(len(t_["segments"]) for t_ in tendon_out.values()),
               "cables_cut_to_length": sum(len(v) for k, v in total.items() if k[0] == "bar" and k[6] and k[6][0] == "cut"),
-              "members_set_off_their_nodes": set_off[0], "stubs_made_joints": softened[0], "stub_weight_left_out_N": round(stub_weight[0], 1),
+              "members_set_off_their_nodes": set_off[0], "members_with_end_zones": zoned[0],
+              "end_zone_weight_N": round(zone_weight[0], 1), "stubs_made_joints": softened[0], "stub_weight_left_out_N": round(stub_weight[0], 1),
               "members_over_the_limit_left_as_they_are": stiff_left[0], "links_made_to_turn_with_their_ends": stiffened[0],
               "plate_weight_on_nodes_N": round(plate_weight[0], 1),
               "supports_brought_to_their_original_position": n_original[0],

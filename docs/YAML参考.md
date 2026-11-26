@@ -1,4 +1,4 @@
-# vfife YAML 参考（自动生成，1.20.1）
+# vfife YAML 参考（自动生成，1.21.0）
 
 > 由 `python -m vfife reference` 从 `vfife/io/model.py`、`vfife/io/schema.py` 和材料/单元目录生成；`tests/test_reference.py` 保证它与代码一致。**不要手改**——改字段的 `#:` 注释，再重新生成。
 > 说明列是字段上方 `#:` 注释的中文第一行，英文原注是其余行。概念、建模方法和完整例子见 `docs/用户手册.md`；每个字段最后一列是
@@ -179,7 +179,7 @@ A path-dependent law on ONE component of a connector: `gap` (free travel, then a
 
 | 字段 | 类型 | 默认 | 说明 | 英文原注 | 算例 |
 |---|---|---|---|---|---|
-| `type` | `gap` \| `bilinear` \| `friction` \| `damper` \| `pendulum` | **必填** | 律的种类：`gap` 间隙/限位，`bilinear` 双线性滞回（隔震支座、屈服耗能装置），`friction` 库仑摩擦滑动，`damper` 非线性粘滞阻尼器 F = c·sign(v)·\|v\|^α（1.10），`pendulum` 摩擦摆支座（1.10） | `gap`, `bilinear`, `friction`, `damper` (a fluid viscous damper, F = c sign(v) \|v\|^alpha; 1.10) or `pendulum` (a friction pendulum bearing; 1.10) | 32 |
+| `type` | `gap` \| `bilinear` \| `friction` \| `damper` \| `pendulum` \| `material` | **必填** | 律的种类：`gap` 间隙/限位，`bilinear` 双线性滞回（隔震支座、屈服耗能装置），`friction` 库仑摩擦滑动，`damper` 非线性粘滞阻尼器 F = c·sign(v)·\|v\|^α（1.10），`pendulum` 摩擦摆支座（1.10），`material` 材料表里的一维材料，F = area·σ(d/length)（1.21） | `gap`, `bilinear`, `friction`, `damper` (a fluid viscous damper, F = c sign(v) \|v\|^alpha; 1.10), `pendulum` (a friction pendulum bearing; 1.10) or `material` (a one-dimensional law of the material table, F = area sigma(d / length); 1.21) | 32 |
 | `lo` | float | — | gap：自由行程的下限（m 或 rad），不给即该侧无限位（friction 的粘着刚度是 `stiffness`，不读 `lo`） | gap: lower bound of the free travel (None = no stop that side); friction does not read it (its stick stiffness is `stiffness`) | 32 |
 | `hi` | float | — | gap：自由行程的上限；在局部 ux（伸长为正）上，`{lo: 0}` 是只受压的支承（压紧受力、拉开自由），`{hi: 0}` 是只受拉的 | gap: upper bound of the free travel; on the local ux (elongation positive) `{lo: 0}` is a compression-only seat and `{hi: 0}` a tension-only tie | — |
 | `stiffness` | float | — | gap：碰到限位后的刚度（N/m 或 N·m/rad）；friction、pendulum：粘着刚度；damper：与阻尼器并联的弹簧（可不写） | gap: the stop's stiffness once a bound is reached; friction, pendulum: the stick stiffness before sliding; damper: a spring beside the damper (optional) | 32 |
@@ -192,6 +192,9 @@ A path-dependent law on ONE component of a connector: `gap` (free travel, then a
 | `exponent` | float | — | damper：速度指数 α，0 < α ≤ 1（1 即线性阻尼器；桥梁常用 0.2–0.5） | damper: the velocity exponent alpha, 0 < alpha <= 1 (1 is the linear dashpot; bridges use 0.2-0.5) | — |
 | `linear_below` | float | — | damper：低于这个速度（m/s）时按线性 F = c·v0^(α-1)·v；α < 1 时必须写（v → 0 时幂律的斜率无穷大，显式积分会在零速附近抖动）。取设计速度的 1% 左右 | damper: below this velocity the law is linear, F = c v0^(alpha-1) v; required when alpha < 1 (the power law's slope is infinite at v = 0 and an explicit step chatters there). About 1% of the design velocity | — |
 | `normal` | str \| float | — | friction：压紧力从哪来——`ux`（同一连接器局部 ux 线性弹簧当前的压力；只有它的正负与节点顺序无关），或一个常数（N） | friction: where the compression comes from -- `ux` (the current compression of this connector's local ux spring, the one component whose sign does not depend on the node order) or a constant force | 32 |
+| `material` | str \| dict[str, any] | — | material：`materials` 里一维材料的名字（可以是 parallel、series、gap） | material: the name of a one-dimensional law in `materials` (parallel, series and gap included) | — |
+| `area` | float | — | material：力 = area × 应力；不写为 1（材料表即力–变形关系） | material: force = area x stress; 1 when left out (the table is then the force-deformation relation) | — |
+| `length` | float | — | material：应变 = 变形 / length；不写为 1 | material: strain = deformation / length; 1 when left out | — |
 
 ### `reinforcement.*` — ReinforcementGeometry
 
@@ -285,6 +288,7 @@ One primitive, or a boolean combination of other regions.  See core/selectors.py
 | `reinforcement` | str \| list[str] | — | `reinforcement` 里的一个或多个名字：这个（杆）截面描述的钢筋 | one or more names in `reinforcement`: the bars this (bar) section describes | 06, 12, 12b, 12c, 13, 14, 15 |
 | `orientation` | list[float] | — | 梁/连接器：确定截面局部 y 轴的向量（不能与构件平行） | beam/connector: a vector fixing the section's local y axis (not parallel to the member) | 38 个（01, 03, 08, 09 …） |
 | `releases` | list[str] | 空 | 梁端释放，取自 i_rx, i_ry, i_rz, j_rx, j_ry, j_rz（i 为第一个节点）；两端铰接写 [i_ry, i_rz, j_ry, j_rz] | beam end releases, from i_rx, i_ry, i_rz, j_rx, j_ry, j_rz (i = first node); a pin at both ends is [i_ry, i_rz, j_ry, j_rz] | — |
+| `end_offsets` | dict[str, any] | — | 梁端刚性偏移（1.21）：{i: [x, y, z], j: [x, y, z], axes: local\|global, per: line\|member, axial: elastic\|full}，弹性段两端离节点的向量（`local` 是构件按节点连线和 `orientation` 定的轴）。梁端刚域沿构件给，截面偏心（形心在节点下方）横向给。`axial: full` 让框架梁的轴向和扭转刚度按节点间的长度算；默认 `elastic` 按弹性段 | rigid end offsets (1.21): {i: [x, y, z], j: [x, y, z], axes: local\|global, per: line\|member, axial: elastic\|full}, the vectors from the nodes to the ends of the member's elastic part (`local`: the member's axes from its nodes' chord and `orientation`). A rigid end zone is an offset along the member, a section whose centroid is below its nodes one across it. `axial: full` takes a frame beam's axial and torsional stiffness over the length between the nodes; `elastic`, the default, over the elastic part | — |
 | `coordinate_system` | `local` \| `global` | — | 连接器：`local`（x 沿弦、y 由 `orientation` 定）或 `global` 分量 | connector: `local` (x along the chord, y from `orientation`) or `global` components | 09, 24e, 24f |
 | `bond` | dict[str, any] | — | 嵌入钢筋：`{type: bond_ceb \| bond_cyclic, ...}` 让钢筋有自己的自由度并按粘结–滑移律传力；不给即完全粘结 | embedded bars: `{type: bond_ceb \| bond_cyclic, ...}` gives the bar its own dofs and a bond-slip law; absent = perfect bond | 12b |
 | `segment_length` | float | — | 嵌入钢筋：几何没给时，这组每根线的分段长度（m） | embedded bars: segment length (m) for every line of the set, when the geometry gives none | 12, 12b, 12c, 15 |
@@ -621,7 +625,20 @@ One analysis step. Steps run in sequence and share the model state.  The model-l
 | `birth` | `tangent` \| `design` | `tangent` | 只连着出生构件的节点放在哪里：tangent（默认，随相邻已有节点做刚体平移与转动——悬臂施工的切线安装）或 design（留在设计坐标） | where the nodes that only the born members reach are put: tangent (default: carried rigidly by the neighbouring node that already stands -- a cantilever's tangential installation) or design (left at their design coordinates) | — |
 | `activate_age` | float | — | 出生构件的混凝土龄期（天）；不写则用 solver.age | the concrete age (days) of the members born in this step; left out, solver.age | — |
 | `deactivate` | list[str] | 空 | 本步移除的构件：它们对其余结构的作用力（含自重）在本步内卸到零 | members removed in this step: what they did to the rest of the structure (their weight included) is taken off over the step | — |
-| `release` | list[str] | 空 | 解除这些区域节点上继承下来的约束（模型级与 keep 的）：支反力在本步内卸到零；本步自己的约束照常施加 | frees the inherited constraints (model-level and kept ones) on these regions' nodes: the reaction is taken off over the step; the step's own constraints still apply | — |
+| `release` | list[str] | 空 | 解除这些区域节点上继承下来的约束（模型级与 keep 的）：支反力在本步内卸到零；本步自己的约束照常施加。也可以写主从刚性连接的 `name`（1.21）：连接拆除，它的约束力在本步内卸到零 | frees the inherited constraints (model-level and kept ones) on these regions' nodes: the reaction is taken off over the step; the step's own constraints still apply. A rigid link's `name` frees that link (1.21): the force it carried is taken off over the step | — |
+| `rigid_links` | list[见 RigidLinkSpec] | 空 | 本步开始时建立的主从刚性连接（1.21），按这时节点所在的位置和转角建立，建立时不受力；写法同模型级的 `rigid_links` | master-slave rigid links made at this step's start (1.21), where their nodes then stand and free of force; written as the model's `rigid_links` | — |
+
+### `steps[].rigid_links[]` — RigidLinkSpec
+
+A master-slave rigid link (1.21): the slaves' tied components follow the master as a rigid body does, in large rotation (core/constraints). Midas' *RIGIDLINK, OpenSees' rigidLink and (with `arm: false`) equalDOF.
+
+| 字段 | 类型 | 默认 | 说明 | 英文原注 | 算例 |
+|---|---|---|---|---|---|
+| `master` | str | **必填** | 主节点：恰好一个节点的区域 | the master: a region of exactly one node | — |
+| `slaves` | str | **必填** | 从节点：一个或多个节点的区域 | the slaves: a region of one or more nodes | — |
+| `dofs` | list[int] | — | 跟着主节点的分量，整体轴的 ux uy uz rx ry rz，1 为跟随（Midas 的 6 位标记） | the components that follow the master, in the global axes ux uy uz rx ry rz, 1 = tied (Midas' six flags) | — |
+| `arm` | bool | `True` | true：平动按主从之间的力臂随主节点转动（rigidLink）；false：从节点平动等于主节点平动（equalDOF） | true: the translations carry the arm between master and slave, turning with the master (rigidLink); false: the slave's translation is the master's (equalDOF) | — |
+| `name` | str | — | 名字（报错和输出里用） | a name (for messages) | — |
 
 ### `removals[]` — RemovalSpec
 
@@ -897,6 +914,13 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * 算例：16 个（11, 21, 21b, 21c …）
 * 算例里出现过的参数：`Ets`, `creep`, `epsc0`, `epscu`, `fcu`, `fpc`, `ft`, `rat`, `rho`, `shrinkage`
 
+### `gap`
+
+* 运动学 uniaxial；后端 numpy；分析模式 dynamic, relaxation；非线性
+* 参数：`E`, `rho`, `lo`, `hi`
+* 输出字段：`stress`
+* 算例：—
+
 ### `j2`
 
 * 运动学 solid_3d；后端 numpy, numba, warp；分析模式 dynamic, relaxation；非线性
@@ -920,6 +944,14 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * 注意：Local material axes coincide with global axes; orientation rotation is not yet implemented.
 * 算例：—
 
+### `parallel`
+
+* 运动学 uniaxial；后端 numpy；分析模式 dynamic, relaxation；非线性
+* 参数：`of`, `factors`, `rho`
+* 输出字段：`stress`
+* 注意：no compiled form: a fibre section with it runs on the NumPy reference
+* 算例：—
+
 ### `piecewise_uniaxial`
 
 * 运动学 uniaxial；后端 numpy；分析模式 dynamic, relaxation；非线性
@@ -935,6 +967,14 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * 输出字段：`axial_stress`, `axial_strain`, `eps_p`, `alpha`, `X`
 * 算例：06, 12, 12b, 12c, 13, 14, 15
 * 算例里出现过的参数：`E`, `hardening`, `kinematic_fraction`, `rho`, `yield_strength`
+
+### `series`
+
+* 运动学 uniaxial；后端 numpy；分析模式 dynamic, relaxation；非线性
+* 参数：`of`, `max_iterations`, `tolerance`, `rho`
+* 输出字段：`stress`
+* 注意：no compiled form: a fibre section with it runs on the NumPy reference; the split is iterated at each point and a split that does not converge is an error
+* 算例：—
 
 ### `steel02`
 
@@ -967,7 +1007,7 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 | 单元 | 后端 | 分析模式 | 可用材料 | 输出字段 |
 |---|---|---|---|---|
 | `beam2` | numpy, numba | dynamic, relaxation, static | linear_elastic | displacement, rotation, end_actions, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, capacity_ratio, member_failed, member_built, reaction_force, reaction_moment |
-| `beam2_fiber` | numpy, numba | dynamic, relaxation, static | linear_elastic, rebar, steel02, steel_cyclic, piecewise_uniaxial, concrete01, concrete02 | displacement, rotation, end_actions, reaction_force, reaction_moment, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, member_failed, member_built, fiber_stress, fiber_damage, connector_flag, connector_force, connector_moment, connector_deformation, connector_slip |
+| `beam2_fiber` | numpy, numba | dynamic, relaxation, static | linear_elastic, rebar, steel02, steel_cyclic, piecewise_uniaxial, concrete01, concrete02, parallel, series, gap | displacement, rotation, end_actions, reaction_force, reaction_moment, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, member_failed, member_built, fiber_stress, fiber_damage, connector_flag, connector_force, connector_moment, connector_deformation, connector_slip |
 | `beam2_timoshenko` | numpy, numba | dynamic, relaxation, static | linear_elastic | displacement, rotation, end_actions, axial_force, shear_y, shear_z, torsion, bending_y, bending_z, axial_force_max_abs, shear_y_max_abs, shear_z_max_abs, torsion_max_abs, bending_y_max_abs, bending_z_max_abs, capacity_ratio, member_failed, member_built, reaction_force, reaction_moment |
 | `connector2` | numpy | dynamic, relaxation | linear_elastic | displacement, rotation, connector_force, connector_moment, connector_deformation, reaction_force, reaction_moment |
 | `coupled` | numpy, numba | dynamic, relaxation | linear_elastic | displacement, stress, strain, von_mises, stress_nodal, reaction_force, rotation, member_type, beam_formulation, connector_flag, connector_force, connector_moment, connector_deformation, end_actions, reaction_moment |
@@ -980,7 +1020,7 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 | `shell_line` | numpy, numba | dynamic, relaxation | linear_elastic | displacement, rotation, shell_stress_top, shell_stress_bottom, end_actions, reaction_force, reaction_moment |
 | `tet10` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
 | `tet4` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
-| `truss2` | numpy | dynamic, relaxation | linear_elastic, rebar, piecewise_uniaxial, steel02, steel_cyclic, concrete01, concrete02 | displacement, axial_force, axial_force_max_abs, axial_stress, von_mises, capacity_ratio, member_failed, reaction_force |
+| `truss2` | numpy | dynamic, relaxation | linear_elastic, rebar, piecewise_uniaxial, steel02, steel_cyclic, concrete01, concrete02, parallel, series, gap | displacement, axial_force, axial_force_max_abs, axial_stress, von_mises, capacity_ratio, member_failed, reaction_force |
 | `wedge15` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
 | `wedge6` | numpy, numba, warp | dynamic, relaxation | linear_elastic, orthotropic, viscoelastic, j2, chaboche, cdp | displacement, stress, strain, von_mises, stress_nodal, reaction_force |
 
@@ -1041,6 +1081,9 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * `sections.*.laws.*.c`
 * `sections.*.laws.*.exponent`
 * `sections.*.laws.*.linear_below`
+* `sections.*.laws.*.material`
+* `sections.*.laws.*.area`
+* `sections.*.laws.*.length`
 * `reinforcement.*.line.divisions`
 * `reinforcement.*.layer.divisions`
 * `reinforcement.*.layer.segment_length`
@@ -1057,6 +1100,7 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * `regions.*.difference`
 * `regions.*.tol`
 * `assign[].releases`
+* `assign[].end_offsets`
 * `assign[].divisions`
 * `assign[].transverse_penalty`
 * `assign[].host_deduction`
@@ -1156,6 +1200,12 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * `steps[].activate_age`
 * `steps[].deactivate`
 * `steps[].release`
+* `steps[].rigid_links`
+* `steps[].rigid_links[].master`
+* `steps[].rigid_links[].slaves`
+* `steps[].rigid_links[].dofs`
+* `steps[].rigid_links[].arm`
+* `steps[].rigid_links[].name`
 * `contact.members`
 * `contact.rigid[].stiffness`
 * `contact.rigid[].friction`
@@ -1206,9 +1256,12 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * `materials.bond_cyclic`
 * `materials.chaboche`
 * `materials.concrete01`
+* `materials.gap`
 * `materials.j2`
 * `materials.orthotropic`
+* `materials.parallel`
 * `materials.piecewise_uniaxial`
+* `materials.series`
 * `materials.steel_cyclic`
 * `materials.viscoelastic`
 

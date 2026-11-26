@@ -238,7 +238,108 @@ def effective_stiffness(props) -> np.ndarray:
 # (fiber_beam_solver); the solver commits at equilibrium, and
 # at every step of a dynamic run.
 
-LAWS = ("gap", "bilinear", "friction", "damper", "pendulum")
+LAWS = ("gap", "bilinear", "friction", "damper", "pendulum", "material")
+
+# AND ONE THAT IS NOT A LAW OF ITS OWN (1.21):
+#
+#   material   a one-dimensional law from the case's material table on the
+#              component: F = area sigma(d / length), the tangent area E_t /
+#              length. With area = length = 1 (the defaults) the table is the
+#              component's force-deformation relation itself; with a core's
+#              area and its yielding length it is a buckling-restrained
+#              brace. Its history is the law's own state, which the solver
+#              keeps beside the slips (`MaterialStates`); every evaluation
+#              starts from the committed state, as the laws above do from
+#              the committed slip. The slip reported for the component is
+#              the material's strain, d / length. `uy` and `uz` stay two
+#              laws (a square interaction), and the compiled connector
+#              kernel does not take it (the solver runs the connector in
+#              Python and says so).
+
+
+#: one Material per law spec, built once (keyed on the spec dict's id, held
+#: with it so the id cannot be reused)
+_MATERIALS: dict = {}
+
+
+def law_material(law):
+    """The Material of a `material` law, from its resolved spec."""
+    spec = law["material"]
+    if not isinstance(spec, dict) or "type" not in spec:
+        raise ValueError(f"a connector `material` law names {spec!r}: in a case it is a name in `materials`, "
+                         "resolved when the case is read; here it must be the material's spec")
+    hit = _MATERIALS.get(id(spec))
+    if hit is not None and hit[0] is spec:
+        return hit[1]
+    from ..materials.factory import create_material
+    m = create_material(dict(spec))
+    if not getattr(m, "uniaxial", False) and m.name != "linear_elastic":
+        raise ValueError(f"a connector `material` law takes a one-dimensional law; {m.name!r} is not")
+    _MATERIALS[id(spec)] = (spec, m)
+    return m
+
+
+def _scale(law):
+    """(area, length) of a `material` law."""
+    a = law.get("area"); L = law.get("length")
+    return (1.0 if a is None else float(a)), (1.0 if L is None else float(L))
+
+
+def has_material_law(props) -> bool:
+    return any(l.get("type") == "material" for l in (props.get("laws") or {}).values())
+
+
+class MaterialStates:
+    """The history of every connector component that carries a `material`
+    law: a committed state and a working one, (1, n_state) each, per
+    (connector, component). `response` takes `of(e)` and writes the working
+    state from the committed one; the solver commits where it commits the
+    slips, clears a connector's at its birth, and saves the committed ones
+    in its checkpoint."""
+
+    def __init__(self, ids, props_of):
+        self.rows = {}
+        for e in ids:
+            for name, law in ((props_of(e) or {}).get("laws") or {}).items():
+                if law.get("type") == "material":
+                    m = law_material(law)
+                    c = m.init_state(1)
+                    self.rows.setdefault(int(e), {})[COMPONENTS.index(name)] = [m, c, c.copy()]
+
+    def __bool__(self):
+        return bool(self.rows)
+
+    def of(self, e):
+        return self.rows.get(int(e))
+
+    def commit(self):
+        for comps in self.rows.values():
+            for row in comps.values():
+                row[1][...] = row[2]
+
+    def reset(self, ids):
+        for e in ids:
+            for row in (self.rows.get(int(e)) or {}).values():
+                row[1][...] = row[0].init_state(1); row[2][...] = row[1]
+
+    def _order(self):
+        return [(e, i) for e in sorted(self.rows) for i in sorted(self.rows[e])]
+
+    def checkpoint(self):
+        parts = [self.rows[e][i][1].ravel() for e, i in self._order()]
+        return np.concatenate(parts) if parts else np.zeros(0)
+
+    def restore(self, flat):
+        flat = np.asarray(flat, float).ravel()
+        need = sum(self.rows[e][i][1].size for e, i in self._order())
+        if flat.size != need:
+            raise ValueError(f"the checkpoint's connector material state has {flat.size} values; "
+                             f"this model's connector materials have {need}")
+        at = 0
+        for e, i in self._order():
+            row = self.rows[e][i]; n = row[1].size
+            row[1][...] = flat[at:at + n].reshape(row[1].shape); row[2][...] = row[1]
+            at += n
 
 # TWO MORE (1.10), the devices of a bridge's seismic design:
 #
@@ -265,6 +366,9 @@ LAWS = ("gap", "bilinear", "friction", "damper", "pendulum")
 def law_stiffness(law) -> float:
     """The elastic stiffness a law contributes to the reference matrix."""
     t = law["type"]
+    if t == "material":
+        area, length = _scale(law)
+        return area * float(law_material(law).E) / length
     if t == "gap":
         return float(law["stiffness"]) if (law.get("lo") is not None or law.get("hi") is not None) else 0.0
     if t == "bilinear":
@@ -426,7 +530,7 @@ def dashpot_rows(ids, elements, nodes, R0, props_of, dofs, ndof) -> np.ndarray:
 
 
 def response(u, triads, ve, x0, R0, props, *, include_damping=False,
-             slip_committed=None, slip_out=None, offset=None):
+             slip_committed=None, slip_out=None, offset=None, materials=None):
     """Work-conjugate 12-DOF force, six connector actions and deformation.
 
     `u` is the two ends' translations, `triads` their orientation matrices.
@@ -438,7 +542,9 @@ def response(u, triads, ve, x0, R0, props, *, include_damping=False,
     when the connector has no laws. `offset` (6,) is the deformation the
     connector was born with (a connector built by a later analysis step is
     stress-free where it stands): its springs, curves and laws
-    read the deformation less that, and so does what is returned."""
+    read the deformation less that, and so does what is returned.
+    `materials` is `MaterialStates.of(e)` for a connector with `material`
+    laws: {component: [Material, committed state, working state]}."""
     d, J = _deformation_and_jacobian(u, triads, x0, R0, props)
     if offset is not None:
         d = d - np.asarray(offset, dtype=float)
@@ -456,6 +562,19 @@ def response(u, triads, ve, x0, R0, props, *, include_damping=False,
         for name, law in laws.items():
             i = COMPONENTS.index(name)
             if planar and name in ("uy", "uz"):
+                continue
+            if law["type"] == "material":
+                from ..materials.composite import uniaxial_stress
+                area, length = _scale(law)
+                strain = float(d[i]) / length
+                if materials is not None and i in materials:
+                    m, committed, work = materials[i]
+                    work[...] = committed
+                else:                          # a probe with no history kept: from the virgin state
+                    m = law_material(law); work = m.init_state(1)
+                action[i] = area * float(uniaxial_stress(m, np.array([strain]), work, 1.0)[0])
+                if slip_out is not None:
+                    slip_out[i] = strain
                 continue
             N = _normal_force(law, K, d) if law["type"] in ("friction", "pendulum") else 0.0
             f, s_new = law_force(law, float(d[i]), float(sc[i]), N)

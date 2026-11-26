@@ -22,6 +22,7 @@ from typing import Dict
 import numpy as np
 
 from . import added_mass
+from . import member_geometry
 from . import amplitude as amp
 from . import ground as ground_motion
 from . import monitors as monitor_records
@@ -133,6 +134,10 @@ class BeamFamily(OrientedPoints):
         ez = np.cross(ex, ey)
         return np.vstack([ex, ey, ez]), L
 
+    #: where each member's elastic part is (core/member_geometry, 1.21):
+    #: no offsets until the solver reads them
+    geometry = member_geometry.NONE
+
     # ------------------------------------------------------------------ #
     #  Vehicles
     # ------------------------------------------------------------------ #
@@ -154,7 +159,8 @@ class BeamFamily(OrientedPoints):
             kinds = getattr(self, "member_kind", None)
             if kinds is not None:
                 elements = np.array([e for e in elements if kinds[e] in self.BEAM_TYPES], int)
-            path = LoadPath(SimpleNamespace(nodes=self.mesh.nodes, elements=conn), elements, "vehicle")
+            path = LoadPath(SimpleNamespace(nodes=self.mesh.nodes, elements=conn), elements, "vehicle",
+                            geometry=self.geometry)
             cache[key] = Vehicle(spec, path, self, self.dofs, self.mesh, self.length, self.R0,
                                  self.total_time, self.dt)
             # its events on the run's clock
@@ -224,8 +230,94 @@ class BeamFamily(OrientedPoints):
         return float(self._thermal_scale)
 
     def _residual_norm(self, r, free):
-        """|r| over the free dofs."""
-        return float(np.linalg.norm(r[free]))
+        """|r| over the free dofs; with multi-point constraints, of their own
+        equations (`ConstraintLayer.residual_norm`)."""
+        ties = self.constraint_layer()
+        if not ties.empty():
+            return ties.residual_norm(r, free, self._norm)
+        return float(self._norm(r[free]))
+
+    # ------------------------------------------------------------------ #
+    #  multi-point constraints (core/constraints, 1.21)
+    # ------------------------------------------------------------------ #
+    #  A diaphragm is the one multi-point constraint a building cannot be
+    #  written without: the slab is not meshed, and without it the floor beams
+    #  carry the in-plane stiffness of a frame instead of a plate. The OpenSees
+    #  model of v0.1 records the displacement of a MASTER NODE per
+    #  floor, which is the same statement.
+    #
+    #  In an explicit particle scheme the constraint is applied where it is
+    #  cheapest and exact: to the ACCELERATION. The nodal forces of the floor
+    #  are condensed onto the three degrees of freedom the rigid floor really
+    #  has (two in-plane translations and the rotation about the normal), those
+    #  three are accelerated by the floor's own mass and polar inertia, and the
+    #  nodal accelerations are then read back off the rigid motion. Velocities
+    #  and positions stay consistent for ever after, because they start
+    #  consistent (at rest) and every increment they receive is consistent.
+    #
+    #  What stays FREE is what makes this a diaphragm rather than a rigid body:
+    #  the out-of-plane translation and the two bending rotations. A floor may
+    #  still deflect and its beams may still bend.
+
+
+    def constraint_layer(self):
+        """The solver's multi-point constraints (`core.constraints.
+        ConstraintLayer`), made the first time they are asked for: the rigid
+        floors and the rigid links of the case. `ties = None` rebuilds them."""
+        if self.ties is None:
+            from . import constraints
+            floors = self._tie_floors()
+            case = self.p.case
+            # the model's links, made at the start, and each step's, made at
+            # its start (1.21)
+            links = [lk.model_dump() for lk in case.rigid_links] + [
+                dict(lk.model_dump(), born=k) for k, st in enumerate(case.steps) for lk in st.rigid_links]
+            self.ties = constraints.ConstraintLayer(self, floors, links, self._region,
+                                                    self._named_dofs() if links else None)
+            if self.ties.links is not None:
+                names = self.ties.links.names()
+                self.ties.links.released_any = any(r in names for st in case.steps for r in st.release)
+        return self.ties
+
+    def _tie_floors(self):
+        """The case's rigid floors as the constraint layer reads them; a floor
+        whose in-plane dof a support always holds is refused here."""
+        floors = []
+        for spec in self.p.case.diaphragms:
+            idx = np.asarray(self._region(spec.region), dtype=np.int64)
+            if len(idx) < 2:
+                raise ValueError(f"diaphragm region {spec.region!r} has {len(idx)} nodes")
+            n = "xyz".index(str(spec.normal))
+            # (a, b, n) in CYCLIC order, so that u_a = U_a - alpha r_b, u_b =
+            # U_b + alpha r_a is a rotation of +alpha about +n, the same alpha
+            # the floor's rotational dof carries. It was (x, z) for a y
+            # normal -- a rotation of -alpha about y tied to theta_y = +alpha
+            # (found in review, 1.7; z floors were right)
+            a, b = (n + 1) % 3, (n + 2) % 3
+            held = self._held_dofs().reshape(-1, 6)[idx][:, (a, b, 3 + n)]
+            if held.any():
+                raise ValueError(
+                    f"diaphragm region {spec.region!r} contains nodes whose in-plane "
+                    "degrees of freedom are also constrained; a floor is either held by a "
+                    "support or moved by a diaphragm, not both")
+            x = self.mesh.nodes[idx]
+            floors.append({"idx": idx, "n": n, "a": a, "b": b, "x": x, "name": spec.region})
+        return floors
+
+    def _named_dofs(self):
+        """Every dof a support names, in the model or in any step, held or
+        driven (nn x 6): a link's slave's tied dof may be none of them (found in
+        review: `_held_dofs` is the always-held ones only)."""
+        case = self.p.case
+        named = np.zeros((self.nn, 6), bool)
+        for c in list(case.constraints) + [c for st in case.steps for c in st.constraints]:
+            named[np.asarray(self._region(c.region), dtype=np.int64)] |= np.asarray(c.dofs, bool)[:6]
+        return named
+
+    def _relax_acceleration(self, F, fint):
+        """(F - fint) / m of a relaxation iteration, with the multi-point
+        constraints imposed."""
+        return self.constraint_layer().project((F - fint) / self.mass)
 
     def _convergence_measures(self, F, free, ke, f_int=None):
         """(relative residual, kinetic ratio) on one force scale.
@@ -317,10 +409,6 @@ class BeamFamily(OrientedPoints):
         """What the step reloads before it starts: nothing, for the fibre
         solver (it reloads where it splits, `_between_steps`)."""
 
-    def _project_diaphragms(self, acc):
-        """The acceleration with rigid floors imposed: none here."""
-        return acc
-
     def _between_steps(self, k, t, data):
         """BETWEEN two steps is the only instant at which the model is in one
         consistent state: the step's force vector has been used and the next
@@ -369,7 +457,7 @@ class BeamFamily(OrientedPoints):
         # Kinematic DOFs are advanced exclusively in _apply_bc below;
         # otherwise a prescribed velocity would receive both the
         # force integrator increment and its imposed increment.
-        acc = self._project_diaphragms((F-fint-damp)/self.mass)
+        acc = self.constraint_layer().project((F-fint-damp)/self.mass, fixed)
         acc[fixed] = 0.; self.v[fixed] = 0.
         # half the acceleration on a restart: v_(1/2) = a dt / 2.
         # Using a dt injects energy at every restart, and under
@@ -491,6 +579,8 @@ class BeamFamily(OrientedPoints):
         out = {"q": self.q.copy(), "v": self.v.copy(), "orient": self.orient.copy(),
                "step": np.array([self.step])}
         out = self._checkpoint_members(out)
+        if self.ties is not None:
+            out = self.ties.checkpoint(out)
         if self.bonds is not None:
             # a split moved bonds and mass: the state is not just q and v
             out["elements"] = self.mesh.elements[:, :2].astype(np.int64)
@@ -541,6 +631,8 @@ class BeamFamily(OrientedPoints):
             v = np.concatenate([v, np.zeros(self.ndof - len(v))])
         self.q, self.v, self.step = np.array(q, float), np.array(v, float), int(ck["step"][0])
         self._restore_orientation(ck)
+        if self.ties is not None:
+            self.ties.restore(ck)
         if len(self.orient) < self.nn:
             self.orient = np.concatenate([self.orient, np.tile(np.eye(3), (self.nn - len(self.orient), 1, 1))])
         if self.bonds is not None and "elements" in ck:
@@ -830,6 +922,10 @@ class BeamFamily(OrientedPoints):
             with self._reading():
                 fint, actions_now = self.internal_force()
             residual = fint - F
+            if self.ties is not None:
+                # the force each rigid link carries: what a later step's
+                # release takes off (1.21)
+                self.ties.record(residual)
             # THE SOIL IS A SUPPORT: its force on the pile is a
             # reaction, as a held dof's is -- the structure's own internal force
             # less the load, at the held dofs and at the springs' nodes
@@ -939,6 +1035,10 @@ class BeamFamily(OrientedPoints):
         """
         end_share = share.copy()
         end_share[:3] += added_mass.move_line_mass(self, int(e), int(parent), int(new))
+        if self.geometry.any:
+            # the rigid zone at this end goes with it (`member_zone_mass`)
+            k = 0 if int(self.mesh.elements[e, 0]) == int(parent) else 1
+            end_share[:3] += self.member_zone_mass(int(e))[k]
         pm[parent] = np.maximum(pm[parent] - end_share, 0.0)
         pm[new] += end_share
         pd = self.dofs.node_dofs(parent).ravel(); nd = self.dofs.node_dofs(new).ravel()
@@ -954,11 +1054,131 @@ class BeamFamily(OrientedPoints):
         if self.plan is not None and self.staging.dormant is not None:
             self.staging.dormant[int(new)] = False
 
+    def _carried_step(self):
+        """The explicit step with the members' mass set off their nodes
+        (`CarriedMass`): a carrying node's translation and rotation share
+        their mass, and the bound of its dofs is Gershgorin's on M6^-1 |K|
+        (`CarriedMass.step_ratio`). Where that is below the diagonal's
+        smallest m / row, the step shrinks by the square root of the ratio.
+        Nothing without offsets or outside a dynamic run."""
+        if getattr(self, "mode", None) != "dynamic" or not self.geometry.any:
+            return
+        carried = self.constraint_layer().carried
+        row = np.asarray(abs(self.K).sum(axis=1)).ravel()
+        free = ~np.asarray(self._held_dofs(), bool)
+        mass = np.asarray(self.mass, float)
+        old = float(np.min(np.where(free, mass / np.maximum(row, 1e-20), np.inf)))
+        new = float(np.min(carried.step_ratio(mass, row, free)))
+        if new < old * (1.0 - 1e-9):
+            from ..elements.stability import aligned_step
+            f = float(np.sqrt(new / old))
+            # n_steps dt is the run's duration exactly (as `_shrink_step_for_damping`)
+            self.stable_dt = self.dt * f
+            self.dt, self.n_steps = aligned_step(float(self.p.solver.total_time), self.stable_dt)
+            if callable(getattr(self, "log", None)):
+                self.log(f"  offset mass   step x{f:.3f}: the members' mass set off their nodes couples "
+                         "a node's translation with its rotation")
+
+    def member_zone_mass(self, e):
+        """(2,) the mass of member `e`'s two rigid zones, at its first and
+        second node (1.21): the member's mass per length times its zones'
+        length (`member_zones`) -- a rigid zone weighs as the member it is
+        part of (SAP, Midas), and its node carries it at the zone's middle
+        (`CarriedMass`). Zeros without an offset."""
+        g = self.geometry
+        if not g.any or not np.any(g.offset[e]):
+            return np.zeros(2)
+        L = float(self.length[e])
+        if L <= 0.0:
+            return np.zeros(2)
+        mu = 2.0 * float(self._element_mass_share(int(e))[0]) / L
+        return mu * self.member_zones(int(e))
+
+    def member_zones(self, e):
+        """(2,) the lengths of member `e`'s rigid zones along its elastic
+        axis x. The member spans its nodes' projections on that axis,
+        (x2 - x1) . x; what of that span is not elastic, max(0, span - L),
+        is zone, shared between the ends as they reach back past the
+        elastic ends (e1 . x and -e2 . x, where positive). A section merely
+        set off its nodes -- parallel to its chord, or a vector given in
+        global axes on an inclined member, which shifts the elastic part
+        along itself -- has none, and an offset that lengthens the elastic
+        part adds none (its mass is the elastic part's)."""
+        g = self.geometry
+        x = np.asarray(self.R0[e])[0]
+        n1, n2 = self.mesh.elements[e, 0], self.mesh.elements[e, 1]
+        span = float(np.dot(self.mesh.nodes[n2] - self.mesh.nodes[n1], x))
+        extra = max(0.0, span - float(self.length[e]))
+        reach = np.maximum([float(np.dot(g.offset[e, 0], x)), -float(np.dot(g.offset[e, 1], x))], 0.0)
+        tot = float(reach.sum())
+        if extra <= 1e-12 * float(self.length[e]) or tot <= 0.0:
+            return np.zeros(2)
+        return reach * (extra / tot)
+
+    def _add_zone_mass(self, m):
+        """Add the rigid zones' mass to the nodes' translations, m (nn, 6)
+        (each solver's mass setup); nothing without offsets."""
+        if not self.geometry.any:
+            return
+        for e in self.geometry.members:
+            z = self.member_zone_mass(int(e))
+            for k in range(2):
+                m[int(self.mesh.elements[e, k]), :3] += z[k]
+
+    def member_mass_share(self, e):
+        """The (6,) mass one end of member `e` carries (each solver's
+        `_element_mass_share`), for the constraint layer's carried mass."""
+        return self._element_mass_share(int(e))
+
+    def _ground_force(self, f, ground, t):
+        """Add to f the inertia of the ground motions at time t, -M a_g on
+        every particle (both beam solvers', one body since 1.21), and the
+        moment of the members' mass set off their nodes (`CarriedMass`)."""
+        for ts, ac, direction in ground:
+            ag = np.interp(t, ts, ac, left=0., right=0.)
+            mass = self.dofs.field(self.physical_mass, TRANSLATION)
+            self.dofs.add_nodal(f, np.arange(self.nn), -mass*ag*direction, TRANSLATION)
+        return f
+
+    def _carried_body_force(self, f, ground, progress, t):
+        """Add to f the moments of the members' mass set off their nodes
+        under the step's weight and ground motion, turned with the nodes
+        (`CarriedMass.body_moments`); nothing without offsets."""
+        carried = self.constraint_layer().carried
+        if carried is None:
+            return f
+        ga = None
+        if t is not None and ground:
+            ga = np.zeros(3)
+            for ts, ac, direction in ground:
+                ga -= np.interp(t, ts, ac, left=0., right=0.) * np.asarray(direction, float)
+        return carried.body_moments(f, progress, ga)
+
+    def _ledger_kinetic(self):
+        """The kinetic energy the ledger books: the diagonal's, and the
+        carried mass's coupling (`CarriedMass.kinetic`)."""
+        out = super()._ledger_kinetic()
+        carried = self.constraint_layer().carried
+        if carried is not None and getattr(self, "mode", None) == "dynamic":
+            out += carried.kinetic()
+        return out
+
+    def member_line_load(self, e, q, local):
+        """(fl, g) of a uniform line load q (3,) on member `e`, in its local
+        axes when `local`: the member-local fixed-end vector through its
+        releases and the global vector at its nodes -- one rule for the step's
+        loads and for what a removed member takes with it
+        (`geometry.line_load`: over the drawn line when it has offsets)."""
+        L, R = self.length[e], self.R0[e]
+        ql = q if local else R @ q
+        return self.geometry.line_load(e, ql, R, L, lambda fl: self._line_load_local(fl, L, e))
+
     def _frames(self):
         """(R, theta_loc, L) of every member: `rotations.beam_frames_from_triads`
         on the points' orientations (the fibre solver's, shared since v1.19)."""
         conn = self.mesh.elements
         x = self.mesh.nodes[conn] + self.dofs.view(self.q)[conn][:, :, :3]
+        x = self.geometry.ends(np.arange(self.nel), x, self.orient)
         return beam_frames_from_triads(x, self.orient[conn], self.R0)
 
     def step_data(self, k):
@@ -989,6 +1209,8 @@ class BeamFamily(OrientedPoints):
         constraints, loads = amp.timed_hold(step, constraints, loads)
         fixed = np.zeros(self.ndof, bool); moving = np.zeros(self.ndof, bool)
         prescribed = []; groups: Dict[str, np.ndarray] = {}; ground = []; movers = []
+        if self.constraint_layer().carried is not None:
+            self.constraint_layer().carried.fields = []      # this step's weights (below)
         valued = np.zeros(self.ndof, bool)           # dofs a constraint gives a `value`
         # the member-local line loads per amplitude, for the end actions
         # (v1.0: the fixed-end moments were missing from them)
@@ -1085,19 +1307,8 @@ class BeamFamily(OrientedPoints):
                             F = groups.setdefault(a_r.name, np.zeros(self.ndof))
                         else:
                             F = F_held
-                    L, R = self.length[e], self.R0[e]
-                    ql = q if ld.get("coordinate_system", "global") == "local" else R @ q
-                    fl = np.zeros(12)
-                    fl[[0, 6]] = ql[0]*L/2
-                    fl[[1, 7]] = ql[1]*L/2
-                    fl[5], fl[11] = ql[1]*L**2/12, -ql[1]*L**2/12
-                    fl[[2, 8]] = ql[2]*L/2
-                    fl[4], fl[10] = -ql[2]*L**2/12, ql[2]*L**2/12
-                    fl = self._line_load_local(fl, L, e)
-                    T = repeated_rotation(R)
-                    conn = self.mesh.elements[e]
-                    dof = self.dofs.element_dofs(conn)
-                    F[dof] += T.T @ fl
+                    fl, g = self.member_line_load(e, q, ld.get("coordinate_system", "global") == "local")
+                    F[self.dofs.element_dofs(self.mesh.elements[e])] += g
                     self._line_local.setdefault(
                         a.name if F is F_held or built is None else a_r.name,
                         np.zeros((self.nel, 12)))[e] += fl
@@ -1132,6 +1343,12 @@ class BeamFamily(OrientedPoints):
                 mass = added_mass.weighed(self.dofs.field(self.physical_mass, TRANSLATION),
                                           getattr(self, "weightless_mass", None))[idx]
                 self.dofs.add_nodal(F, idx, mass*g, TRANSLATION)
+                carried = self.constraint_layer().carried
+                if carried is not None:
+                    # the members' mass set off their nodes weighs where it is:
+                    # its moment, turned with the nodes, at each evaluation
+                    inside = np.zeros(self.nn, bool); inside[idx] = True
+                    carried.fields.append((a, g, inside))
                 if plan is not None and ld.get("_inherited"):
                     # the members born this step weigh from nothing to all of
                     # it over the step (Abaqus' reactivation), not at once
@@ -1191,7 +1408,7 @@ class BeamFamily(OrientedPoints):
         # it ride whatever particles it is on now (the fallen segment)
         conn0 = getattr(self, "_elements0", None)
         road = self.mesh if conn0 is None else SimpleNamespace(nodes=self.mesh.nodes, elements=conn0)
-        path = LoadPath(road, elements)
+        path = LoadPath(road, elements, geometry=self.geometry)
         ml = MovingLoad(ld["moving_load"], path, self.dofs, self.mesh,
                         self.length, self.R0, self.total_time)
         # a member's end releases shape its share, as a line_load's
@@ -1302,11 +1519,14 @@ class BeamFamily(OrientedPoints):
         turns: the frame and fibre solvers' through their `_turned_k`
         (None: the member keeps its reference)."""
         R = self._frames()[0]
+        geometry = self.geometry
+        r = geometry.now(np.arange(self.nel), self.orient)
         for e in np.flatnonzero(np.asarray(self._live_members(), bool)):
             e = int(e)
             k = self._turned_k(e, repeated_rotation(R[e]))
             if k is not None:
-                yield self.dofs.element_dofs(self.mesh.elements[e]), k[0], self._k_block(e), k[1]
+                now = k[0] if r is None else geometry.stiffness_to_nodes(e, k[0], r[e])
+                yield self.dofs.element_dofs(self.mesh.elements[e]), now, self._k_block(e), k[1]
 
     def _live_members(self):
         """(nel,) bool: the members that carry force."""

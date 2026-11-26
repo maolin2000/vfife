@@ -1,12 +1,12 @@
 {
  "optional_probes": {
   "vfife/api.py": 4,
-  "vfife/buckling.py": 8,
+  "vfife/buckling.py": 7,
   "vfife/cli.py": 2,
   "vfife/core/analysis_steps.py": 36,
   "vfife/core/beam_family.py": 13,
-  "vfife/core/beam_solver.py": 48,
-  "vfife/core/compiled_step.py": 38,
+  "vfife/core/beam_solver.py": 46,
+  "vfife/core/compiled_step.py": 36,
   "vfife/core/diagnostics.py": 1,
   "vfife/core/families.py": 5,
   "vfife/core/fiber_beam_solver.py": 54,
@@ -27,11 +27,11 @@
   "vfife/core/step_state.py": 1,
   "vfife/core/truss_solver.py": 2,
   "vfife/core/vehicle.py": 1,
-  "vfife/implicit.py": 29,
+  "vfife/implicit.py": 27,
   "vfife/io/writer.py": 1,
   "vfife/kernels/warp_backend.py": 1,
   "vfife/kernels/warp_shell4.py": 1,
-  "vfife/modal.py": 6,
+  "vfife/modal.py": 5,
   "vfife/preflight.py": 2,
   "vfife/sweep.py": 3,
   "vfife/testing/invariants.py": 1,
@@ -52,7 +52,6 @@
   ],
   "vfife/core/analysis_steps.py": [
    "_active",
-   "_apply_load_releases",
    "_birth_raw",
    "_conn_birth",
    "_conn_committed",
@@ -70,7 +69,6 @@
    "_jack_step_of",
    "_k_ref",
    "_kg_ref",
-   "_material_of",
    "_members_of",
    "_mode_cfg",
    "_n_steps_solver",
@@ -90,7 +88,6 @@
    "_conn_committed",
    "_conn_slip",
    "_connector_kernel",
-   "_diaphragms",
    "_force_scale",
    "_frame_batch",
    "_half",
@@ -109,7 +106,6 @@
    "_reload_step",
    "_rot_scratch",
    "_set_actions_abs",
-   "_setup_diaphragms",
    "_stacked_groups",
    "_truss_T",
    "_truss_batch",
@@ -170,7 +166,6 @@
    "_cell_actions",
    "_commit_fibres",
    "_current_age",
-   "_diaphragms",
    "_force",
    "_force_of",
    "_force_scale",
@@ -199,7 +194,6 @@
    "_connector_of",
    "_connector_props",
    "_lumped_physical_mass",
-   "_setup_diaphragms",
    "_step_ages"
   ],
   "vfife/sweep.py": [
@@ -245,10 +239,6 @@
   ],
   "tests/test_damping_omega.py": [
    "_held_dofs"
-  ],
-  "tests/test_diaphragm.py": [
-   "_diaphragms",
-   "_project_diaphragms"
   ],
   "tests/test_erosion.py": [
    "_driven",

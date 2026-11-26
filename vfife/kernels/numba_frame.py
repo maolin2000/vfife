@@ -194,6 +194,80 @@ if njit is not None:
                 out[dofs[k, j]] += ge[k, j]
         return 0
 
+    # ------------------------------------------------------------------ #
+    # END OFFSETS, 1.21 (core/member_geometry.py): the same member law between
+    # the elastic ends x + Q e, the end forces reaching the nodes with
+    # moment r x f. A kernel of its own, so that a model without offsets
+    # runs the two above unchanged, to the bit and to the cache. Serial: a
+    # model with offsets is a converted bridge, solved statically.
+    @njit(cache=True, fastmath=False, nogil=True, error_model="numpy")
+    def frame_forces_offset(ids, nodes, conn, q, orient, R0, klocal, L0, dofs, dth,
+                            out, end_actions, actions, offs, has_off):
+        """`frame_forces_subset` with `offs` (ne, 2, 3), each member's two
+        offsets in its nodes' own axes, and `has_off` (ne,) uint8."""
+        ne = ids.shape[0]
+        R = np.empty((3, 3))
+        loc = np.empty((2, 3))
+        x1 = np.empty(3)
+        x2 = np.empty(3)
+        r1 = np.zeros(3)
+        r2 = np.zeros(3)
+        local = np.empty(12)
+        fl = np.empty(12)
+        g = np.empty(12)
+        for k in range(ne):
+            e = ids[k]
+            n1 = conn[k, 0]
+            n2 = conn[k, 1]
+            for i in range(3):
+                x1[i] = nodes[n1, i] + q[n1, i]
+                x2[i] = nodes[n2, i] + q[n2, i]
+            if has_off[k]:
+                for i in range(3):
+                    r1[i] = (orient[n1, i, 0] * offs[k, 0, 0] + orient[n1, i, 1] * offs[k, 0, 1]
+                             + orient[n1, i, 2] * offs[k, 0, 2])
+                    r2[i] = (orient[n2, i, 0] * offs[k, 1, 0] + orient[n2, i, 1] * offs[k, 1, 1]
+                             + orient[n2, i, 2] * offs[k, 1, 2])
+                for i in range(3):
+                    x1[i] += r1[i]
+                    x2[i] += r2[i]
+            dx = x2[0] - x1[0]; dy = x2[1] - x1[1]; dz = x2[2] - x1[2]
+            if dx * dx + dy * dy + dz * dz < 1e-28:
+                return k + 1
+            L = member_frame(x1, x2, orient[n1], orient[n2], R0[k], R, loc)
+            for i in range(12):
+                local[i] = 0.0
+            local[3] = loc[0, 0]; local[4] = loc[0, 1]; local[5] = loc[0, 2]
+            local[6] = L - L0[k]
+            local[9] = loc[1, 0]; local[10] = loc[1, 1]; local[11] = loc[1, 2]
+            for i in range(12):
+                local[i] -= dth[k, i]
+            for i in range(12):
+                acc = 0.0
+                for j in range(12):
+                    acc += klocal[k, i, j] * local[j]
+                fl[i] = acc
+                end_actions[e, i] = fl[i]
+            for blk in range(4):
+                b0 = fl[3 * blk]; b1 = fl[3 * blk + 1]; b2 = fl[3 * blk + 2]
+                for i in range(3):
+                    g[3 * blk + i] = R[0, i] * b0 + R[1, i] * b1 + R[2, i] * b2
+            if has_off[k]:
+                # m + r x f at each end
+                g[3] += r1[1] * g[2] - r1[2] * g[1]
+                g[4] += r1[2] * g[0] - r1[0] * g[2]
+                g[5] += r1[0] * g[1] - r1[1] * g[0]
+                g[9] += r2[1] * g[8] - r2[2] * g[7]
+                g[10] += r2[2] * g[6] - r2[0] * g[8]
+                g[11] += r2[0] * g[7] - r2[1] * g[6]
+            for i in range(12):
+                out[dofs[k, i]] += g[i]
+            for i in range(6):
+                a = fl[i] if fl[i] >= 0.0 else -fl[i]
+                b = fl[i + 6] if fl[i + 6] >= 0.0 else -fl[i + 6]
+                actions[e, i] = a if a > b else b
+        return 0
+
     @njit(cache=True, fastmath=False, nogil=True, error_model="numpy")
     def truss_forces(conn, nodes, q, EA, Lu, dth6, tension_only, ids, out, end_actions, actions):
         """Axial members: `_truss_forces_batched` element by
@@ -226,7 +300,7 @@ if njit is not None:
         return 0
 
 else:                                                  # pragma: no cover
-    frame_forces_subset = frame_forces_subset_threaded = truss_forces = None
+    frame_forces_subset = frame_forces_subset_threaded = truss_forces = frame_forces_offset = None
 
 
 def configure_threads(threads) -> int:

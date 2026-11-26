@@ -29,16 +29,23 @@ What it maps to:
   pipe, solid round, box, H -- by its sizes or its database name -- and
   double channel are computed; a concrete-filled pipe is its steel pipe, a
   built-up box a plain one; others are refused by name);
-* TRUSS -> a `bar` section; its `*PRETENSION` becomes `jack`, the force it
-  is stressed to in the step that builds it -- Midas' "external"
-  pretension. Of a cable modelled as several elements over sliding
-  saddles, one is jacked and the others are cut to the length of their
-  force (`prestress`): see "WHICH OF A CABLE'S ELEMENTS" below;
+* TRUSS -> a `bar` section; its `*PRETENSION` is held as the model's
+  construction-stage control says (`*STAGE-CTRL`, CPFC): External (and a
+  model that does not say) becomes `jack`, the force it is stressed to in
+  the step that builds it; Internal becomes `prestress`, the element cut
+  to the length of its force. `jack_which="one"` (or `"ends"`) asks for
+  the older rule instead: of a cable modelled as several elements over
+  sliding saddles, one is jacked and the others are cut to length -- see
+  "HOW A PRETENSION IS HELD" in convert.py;
 * an elastic link GEN -> a `connector` with its six stiffnesses, built in
   the first stage (from its boundary group's) in which both its ends are
   held by something, and born free of force there: a saddle's links wait
   for the cable they carry;
 * an elastic link RIGID -> a stiff, weightless beam (a connector has no arm);
+* `*RIGIDLINK` -> `rigid_links` (1.21), the flags as written, made in the
+  stage its boundary group comes on (or that builds the last of its nodes)
+  and released where the group goes off; a slave no member reaches, one a
+  support holds in a tied direction, and a chain are left out and counted;
 * `*CONSTRAINT` -> constraints; those of a boundary group activated in a
   later stage are that step's, kept; a deactivated group is released;
 * self weight -> gravity on everything; nodal loads and uniform member loads

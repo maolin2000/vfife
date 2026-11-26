@@ -1242,6 +1242,8 @@ def fiber_chunk(kernel):
         tav = np.empty(ndof); acc = np.empty(ndof)
         E = np.empty((3, 3)); M = np.empty((3, 3))
         want_tav = led_on and dkind != 0
+        # the fibre kernel's end offsets: none (core/compiled_step refuses a model with them)
+        no_offs = np.zeros((edofs.shape[0], 2, 3)); no_has = np.zeros(edofs.shape[0], np.uint8)
         for n in range(n_do):
             pos[0] = n
             # ---- the contact between members, its neighbour
@@ -1273,7 +1275,7 @@ def fiber_chunk(kernel):
                     state_c, state_s, cpar, spar, G0J0, GA, Bgy, Bgz, fint, actions, end_actions,
                     kactive, fstress, birth,
                     sl_on, sl_ri, sl_rj, sl_GA0, sl_GAcr, sl_Vy, sl_h, sl_kb, sl_flex, sl_epscr,
-                    sl_gamma, sl_gcr_c, sl_gmax_c, sl_gcr_t, sl_gmax_t, sl_V, True)
+                    sl_gamma, sl_gcr_c, sl_gmax_c, sl_gcr_t, sl_gmax_t, sl_V, True, no_offs, no_has)
             if nc:
                 respond(c_ids, c_kind, c_conn, nodes, q2, orient, v, R0, spins, cK, cC, clocal, chas_c,
                         cncur, ccx, ccy, claw, clp, cplanar, committed, slip, include_damping,

@@ -15,7 +15,8 @@ from .problem import Problem
 from . import mass_scaling
 from . import member_axes
 from . import added_mass
-from .dof import (DofLayout, ROTATION, SparseAssembler, TRANSLATION,
+from . import member_geometry
+from .dof import (DofLayout, ROTATION, SparseAssembler,
                   repeated_rotation)
 from .beam_family import BeamFamily
 from .member_failure import Breaking
@@ -106,6 +107,7 @@ class BeamSolver(BeamFamily):
         self.q = np.zeros(self.ndof)
         self.v = np.zeros(self.ndof)
         self._init_orientation()
+        self._carried_step()
         #: the next velocity update is a central-difference RESTART and
         #: takes half the acceleration; set again wherever v is zeroed
         self._half = True
@@ -113,6 +115,10 @@ class BeamSolver(BeamFamily):
         self.n_resets = 0
         self.step = self.step_index = self.step_start = 0
         self.rebar = []
+        if self.p.case.rigid_links or any(st.rigid_links for st in self.p.case.steps):
+            # the links are made where the nodes stand now, before the steps
+            # are installed (core/constraints)
+            self.constraint_layer()
         if self.plan is not None:
             analysis_steps.install(self)
 
@@ -211,11 +217,13 @@ class BeamSolver(BeamFamily):
         assembly = SparseAssembler(self.ndof)
         self.T, self.R0, self.k_local, self.length, self._kg_ref = [], [], [], [], []
         orient = self.p.case.element.orientation
-        for conn in self.mesh.elements:
-            R, L = self._frame(self.mesh.nodes[conn[0]], self.mesh.nodes[conn[1]], orient)
+        self.geometry = geometry = member_geometry.MemberGeometry.build(
+            self.mesh, self.nel, [(np.arange(self.nel), self.p.case.element.end_offsets, orient, "all")])
+        for e, conn in enumerate(self.mesh.elements):
+            R, L = self._frame(*geometry.reference_ends(e), orient)
             T = repeated_rotation(R)
-            kl = self._local_stiffness(L)
-            kg = T.T @ kl @ T
+            kl = geometry.full_axial(e, self._local_stiffness(L), L)
+            kg = geometry.stiffness_to_nodes(e, T.T @ kl @ T)
             dof = self.dofs.element_dofs(conn)
             assembly.add_matrix(dof, kg)
             self.T.append(T); self.k_local.append(kl); self.length.append(L)
@@ -223,34 +231,6 @@ class BeamSolver(BeamFamily):
         self.K = assembly.csr()
         self.T, self.R0, self.k_local, self.length = (np.asarray(self.T), np.asarray(self.R0),
                                                         np.asarray(self.k_local), np.asarray(self.length))
-
-    def _residual_norm(self, r, free):
-        """|r| over the free dofs -- with rigid diaphragms, of the floors'
-        own equations (1.9). At a floor's nodes the nodal
-        residual holds the constraint forces that keep the floor rigid,
-        which never vanish; what has to vanish is the floor's in-plane
-        resultants and its torque about the normal, the three equations of
-        the three dofs a floor has (`_project_diaphragms`, the same split).
-        Without floors, the plain norm, as before."""
-        if getattr(self, "_diaphragms", None) is None:
-            self._setup_diaphragms()
-        if not self._diaphragms:
-            return float(_norm_fn(self)(r[free]))
-        rr = np.where(free, r, 0.0)
-        R = rr.reshape(-1, 6)
-        M = self.mass.reshape(-1, 6)
-        extra = []
-        for d in self._diaphragms:
-            idx, n, a, b = d["idx"], d["n"], d["a"], d["b"]
-            ma, mb = M[idx, a], M[idx, b]
-            total = ma.sum() + mb.sum()
-            centre = ((ma + mb)[:, None] * d["x"][:, (a, b)]).sum(axis=0) / max(total, 1e-300)
-            ra = d["x"][:, a] - centre[0]
-            rb = d["x"][:, b] - centre[1]
-            fa, fb = R[idx, a], R[idx, b]
-            extra += [fa.sum(), fb.sum(), R[idx, 3 + n].sum() + (ra * fb - rb * fa).sum()]
-            R[idx, a] = 0.0; R[idx, b] = 0.0; R[idx, 3 + n] = 0.0
-        return float(np.sqrt(np.dot(rr, rr) + np.dot(extra, extra)))
 
     def _kernel_dth(self):
         """The imposed deformation the frame law subtracts in the compiled
@@ -988,6 +968,7 @@ class BeamSolver(BeamFamily):
             self.p.get("loads"), self._region, self.mesh.nodes[:self.nn], self.mesh.elements[:, :2],
             None, self.p.case.units)
         m[:, :3] += add; m[:, 3:] += rot; self.additional_mass = add
+        self._add_zone_mass(m)                      # the rigid zones' own (1.21)
         true_rot += rot
         self.physical_mass = m.reshape(-1)
         row = np.asarray(abs(self.K).sum(axis=1)).ravel()
@@ -1020,91 +1001,6 @@ class BeamSolver(BeamFamily):
             self.mass = np.maximum(self.physical_mass, 1e-20)
         self.tolerance = float(sol.tolerance)
         self.kinetic_tolerance = float(sol.kinetic_tolerance)
-
-    # ------------------------------------------------------------------ #
-    #  rigid floors
-    # ------------------------------------------------------------------ #
-    #  A diaphragm is the one multi-point constraint a building cannot be
-    #  written without: the slab is not meshed, and without it the floor beams
-    #  carry the in-plane stiffness of a frame instead of a plate. The OpenSees
-    #  model of v0.1 records the displacement of a MASTER NODE per
-    #  floor, which is the same statement.
-    #
-    #  In an explicit particle scheme the constraint is applied where it is
-    #  cheapest and exact: to the ACCELERATION. The nodal forces of the floor
-    #  are condensed onto the three degrees of freedom the rigid floor really
-    #  has (two in-plane translations and the rotation about the normal), those
-    #  three are accelerated by the floor's own mass and polar inertia, and the
-    #  nodal accelerations are then read back off the rigid motion. Velocities
-    #  and positions stay consistent for ever after, because they start
-    #  consistent (at rest) and every increment they receive is consistent.
-    #
-    #  What stays FREE is what makes this a diaphragm rather than a rigid body:
-    #  the out-of-plane translation and the two bending rotations. A floor may
-    #  still deflect and its beams may still bend.
-
-    def _setup_diaphragms(self):
-        self._diaphragms = []
-        for spec in self.p.get("diaphragms") or []:
-            idx = np.asarray(self._region(spec["region"]), dtype=np.int64)
-            if len(idx) < 2:
-                raise ValueError(f"diaphragm region {spec['region']!r} has {len(idx)} nodes")
-            n = "xyz".index(str(spec.get("normal", "z")))
-            # (a, b, n) in CYCLIC order, so that u_a = U_a - alpha r_b, u_b =
-            # U_b + alpha r_a is a rotation of +alpha about +n, the same alpha
-            # the floor's rotational dof carries. It was (x, z) for a y
-            # normal -- a rotation of -alpha about y tied to theta_y = +alpha
-            # (found in review, 1.7; z floors were right)
-            a, b = (n + 1) % 3, (n + 2) % 3
-            held = self._held_dofs().reshape(-1, 6)[idx][:, (a, b, 3 + n)]
-            if held.any():
-                raise ValueError(
-                    f"diaphragm region {spec['region']!r} contains nodes whose in-plane "
-                    "degrees of freedom are also constrained; a floor is either held by a "
-                    "support or moved by a diaphragm, not both")
-            x = self.mesh.nodes[idx]
-            self._diaphragms.append({"idx": idx, "n": n, "a": a, "b": b, "x": x,
-                                     "name": spec["region"]})
-        return self._diaphragms
-
-    def _project_diaphragms(self, acc):
-        """Replace the floor's nodal accelerations by the rigid-floor motion
-        their own resultant produces. A no-op when the case declares none."""
-        if getattr(self, "_diaphragms", None) is None:
-            self._setup_diaphragms()
-        if not self._diaphragms:
-            return acc
-        A = acc.reshape(-1, 6)
-        M = self.mass.reshape(-1, 6)
-        for d in self._diaphragms:
-            idx, n, a, b = d["idx"], d["n"], d["a"], d["b"]
-            ma, mb, mn = M[idx, a], M[idx, b], M[idx, 3 + n]
-            # the centre is the floor's own centre of mass, so that a pure
-            # resultant through it produces no spin
-            total = ma.sum() + mb.sum()
-            centre = ((ma + mb)[:, None] * d["x"][:, (a, b)]).sum(axis=0) / max(total, 1e-300)
-            ra = d["x"][:, a] - centre[0]
-            rb = d["x"][:, b] - centre[1]
-            fa, fb = ma * A[idx, a], mb * A[idx, b]
-            torque = (mn * A[idx, 3 + n]).sum() + (ra * fb - rb * fa).sum()
-            # the 3x3 rigid-floor mass matrix; the off-diagonals vanish at the
-            # centre of mass only when the two in-plane masses agree, which is
-            # the usual case and not one worth assuming
-            Ma, Mb = ma.sum(), mb.sum()
-            Sab, Sba = (ma * rb).sum(), (mb * ra).sum()
-            J = (mn.sum() + (ma * rb * rb).sum() + (mb * ra * ra).sum())
-            K = np.array([[Ma, 0.0, -Sab],
-                          [0.0, Mb, Sba],
-                          [-Sab, Sba, J]])
-            rhs = np.array([fa.sum(), fb.sum(), torque])
-            try:
-                Aa, Ab, alpha = np.linalg.solve(K, rhs)
-            except np.linalg.LinAlgError:
-                raise ValueError(f"diaphragm {d['name']!r} has no mass to accelerate")
-            A[idx, a] = Aa - alpha * rb
-            A[idx, b] = Ab + alpha * ra
-            A[idx, 3 + n] = alpha
-        return acc
 
     _relax_what = "beam staged relaxation"
     _relax_hint = "; reduce relaxation_safety or check for a structural mechanism"
@@ -1458,6 +1354,7 @@ class BeamSolver(BeamFamily):
         dofs = self._frame_batch()
         q = self.q[dofs].reshape(self.nel, 2, 6)
         x = self.mesh.nodes[conn] + q[:, :, :3]
+        x = self.geometry.ends(np.arange(self.nel), x, self.orient)
         R, theta_loc, L = beam_frames_from_triads(x, self.orient[conn], self.R0)
         local = np.zeros((self.nel, 12))
         # a bar's stretch is from its unstressed length (a prestressed one's
@@ -1625,11 +1522,8 @@ class BeamSolver(BeamFamily):
         # what acts inside the members now, for their end actions
         self._member_load_at = (groups, progress)
         if t is not None:
-            for ts, ac, direction in ground:
-                ag = np.interp(t, ts, ac, left=0., right=0.)
-                mass = self.dofs.field(self.physical_mass, TRANSLATION)
-                self.dofs.add_nodal(f, np.arange(self.nn), -mass*ag*direction,
-                                    TRANSLATION)
+            self._ground_force(f, ground, t)
+        self._carried_body_force(f, ground, progress, t)
         return f
 
     def _stacked_groups(self, groups, threshold=8):
@@ -1670,9 +1564,6 @@ class BeamSolver(BeamFamily):
         step data is reloaded at the start of the next (`_reload_after_split`)."""
         self.apply_pending_splits()
         self._carry_appendages()
-
-    def _relax_acceleration(self, F, fint):
-        return self._project_diaphragms((F - fint) / self.mass)
 
     def _relax_after_bc(self):
         self.apply_pending_splits()

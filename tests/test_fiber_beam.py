@@ -253,7 +253,9 @@ def test_fiber_catalog():
         "concrete01", "concrete02",
         # the cyclic law of v0.1: degradation, ULCF, and the fracture
         # criterion the fibre latch of v0.1 counts
-        "steel_cyclic"}
+        "steel_cyclic",
+        # 1.21: laws made of other one-dimensional laws, and a free travel
+        "parallel", "series", "gap"}
 
 
 def _axial_case(tmpdir, length, n_elem, P=50000.0, E=200e9):

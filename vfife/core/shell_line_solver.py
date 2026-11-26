@@ -20,6 +20,9 @@ class ShellLineSolver(ShellSolver):
         super().__init__(problem,shell_mesh,material,log)
         lp=problem.plain(); lp["element"]={"type":"mixed_line","formulation":"full"}
         lp["loads"]=[]; lp["steps"]=[]; lp["constraints"]=[]; lp["output"]={"monitors":{}}
+        # the multi-point constraints are the whole model's, held by this
+        # (the shell) solver's layer; the line half carries none of its own
+        lp["rigid_links"]=[]; lp["diaphragms"]=[]
         # AND `nodal_masses`, which this line forgot. The shell
         # half above already added them over the same node array, and line 36
         # sums the two physical masses -- so a 1e6 kg lump arrived as 2e6 kg,

@@ -7,6 +7,214 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.21.0] — 2026-11-26
+
+A feature release on the 1.0 formats: a case written for 1.20 runs
+unchanged. Multi-point constraints -- master-slave rigid links and the rigid
+floors -- are one constraint layer that every procedure takes (the explicit
+step, the relaxation, Newton statics, modes, buckling, analysis steps).
+Member offsets -- rigid end zones and sections set off their nodes
+(`end_offsets`) -- have their geometry and their mass each written once:
+loads on the drawn line, the mass where the section is, a zone's weight,
+and moving loads, vehicles, contact, buckling, breaking and removal taking
+them. One-dimensional composite materials, and connector laws from the
+material table. The Midas converter translates rigid links, beam end
+offsets, section offsets and the cable-pretension switch. Results of models
+that use none of these are unchanged, apart from round-off in Newton runs
+with rigid floors (their masters are at the floor's centre of mass now);
+converted Midas models change.
+
+### Added
+
+- **Master-slave rigid links `rigid_links: [{master, slaves, dofs, arm}]`**
+  (Midas' `*RIGIDLINK`, OpenSees' `rigidLink` and, with `arm: false`,
+  `equalDOF`): each slave's tied components, six flags in the global axes,
+  follow the master as a rigid body in large rotation, the arms taken where
+  the nodes stand. Imposed on the acceleration (the master accelerates under
+  its slaves' tied forces and the moments of their arms, through their
+  masses) and set exactly after each position update; the relaxation's
+  residual is the master's. Frame, fibre-beam, shell and shell-line models;
+  explicit dynamics, dynamic relaxation and the modal and buckling
+  analyses, and the static Newton solver on the models it runs (the master
+  system T^T K T, T at the current configuration). The compiled step and relaxation decline it;
+  solid, truss, coupled and warp-shell models refuse it for now. Preflight
+  takes a link as joining its nodes (a slave on its master's position is no
+  duplicate node). **In analysis steps**: `steps[k].rigid_links` are made at
+  the step's start, after its members are built, free of force where their
+  nodes then stand; a step's `release` may name a link, which is freed with
+  the force it carried at the end of the step before taken off over the
+  step, as a released support's reaction is. The checkpoint carries which
+  links tie and their forces; `vfife modal` and `vfife buckling` ask such a
+  model at the result's last state only.
+- **Composite one-dimensional materials `parallel` and `series`, and `gap`**:
+  `{type: parallel, of: [a, b], factors: [...]}` puts laws side by side
+  (one strain, the stresses added), `{type: series, of: [a, b], max_iterations,
+  tolerance}` end to end (one stress, the strains added; the split is found
+  at each point by a bracketed Newton iteration, and a split that does not
+  converge is refused as `SERIES_NOT_CONVERGED`); `{type: gap, E, lo, hi}` is
+  free between two strains and linear elastic past them. The parts are
+  names in `materials` (or specs written in place), any one-dimensional law
+  including another composite; a `linear_elastic` part is E eps. They are
+  taken by a standalone `truss2`, embedded bars and fibre sections (on the
+  NumPy path). A part written in place takes the case's unit defaults; the
+  density adds with the factors side by side and is the parts' mean end to
+  end (`rho` sets it); a series has failed when a part has, a parallel when
+  every part has, and a series whose part ruptures goes on carrying next to
+  nothing. Checked against the closed forms, the connector's `bilinear`
+  law, and OpenSees' Parallel, Series and ElasticPPGap
+  (`tests/data/opensees_composite.npz`, `tools/opensees_reference.py
+  --composite`).
+- **A connector component takes a law of the material table**:
+  `laws: {ux: {type: material, material: <name>, area, length}}`, the force
+  `area` sigma(d / `length`) (both 1 when left out: the table is then the
+  component's force-deformation relation). Any one-dimensional law, the
+  composites included: a buckling-restrained brace's core, a stop with
+  slack. The law's state is the solver's (committed at equilibrium or every
+  step, cleared at the connector's birth, in the checkpoint as
+  `connector_material_state`); its `connector_slip_*` reports the material
+  strain; the reference stiffness is `area` E / `length`. The compiled
+  connector kernel declines it, so such a model's connectors run in Python
+  and its compiled step keeps the step-by-step loop (the fibre model's
+  compiled step now refuses a connector with no compiled form, which it
+  would have carried as nothing).
+- **`end_offsets` on beams** (`beam2`, `beam2_timoshenko`, the beams of
+  `mixed_line`, `beam2_fiber`): `{i: [x, y, z], j: [x, y, z], axes: local|global}` puts
+  the ends of a member's elastic part at fixed vectors from its line's first
+  and last nodes; the stretch between is rigid and turns with its node. An
+  offset along the line is a rigid end zone, one across it a section set off
+  its nodes (linear along the line from `i` to `j`). The forces reach the
+  nodes with the moment r x f, and the reference stiffness (the time step,
+  the relaxation masses, the modes) holds the rigid stretch. The rigid
+  stretch across the member has no mass; a rigid zone weighs as the member it
+  is part of, at its middle; the elastic part's mass is carried where
+  it is, at its ends (`CarriedMass`: the parallel-axis inertia, the coupling
+  of translation and rotation, in the explicit step and the modes), and
+  its weight and a ground motion's inertia act there. Loads are on the drawn line (a
+  `line_load` per unit length between the nodes, a moving load's or a
+  vehicle's station along it): a rigid zone's share goes to its node rigidly,
+  the elastic part's with the moment of the lever across. Members with
+  offsets break, split off and are removed as any other (the rigid stretches
+  follow their ends), their contact capsules are on the elastic axis, and a
+  buckling analysis takes the stretches and their levers. The compiled step
+  and relaxation take such a model step by step. Models without offsets are
+  unchanged to the bit. `per: member` gives every member of a region the two
+  offsets. `axial: full` takes a frame beam's axial and torsional stiffness
+  over the length between the nodes (Midas' rigid zone, rigid in bending and
+  shear only; the converter writes it); `elastic`, the default, over the
+  elastic part. All of it goes through one object, the solver's `geometry`
+  (`core/member_geometry`).
+- **The model page (`vfife view case.yaml`) draws sections at their size**
+  with a switch: boxes of each section's depth and width on the member's
+  local axes, between its elastic ends; the rigid stretches of end offsets as
+  lines.
+- **The Midas converter translates more of what a model says** (each to
+  vfife's own, general way of saying it): a TENSTR element is a
+  `tension_only` bar, and a cable (iSUB 3) keeps the unstressed length or
+  tension on its own row (`unstressed_lengths`, `prestress`); `*SECT-SCALE`
+  multiplies the section's properties (the weight factor by a material of
+  the section's own); member loads varying along the member, projected, or
+  in the member's own axes are split to its two ends by the lever rule
+  (they were averaged, read as unprojected, or left out). Partial and
+  eccentric member loads are counted as not read (they were read as
+  uniform).
+- **The Midas converter reads `*OFFSET`** (beam end offsets: TYPE=ELEMENT
+  rigid zones along the member, TYPE=GLOBAL vectors from the nodes) as end
+  offsets. In a model with stages an offset is there when a stage activates
+  its boundary group, as a support is (one in no group is not). A zone
+  carries no weight of its own; different zones for the two bending planes
+  take the one for My, and say so.
+
+### Changed
+
+- **The Midas converter writes `*RIGIDLINK` as `rigid_links`** (the flags
+  as Midas writes them): a saddle that slides on its tower (011111) and a
+  stay hung on its tower or deck by its translations (111000, 111010) are
+  translated, where they were left out, and a link tying all six is no
+  longer a stiff weightless beam (the "a multiple of the model's modulus"
+  rule stays for the elastic links of kind RIGID). Made in the stage their
+  boundary group comes on, or that builds the last of their nodes, and
+  released where the group goes off (by name, in the step's `release`); a
+  link written again in the group that follows is one link kept. Left out
+  and counted: a slave no member reaches, one a support holds in a tied
+  direction, and a chain whose links do not both tie all six and live as
+  long. On the course models: the suspension bridge's equilibrium model
+  (2.5) now converges, its staged model (6.2) passes the main cable's stage,
+  and the cable-stayed bridge's 96 steps converge with the pretensions as
+  the stage control says (`jack_which="one"` no longer needed there). The
+  preflight takes a step's links as joining the model, and a link of some
+  directions as holding its slave in them in the rigid-mode check.
+- **One constraint layer for the multi-point constraints** (`core/constraints`):
+  the rigid diaphragms were written three times -- the acceleration
+  projection of the explicit step and the relaxation, the Newton system's
+  transformation, the modal and buckling analyses' -- each with its own
+  check that a floor is not also held, and they hung on the frame solver,
+  where the fibre-beam solver (a sibling, not a child) could not reach them.
+  They and the rigid links are now one class each behind one interface
+  (`project`, `correct`, `residual_norm`, `newton_map`, `free_map`,
+  `check_free`, checkpoint), held by the beam family's solvers as `ties`
+  (`constraint_layer()`); each procedure takes the interface, not the kind.
+  No answer changed in a bit (the floors' arithmetic is each procedure's
+  own, as it was). A floor's in-plane dof held in a step is refused with
+  one message in every procedure.
+- **Rigid diaphragms on fibre-beam models, and one map of the multi-point
+  constraints for Newton, modal and buckling** (`ConstraintLayer.map`):
+  the fibre-beam solver takes the floors (they were refused by the
+  preflight, and ignored by `vfife modal` and `vfife buckling`, which do not
+  run it). The Newton system's floor masters sit at the floor's centre of
+  mass as the projection's and the modal analysis' do (they were at the
+  nodes' mean point: the same constraint, round-off -- 1.4e-13 on a storey
+  with unequal corner masses). A reduced mass T^T M T with a massless
+  direction -- a point mass on a rigid arm gives its master m [[1, a],
+  [a, a^2]], singular with no zero on its diagonal -- is taken in its own
+  axes, where that direction is condensed as any massless dof (handed to
+  the generalised eigenproblem whole, the factorisation failed); one with
+  mass in every direction is solved as before, to the bit. The buckling
+  analysis decides which dofs are live on the reduced system T^T K T: a
+  link master with no stiffness of its own was dropped, locking its slaves
+  (found in review).
+- **The Midas converter holds a cable's pretension as the model's
+  construction-stage control says** (`*STAGE-CTRL`, CPFC): External, and a
+  model that does not say, is a `jack` on every element given one;
+  Internal is each element cut to the length of its force (`prestress`).
+  The report's notes say which. Before, every model took one rule: of a
+  cable over sliding saddles one element was jacked and the rest cut to
+  length. That rule is now asked for by name, `convert(...,
+  jack_which="one")` (or `"ends"`), whatever the switch says, and the notes
+  say so; `vfife init` always follows the switch. Models without a pretension convert as before. Two
+  with External control change: the real arch, whose cables run over soft
+  saddles, and the cable-stayed bridge, whose side- and main-span stays
+  meet at tower nodes held only by partial rigid links, which are not
+  translated yet; `jack_which="one"` gives them what they had.
+- The manuals' Midas section says what the last 3% between this translation
+  and Midas on the rigid frame is: Midas' `bCALC-CSP` switch counts the
+  ordinary bars, the ducts and the grouted tendons in the section
+  properties stage by stage; the translation uses gross sections.
+- **The Midas converter writes a section set off its nodes (CT/CB) as end
+  offsets** of each member, not as a centroid node under each drawn node
+  and a rigid arm (`offset_arms`). The girder stays on its drawn nodes, as
+  in Midas. Results of converted models change: no arm's own give, no
+  centroid node's mass, and a pier drawn at the girder's centroid is joined
+  to it only where the model joins them (it used to be merged). `offset_arms`
+  is still read. The compiled step and relaxation take such a model step by
+  step.
+- The manuals' known limits no longer say construction stages are planned
+  after 1.0 (they came in 1.2); they say what stages cannot do. Section 6.2
+  says which steel law to use for what, names `concrete01`'s unloading,
+  and gives `fy` beside `Fy` and `yield_strength`.
+- `tools/state_baseline.py --tolerance` judges a case loaded to collapse
+  (`case_24c`, `case_24d`) on every monitor at every frame up to the
+  collapse, not on the state after it. `--write` keeps every case's
+  monitors; `--backfill-monitors` adds them to an older baseline after
+  checking that the baseline's own commit gives its answer to the bit.
+  Strains are now a class of their own: they were held to a floor set by
+  the largest stress and so were not judged at all.
+
+### Fixed
+
+- **Removing a line-loaded fibre member in an analysis step** no longer stops
+  with an AttributeError: the load it takes with it is put together by the
+  same rule as the step's own line loads (`member_line_load`).
+
 ## [1.20.1] — 2026-11-24
 
 A maintenance release on the frozen 1.0 formats, so that the repository

@@ -208,6 +208,9 @@ _DRIVE = {
     "piecewise_uniaxial": dict(kinematics="uniaxial", amplitude=5.0e-3),
     "concrete01":         dict(kinematics="uniaxial", amplitude=-3.0e-3),
     "concrete02":         dict(kinematics="uniaxial", amplitude=-3.0e-3),
+    "parallel":           dict(kinematics="uniaxial", amplitude=6.0e-3),
+    "series":             dict(kinematics="uniaxial", amplitude=8.0e-3),
+    "gap":                dict(kinematics="uniaxial", amplitude=3.0e-3),
     "bond_ceb":           dict(kinematics="bond", amplitude=3.0e-3),
     "bond_cyclic":        dict(kinematics="bond", amplitude=3.0e-3),
 }

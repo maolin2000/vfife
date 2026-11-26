@@ -78,51 +78,11 @@ def physical_mass(solver, p):
     return m
 
 
-def _diaphragm_map(solver, p, free, m):
-    """The rigid floors as a master-slave map over the free dofs, u_free =
-    T u_reduced, or None when the case has none. Each floor's
-    in-plane translations and its rotation about the normal follow three
-    master dofs at its centre of mass -- the kinematics the solver's
-    acceleration projection (`BeamSolver._project_diaphragms`) enforces:
-    u_a = U_a - alpha r_b, u_b = U_b + alpha r_a, theta_n = alpha."""
-    if not (getattr(solver, "p", None) or {}).get("diaphragms") or not hasattr(solver, "_setup_diaphragms"):
-        return None
-    import scipy.sparse as sp
-    floors = solver._setup_diaphragms()
-    if not floors:
-        return None
-    pos = np.full(p.n, -1)
-    pos[free] = np.arange(len(free))
-    rows, cols, vals = [], [], []
-    slave = np.zeros(len(free), bool)
-    masters = []
-    for d in floors:
-        idx, nrm, a, b = d["idx"], d["n"], d["a"], d["b"]
-        ta = pos[p.translation.reshape(-1, 3)[idx, a]]
-        tb = pos[p.translation.reshape(-1, 3)[idx, b]]
-        rn = pos[p.rotation.reshape(-1, 3)[idx, nrm]] if p.rotation.size else np.full(len(idx), -1)
-        if (ta < 0).any() or (tb < 0).any() or (rn < 0).any():
-            raise ValueError(f"diaphragm {d['name']!r}: an in-plane dof of the floor is held in this "
-                             "step; a floor is either held by a support or moved by a diaphragm")
-        ma, mb = m[free[ta]], m[free[tb]]
-        c = ((ma + mb)[:, None] * d["x"][:, (a, b)]).sum(axis=0) / max(float((ma + mb).sum()), 1e-300)
-        ra, rb = d["x"][:, a] - c[0], d["x"][:, b] - c[1]
-        masters.append((ta, tb, rn, ra, rb))
-        slave[ta] = slave[tb] = slave[rn] = True
-    keep = np.flatnonzero(~slave)
-    n_red = len(keep) + 3 * len(masters)
-    rows += keep.tolist(); cols += list(range(len(keep))); vals += [1.0] * len(keep)
-    for k, (ta, tb, rn, ra, rb) in enumerate(masters):
-        ca, cb, cr = len(keep) + 3 * k, len(keep) + 3 * k + 1, len(keep) + 3 * k + 2
-        for dofs, col, val in ((ta, ca, np.ones(len(ta))), (ta, cr, -rb), (tb, cb, np.ones(len(tb))),
-                               (tb, cr, ra), (rn, cr, np.ones(len(rn)))):
-            rows += dofs.tolist(); cols += [col] * len(dofs); vals += np.asarray(val, float).tolist()
-    return sp.csr_matrix((vals, (rows, cols)), shape=(len(free), n_red))
-
-
 def analyse(solver, n_modes=6, x=None, max_dofs=6000, h=None) -> ModalResult:
     """The lowest `n_modes` modes of `solver` at state `x` (its current
     state when None)."""
+    from .core import constraints
+    ties = constraints.of(solver)
     p = make_probe(solver)
     if p.n > max_dofs:
         raise ValueError(f"{p.n} dofs is past max_dofs = {max_dofs}: the finite-difference "
@@ -134,16 +94,47 @@ def analyse(solver, n_modes=6, x=None, max_dofs=6000, h=None) -> ModalResult:
     free = np.flatnonzero(~p.fixed)
     Kf = K[np.ix_(free, free)]
     mf = m[free]
-    # rigid floors: they were ignored here, every floor
-    # node vibrating on its own
-    T = _diaphragm_map(solver, p, free, m)
+    # the multi-point constraints (rigid floors: they were ignored here,
+    # every floor node vibrating on its own; rigid links, 1.21)
+    T = ties.free_map(p, free, m) if ties is not None and not ties.empty() else None
+    import scipy.sparse as sp
+    # the mass of members set off their nodes, where it is (1.21): the
+    # coupling of each carrying node's translation and rotation
+    # (`constraints.CarriedMass`); the mass is then not diagonal
+    C = None
+    carried = ties.carried if ties is not None else None
+    if carried is not None:
+        from .testing.state import _orient_of
+        r, c, v = carried.coupling(_orient_of(solver, x))
+        if len(v):
+            C = sp.coo_matrix((v, (r, c)), shape=(p.n, p.n)).tocsr()[free][:, free]
+            if T is None:
+                T = sp.identity(len(free), format="csr")
     Mf = None
+    Q = None
     if T is not None:
         Kf = np.asarray(T.T @ np.asarray((T.T @ Kf).T))
         Kf = 0.5 * (Kf + Kf.T)
-        import scipy.sparse as sp
-        Mf = (T.T @ (sp.diags(mf) @ T)).toarray()
-        mf = np.diag(Mf).copy()
+        Mfull = sp.diags(mf) if C is None else sp.diags(mf) + C
+        Mr = (T.T @ (Mfull @ T)).toarray()
+        # THE REDUCED MASS IS NOT DIAGONAL, AND MAY BE SINGULAR: a point mass
+        # on a rigid arm gives its master m [[1, a], [a, a^2]] in (w, theta),
+        # a direction with no mass that the diagonal does not show, and the
+        # generalised eigenproblem then lost 4% on the fundamental (found
+        # with the rigid links, 1.21). In the mass's own axes, u_red = Q z,
+        # the mass is diagonal and its null directions are massless dofs
+        # like any other: condensed below.
+        lam, Q = np.linalg.eigh(0.5 * (Mr + Mr.T))
+        if lam.min() > 1e-12 * max(float(lam.max()), 1e-300):
+            # a reduced mass with mass in every direction (the floors):
+            # the generalised eigenproblem below, as before 1.21
+            Q = None
+            Mf = Mr
+            mf = np.diag(Mf).copy()
+        else:
+            Kf = Q.T @ Kf @ Q
+            Kf = 0.5 * (Kf + Kf.T)
+            mf = np.maximum(lam, 0.0)
     scale = float(np.abs(Kf).max()) or 1.0
     # massless dofs: condense those with stiffness, drop those without
     massless = mf <= 1e-12 * max(float(mf.max()), 1e-300)
@@ -192,7 +183,7 @@ def analyse(solver, n_modes=6, x=None, max_dofs=6000, h=None) -> ModalResult:
     if n_cond:
         red[:, s_live] = -np.linalg.solve(Kss, Ksr @ phi).T
     shapes = np.zeros((n_modes, p.n))
-    shapes[:, free] = red if T is None else np.asarray(T @ red.T).T
+    shapes[:, free] = red if T is None else np.asarray(T @ (red.T if Q is None else Q @ red.T)).T
     # participation over the free translational dofs, phi^T M r per
     # direction, in the full coordinates (a floor's slaves included)
     part = np.zeros((n_modes, 3))
@@ -204,7 +195,10 @@ def analyse(solver, n_modes=6, x=None, max_dofs=6000, h=None) -> ModalResult:
     mfull[free] = m[free]
     for k in range(3):
         rk = (comp == k).astype(float) * mfull
-        total[k] = float(rk.sum())
+        total[k] = float(rk.sum())                    # r^T M r: the coupling adds none
+        if C is not None:
+            # M r: a carried mass's translation pulls on its node's rotation too
+            rk[free] += C @ (comp[free] == k).astype(float)
         if total[k] > 0:
             gam[:, k] = shapes @ rk                    # phi^T M r
             part[:, k] = gam[:, k] ** 2 / total[k]
@@ -339,6 +333,13 @@ def restore_state(solver, case, element, case_path, result, frame=None):
             if hasattr(solver, "hold_time_strain"):
                 solver.hold_time_strain()
         return make_probe(solver).get(), frame, k, True, False, None
+    from .core import constraints
+    ties = constraints.of(solver)
+    if ties is not None and ties.links is not None and ties.links.staged():
+        # which links tie at this frame, and from where, is the checkpoint's
+        # alone (1.21)
+        raise ValueError("this model makes or releases rigid links in its steps: ask at the result's last "
+                         "state (the frame its checkpoint holds), where the links are known")
     k = use_step_at(solver, frame_time(result, frame))
     note = ("only positions and rotations are read for this frame: the material, creep and "
             "connector histories are stored for the result's last state only (its checkpoint)"

@@ -19,6 +19,9 @@ regions resolved as the solver resolves them -- step by step:
 * the loads the step has (the model's, its own, those kept from earlier
   steps) as arrows: forces and moments at nodes, line loads at the members'
   middles; gravity and the others listed;
+* with the switch "sections at size" (1.21), beams and bars as boxes of
+  their sections' depth and width on their local axes, between their
+  elastic ends (`end_offsets`), the rigid stretches as lines;
 * a member clicked: its row, region, section and what it holds, material,
   the step that builds it and the one that removes it, its length.
 
@@ -108,6 +111,13 @@ def _connector(sec: Dict[str, Any]):
         elif t == "bilinear":
             code = CURVE
             w.append("bilinear " + ", ".join(f"{k} {law[k]}" for k in ("k1", "k2", "fy") if law.get(k) is not None))
+        elif t == "material":
+            # a law of the material table (1.21), named, or its spec once lowered
+            code = CURVE
+            m = law.get("material")
+            name = m if isinstance(m, str) else (m or {}).get("type", "?")
+            w.append(f"material {name}" + "".join(f", {k} {law[k]}" for k in ("area", "length")
+                                                  if law.get(k) is not None))
         elif K[i, i] > 0.0:
             code = SPRING
             w.append(f"k {K[i, i]:.4g}")
@@ -162,6 +172,69 @@ def _connector_axes(xi, xj, orientation, global_axes: bool) -> np.ndarray:
                         "choose another vector for its `orientation`")
     ey /= n
     return np.vstack([ex, ey, np.cross(ex, ey)])
+
+
+def _drawn_sections(d, assigns, sections, sec_names, member_sec, member_assign, kind, nodes, conn, mesh):
+    """(ends (nel, 6), size (nel, 2), yz (nel, 6), members with offsets):
+    for the page's sections at their size -- each member's elastic ends
+    (its nodes moved by its `end_offsets`, as core/end_offsets puts them),
+    its drawn depth (along local z) and width (along local y) as the result
+    page takes them from the section (post/view._section_size; 0 where
+    unknown, and for rigid arms and connectors, which are drawn as lines),
+    capped at half its length, and its local y and z axes as the solver
+    makes them (y the assignment's orientation made normal to the member,
+    z = x cross y). Offsets the solver refuses are not drawn, and said.
+    Nothing here is read back: it is a picture."""
+    from types import SimpleNamespace
+    from ..core import end_offsets
+    from ..core.member_geometry import MemberGeometry
+    from .view import _section_size
+    nel = len(conn)
+    materials = d.get("materials") or {}
+    groups = []
+    for ai, a in enumerate(assigns):
+        if a.get("end_offsets") is not None:
+            # (a connector is never an offset member: the fibre solver takes
+            # connectors out of every section's rows whatever the order of
+            # the assignments -- found in review)
+            rows = np.flatnonzero((member_assign == ai) & (kind != 4))
+            if len(rows):
+                groups.append((rows, a["end_offsets"], a.get("orientation"), a.get("region")))
+    note = ""
+    try:
+        geometry = MemberGeometry.build(SimpleNamespace(nodes=nodes, elements=conn), nel, groups)
+    except ValueError as exc:
+        # the page is where such a model is looked at: drawn without them, and said
+        note = f"end offsets not drawn -- the solver refuses them: {exc}"
+        geometry = MemberGeometry()
+    off = geometry.offset
+    ends = np.hstack([nodes[conn[:, 0]], nodes[conn[:, 1]]]).astype(np.float64)
+    if off is not None:
+        ends[:, :3] += off[:, 0]
+        ends[:, 3:] += off[:, 1]
+    size = np.zeros((nel, 2))
+    yz = np.zeros((nel, 6))
+    for e in range(nel):
+        if member_sec[e] < 0 or kind[e] in (3, 4):
+            continue
+        sec = sections[sec_names[member_sec[e]]]
+        mat = materials.get(sec.get("material")) if isinstance(sec, dict) else None
+        got = _section_size(sec, float((mat or {}).get("E") or 0.0))
+        if got is None:
+            continue
+        a = assigns[member_assign[e]] if member_assign[e] >= 0 else {}
+        ref = a.get("orientation")
+        xi, xj = ends[e, :3], ends[e, 3:]
+        L = float(np.linalg.norm(xj - xi))
+        if L <= 0.0:
+            continue
+        try:
+            R = end_offsets._axes(xi, xj, ref)
+        except ValueError:                           # (the solver refuses it; drawn about another axis)
+            R = end_offsets._axes(xi, xj, [1.0, 0.0, 0.0])
+        size[e] = np.minimum([got[0], got[1]], 0.5 * L)
+        yz[e] = np.concatenate([R[1], R[2]])
+    return ends, size, yz, len(geometry.members), note
 
 
 def load(case_path: str) -> Dict[str, Any]:
@@ -235,6 +308,13 @@ def load(case_path: str) -> Dict[str, Any]:
         if region not in reg_names:
             reg_names.append(region)
             reg_rows[region] = np.unique(rows)
+        if element == "beam2_fiber" and (sections[a["section"]] or {}).get("type") != "connector":
+            # a fibre model's connectors are its connectors whatever comes
+            # after (the fibre solver takes them out of every section's rows;
+            # found in review)
+            held = np.asarray([member_sec[r] >= 0 and (sections[sec_names[member_sec[r]]] or {}).get("type") == "connector"
+                               for r in rows], bool)
+            rows = rows[~held]
         member_sec[rows] = sec_index[a["section"]]
         member_reg[rows] = reg_names.index(region)
         member_assign[rows] = ai
@@ -246,8 +326,11 @@ def load(case_path: str) -> Dict[str, Any]:
             kind[e] = 3 if (sec.get("type") == "beam" and name.startswith("offset_arm_")) else \
                 _kind(sec, reg_names[member_reg[e]], tendon_regions, arm_material)
 
-    # CONNECTORS: each one's six components and the axes they are on
     assigns = d.get("assign") or []
+    ends, size, yz, n_offset, offset_note = _drawn_sections(d, assigns, sections, sec_names, member_sec, member_assign,
+                                               kind, nodes, conn, mesh)
+
+    # CONNECTORS: each one's six components and the axes they are on
     cn_ids = np.flatnonzero(kind == 4)
     cn_codes = np.zeros((len(cn_ids), 6), np.uint8)
     cn_axes = np.zeros((len(cn_ids), 9), np.float32)
@@ -449,6 +532,7 @@ def load(case_path: str) -> Dict[str, Any]:
             "sections": [_section_text(n, sections[n]) for n in sec_names], "section_names": sec_names,
             "connector_words": {str(k): v for k, v in connector_words.items()}, "soil": soil_text,
             "regions": reg_names, "steps": step_text, "tendons": tendons,
+            "sized": bool(np.any(size[:, 0] > 0.0)), "offset_members": int(n_offset), "offset_note": offset_note,
             "tendon_of_region": {reg_names.index(r): n for r, n in tendon_of.items() if r in reg_names},
             "gravity": [[k, list(ld["gravity"])] for k, lds in enumerate(loads_of_step) for ld in lds
                         if ld.get("gravity") is not None][:1]}
@@ -475,6 +559,11 @@ def load(case_path: str) -> Dict[str, Any]:
         "reg_members": (np.concatenate([reg_rows[r] for r in reg_names]) if reg_names
                         else np.zeros(0, np.int64)).astype(np.int32),
         "soil_nodes": np.asarray(soil_nodes, np.int32),
+        # the members drawn at their sections' size: each one's elastic ends
+        # (its nodes moved by its end offsets), depth and width, local y and z
+        "ends": (ends - np.tile(centre, 2)).astype(np.float32),
+        "size": size.astype(np.float32),
+        "yz": yz.astype(np.float32),
         "soil_axes": np.asarray(soil_axes, np.uint8),
     }
     return {"meta": meta, "arrays": arrays}

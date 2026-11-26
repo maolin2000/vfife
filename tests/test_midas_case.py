@@ -164,10 +164,10 @@ def test_a_step_activates_the_members_of_a_group_of_lines(tmp_path):
 
 # ---- found in review: the stage bookkeeping ----------------
 
-def _convert(text, tmp_path, name="m"):
+def _convert(text, tmp_path, name="m", **options):
     p = tmp_path / f"{name}.mct"
     p.write_bytes(text.encode("gbk"))
-    report = midas_case.convert(midas.read(str(p)), str(tmp_path), name=name)
+    report = midas_case.convert(midas.read(str(p)), str(tmp_path), name=name, **options)
     return report, yaml.safe_load((tmp_path / f"{name}.yaml").read_text(encoding="utf-8"))
 
 
@@ -314,20 +314,61 @@ def test_a_boundary_group_that_comes_back_is_held_again(tmp_path):
     assert s3["release"] == [on["region"]]
 
 
-def test_of_a_cable_over_a_saddle_one_element_is_jacked(tmp_path):
-    """The stay as two elements meeting at a saddle node no beam reaches, both
-    given the same pretension: the one that reaches the member just built is
-    jacked, the other is cut to the length of its force."""
-    text = MCT.replace("    11, 20000, 0, 0\n", "    11, 10000, 0, 7500\n")
+def _saddle(text):
+    text = text.replace("    11, 20000, 0, 0\n", "    11, 10000, 0, 7500\n")
     text = text.replace("    10, TRUSS ,    2,     3,     4,     3,     0,     0\n",
                         "    10, TRUSS ,    2,     3,     4,    11,     0,     0\n"
                         "    12, TRUSS ,    2,     3,    11,     3,     0,     0\n")
     text = text.replace("   扣索1      , , 10, 0", "   扣索1      , , 10 12, 0")
     text = text.replace(" 10, 2104.2, K1\n", " 10, 2104.2, K1\n 12, 2104.2, K1\n")
     text = text.replace("     1, 3, 11, GEN  ,     0, NO, NO, NO, NO, NO, NO, 0.1, 1e+06, 1e+06, 0.01, 0.01, 0.02, NO, 0.5, 0.5, 扣地锚\n", "")
-    text = text.replace("     2, 3, 11, RIGID,     0, NO, 0.5, 0.5, 扣地锚\n", "")
-    report, case = _convert(text, tmp_path)
-    assert (report["jacked_cables"], report["cables_cut_to_length"]) == (1, 1)
+    return text.replace("     2, 3, 11, RIGID,     0, NO, 0.5, 0.5, 扣地锚\n", "")
+
+
+def test_a_pretension_is_held_as_the_stage_control_says(tmp_path):
+    """Midas' construction-stage control says how every pretension is held
+    (`*STAGE-CTRL`, CPFC): External, a force held in its stage, is a jack on
+    each element given one -- both elements of a cable over a saddle; Internal,
+    a lack of fit, is each element cut to the length of its force; a model
+    that does not say is taken as External, and the report says which."""
+    text = _saddle(MCT)
+    report, case = _convert(text, tmp_path, "ext")
+    assert (report["jacked_cables"], report["cables_cut_to_length"]) == (2, 0)
+    assert any("External kind" in n for n in report["notes"])
+    report, case = _convert(text.replace("YES, , EXTERNAL, YES", "YES, , INTERNAL, NO"), tmp_path, "int")
+    assert (report["jacked_cables"], report["cables_cut_to_length"]) == (0, 2)
+    assert any("Internal kind" in n for n in report["notes"])
+    cut = [a for a in case["assign"] if "prestress" in a]
+    assert cut and all(a["prestress"] > 0.0 for a in cut) and not any("jack" in a for a in case["assign"])
+    report, case = _convert(text.replace("  YES, , EXTERNAL, YES\n", ""), tmp_path, "none")
+    assert (report["jacked_cables"], report["cables_cut_to_length"]) == (2, 0)
+    assert any("does not say how its pretensions are held" in n for n in report["notes"])
+    assert midas.read(str(tmp_path / "int.mct")).pretension_control == "INTERNAL"
+    # an Internal compression keeps its sign; the word in any case; a word that is neither is counted
+    report, case = _convert(text.replace("YES, , EXTERNAL, YES", "YES, , internal, NO").replace(
+        " 12, 2104.2, K1\n", " 12, -2104.2, K1\n"), tmp_path, "intneg")
+    assert (report["jacked_cables"], report["cables_cut_to_length"]) == (0, 2)
+    assert sorted(a["prestress"] > 0.0 for a in case["assign"] if "prestress" in a) == [False, True]
+    report, case = _convert(text.replace("YES, , EXTERNAL, YES", "YES, , OTHER, YES"), tmp_path, "odd")
+    assert report["jacked_cables"] == 2 and any("'OTHER'" in k for k in report["left_out"])
+    with pytest.raises(ValueError, match="jack_which"):
+        midas_case.convert(midas.read(str(tmp_path / "int.mct")), str(tmp_path), name="bad", jack_which="all")
+
+
+def test_of_a_cable_over_a_saddle_one_element_is_jacked_when_asked(tmp_path):
+    """`jack_which="one"`, the rule before 1.21 (kept for the real arch, whose
+    saddles are soft springs): the stay as two elements meeting at a saddle
+    node no beam reaches, both given the same pretension -- the one that
+    reaches the member just built is jacked, the other is cut to the length
+    of its force, whatever the stage control says, and the report says so."""
+    text = _saddle(MCT)
+    for control in ("EXTERNAL", "INTERNAL"):
+        p = tmp_path / f"{control}.mct"
+        p.write_bytes(text.replace("EXTERNAL", control).encode("gbk"))
+        report = midas_case.convert(midas.read(str(p)), str(tmp_path), name="m", jack_which="one")
+        assert (report["jacked_cables"], report["cables_cut_to_length"]) == (1, 1)
+        assert any("jack_which='one'" in n and control in n for n in report["notes"])
+    case = yaml.safe_load((tmp_path / "m.yaml").read_text(encoding="utf-8"))
     mp = json.loads((tmp_path / "m.map.json").read_text(encoding="utf-8"))
     by_region = {a["region"]: a for a in case["assign"]}
     assert "jack" in by_region[mp["elements"]["12"][0]]          # to node 3, on the segment built in that stage
@@ -337,18 +378,19 @@ def test_of_a_cable_over_a_saddle_one_element_is_jacked(tmp_path):
 def test_two_stays_from_one_anchor_are_two_cables_and_a_compression_is_no_jack(tmp_path):
     """Found in review: runs were joined through a supported node -- two stays
     from one anchor became one jack and one cut length -- and a negative
-    pretension lost its sign."""
+    pretension lost its sign. A compression is a length under either rule."""
     text = MCT.replace("    10, TRUSS ,    2,     3,     4,     3,     0,     0\n",
                        "    10, TRUSS ,    2,     3,     4,     3,     0,     0\n"
                        "    12, TRUSS ,    2,     3,     4,     2,     0,     0\n")
     text = text.replace("   扣索1      , , 10, 0", "   扣索1      , , 10 12, 0")
     text = text.replace(" 10, 2104.2, K1\n", " 10, 2104.2, K1\n 12, 2104.2, K1\n")
-    report, case = _convert(text, tmp_path)
-    assert (report["jacked_cables"], report["cables_cut_to_length"]) == (2, 0)
-    report, case = _convert(text.replace(" 12, 2104.2, K1\n", " 12, -2104.2, K1\n"), tmp_path, "neg")
-    assert (report["jacked_cables"], report["cables_cut_to_length"]) == (1, 1)
-    (cut,) = [a for a in case["assign"] if "prestress" in a]
-    assert cut["prestress"] < 0.0
+    for options in ({}, {"jack_which": "one"}):
+        report, case = _convert(text, tmp_path, **options)
+        assert (report["jacked_cables"], report["cables_cut_to_length"]) == (2, 0)
+        report, case = _convert(text.replace(" 12, 2104.2, K1\n", " 12, -2104.2, K1\n"), tmp_path, "neg", **options)
+        assert (report["jacked_cables"], report["cables_cut_to_length"]) == (1, 1)
+        (cut,) = [a for a in case["assign"] if "prestress" in a]
+        assert cut["prestress"] < 0.0
 
 
 def test_a_plates_weight_goes_on_its_nodes(tmp_path):

@@ -56,6 +56,7 @@ PAGE = r'''<!doctype html>
     <label><input type="checkbox" id="ghost" checked> 未建构件淡显 ghosts</label>
     <label><input type="checkbox" id="arms" checked> 刚臂 arms</label>
     <label><input type="checkbox" id="dots" checked> 节点 nodes</label>
+    <label id="sizes_l"><input type="checkbox" id="sizes"> 截面尺寸 sections at size</label>
   </div>
   <div class="row">
     <label><input type="checkbox" id="sup" checked> 支承 supports</label>
@@ -180,6 +181,44 @@ PAGE = r'''<!doctype html>
     placed.push(new THREE.Matrix4().compose(p3.clone(), q, new THREE.Vector3(Math.max(dvec.length(), 1e-9), 1, 1)));
     pxOf[e] = KIND_PX[A.kind[e]] * PXS;
   }
+  // ---- the same members at their sections' size (the switch "sections at
+  // size"): a box of the section's depth and width between the member's
+  // ELASTIC ends, on its own local axes, lit; the rigid stretch from a node
+  // to an elastic end (`end_offsets`) a line. A member whose size is not
+  // known (a rigid arm, a connector, a section of no shape) stays a line
+  const sizedAt = new Uint8Array(ne), sizedM = [];
+  const ex3 = new THREE.Vector3(), ey3 = new THREE.Vector3(), ez3 = new THREE.Vector3();
+  for (let e = 0; e < ne; e++) {
+    const d = A.size[2 * e], w = A.size[2 * e + 1], o = 6 * e;
+    if (!(d > 0 && w > 0)) { sizedM.push(null); continue; }
+    sizedAt[e] = 1;
+    const a = new THREE.Vector3(A.ends[o], A.ends[o + 1], A.ends[o + 2]), b = new THREE.Vector3(A.ends[o + 3], A.ends[o + 4], A.ends[o + 5]);
+    ex3.subVectors(b, a); const L = ex3.length(); ex3.normalize();
+    ey3.set(A.yz[o], A.yz[o + 1], A.yz[o + 2]); ez3.set(A.yz[o + 3], A.yz[o + 4], A.yz[o + 5]);
+    const mm = new THREE.Matrix4().makeBasis(ex3, ey3, ez3);
+    mm.scale(s3.set(L, w, d)); mm.setPosition(a.add(b).multiplyScalar(0.5));
+    sizedM.push(mm);
+  }
+  const lit = new THREE.MeshLambertMaterial();
+  const sized = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lit, ne);
+  sized.frustumCulled = false; sized.visible = false; scene.add(sized);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 0.75));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.55); camera.add(sun); sun.position.set(0.3, 0.6, 1); scene.add(camera);
+  // the rigid stretches: two per member with offsets, lines in pixels
+  const stubs = [];
+  for (let e = 0; e < ne; e++) for (let k = 0; k < 2; k++) {
+    const n = node(A.conn[2 * e + k]), o = 6 * e + 3 * k, q = new THREE.Vector3(A.ends[o], A.ends[o + 1], A.ends[o + 2]);
+    if (n.distanceTo(q) > 1e-6 * D) stubs.push([e, n, q]);
+  }
+  const pxStub = new Float32Array(Math.max(stubs.length, 1)).fill(1.5 * PXS), boxR = boxS.clone();
+  boxR.setAttribute("aPx", new THREE.InstancedBufferAttribute(pxStub, 1));
+  const rigid = new THREE.InstancedMesh(boxR, widthInPixels(new THREE.MeshBasicMaterial({ color: KIND_COLOUR[3] })), Math.max(stubs.length, 1));
+  rigid.frustumCulled = false; scene.add(rigid);
+  const stubM = stubs.map(([_e, n, q]) => { dvec.subVectors(q, n);
+    return new THREE.Matrix4().compose(n.clone().add(q).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(X, dvec.clone().normalize()),
+                                      new THREE.Vector3(dvec.length(), 1, 1)); });
+  if (!M.sized) { $("sizes").disabled = true; $("sizes_l").title = "截面没有可画的尺寸 no section has a size to draw"; }
+
   const shown = new Uint8Array(ne);                  // 1 built, 2 a ghost, 0 neither
   const camDir = new THREE.Vector3();
   let wpp0 = 1;                                      // world length of a pixel at unit depth
@@ -554,7 +593,7 @@ PAGE = r'''<!doctype html>
   // every instanced mesh gets its colour buffer before the first frame: one
   // made later is not in the compiled shader, and its colours never show
   const WHITE = new THREE.Color(0xffffff);
-  for (const [mesh, n] of [[solid, ne], [shaft, Math.max(na, 1)], [head, Math.max(na, 1)]])
+  for (const [mesh, n] of [[solid, ne], [sized, ne], [shaft, Math.max(na, 1)], [head, Math.max(na, 1)]])
     for (let i = 0; i < n; i++) mesh.setColorAt(i, WHITE);
 
   let step = 0, cnStanding = 0;
@@ -564,21 +603,30 @@ PAGE = r'''<!doctype html>
     standing.fill(0); dotted.fill(0);
     inRegion.fill(region < 0 ? 1 : 0);
     if (region >= 0) for (let k = A.reg_offsets[region]; k < A.reg_offsets[region + 1]; k++) inRegion[A.reg_members[k]] = 1;
+    const atSize = $("sizes").checked && M.sized;
+    sized.visible = atSize;
     for (let e = 0; e < ne; e++) {
       const built = builtAt(e, step);
       const hidden = !showArms && A.kind[e] === 3;
       const inside = inRegion[e] === 1;
       shown[e] = built && !hidden && inside ? 1 : ((!built || !inside) && showGhost && !hidden ? 2 : 0);
-      solid.setMatrixAt(e, shown[e] === 1 ? placed[e] : ZERO); ghost.setMatrixAt(e, shown[e] === 2 ? placed[e] : ZERO);
+      const box = atSize && sizedAt[e] === 1;
+      solid.setMatrixAt(e, shown[e] === 1 && !box ? placed[e] : ZERO); ghost.setMatrixAt(e, shown[e] === 2 ? placed[e] : ZERO);
+      sized.setMatrixAt(e, shown[e] === 1 && box ? sizedM[e] : ZERO);
       if (built && inside) {                         // (the arms switch hides arms only, not what stands on them)
         const a = A.conn[2 * e], b = A.conn[2 * e + 1], k = A.kind[e];
         standing[a] = standing[b] = 1;
         if (!hidden && k !== 2 && !(k === 3 && tendonArm(e))) dotted[a] = dotted[b] = 1;   // (no dot left floating at a hidden arm's end)
       }
-      solid.setColorAt(e, mode !== "step" && isNew(e, step) ? NEW : colourOf(mode, e));
+      const col = mode !== "step" && isNew(e, step) ? NEW : colourOf(mode, e);
+      solid.setColorAt(e, col); sized.setColorAt(e, col);
     }
+    stubs.forEach(([e], i) => rigid.setMatrixAt(i, atSize && shown[e] === 1 ? stubM[i] : ZERO));
+    if (!stubs.length) rigid.setMatrixAt(0, ZERO);
+    rigid.instanceMatrix.needsUpdate = true;
     if (solid.instanceColor) solid.instanceColor.needsUpdate = true;
-    solid.instanceMatrix.needsUpdate = true; ghost.instanceMatrix.needsUpdate = true;
+    if (sized.instanceColor) sized.instanceColor.needsUpdate = true;
+    solid.instanceMatrix.needsUpdate = true; ghost.instanceMatrix.needsUpdate = true; sized.instanceMatrix.needsUpdate = true;
     cnStanding = 0; for (let c = 0; c < CN; c++) if (builtAt(A.cn_ids[c], step)) cnStanding++;
     // the nodes' dots
     const pos = dotGeo.attributes.position.array; let n = 0;
@@ -632,14 +680,24 @@ PAGE = r'''<!doctype html>
   // impossible to hit with a ray)
   let down = null;
   const pa = new THREE.Vector3(), pb = new THREE.Vector3();
+  const ray = new THREE.Raycaster();
   function nearest(x, y) {
     let best = null, bestD = 8;
     for (const a of anchors) { const d = Math.hypot(a.P.s[0] - x, a.P.s[1] - y);
       if (d < bestD) { bestD = d; best = a.node !== undefined ? { node: a.node } : { member: a.member }; } }
     if (best) return best;
+    const atSize = sized.visible;
+    if (atSize) {                                    // a box at its size: where the ray meets it
+      ray.setFromCamera(new THREE.Vector2(x / innerWidth * 2 - 1, 1 - y / innerHeight * 2), camera);
+      const hit = ray.intersectObject(sized)[0];
+      if (hit && hit.instanceId !== undefined) return { member: hit.instanceId };
+    }
     for (let e = 0; e < ne; e++) {
       if (shown[e] !== 1) continue;
-      pa.copy(node(A.conn[2 * e])).project(camera); pb.copy(node(A.conn[2 * e + 1])).project(camera);
+      if (atSize) {                                  // (a line between its elastic ends)
+        const o = 6 * e;
+        pa.set(A.ends[o], A.ends[o + 1], A.ends[o + 2]).project(camera); pb.set(A.ends[o + 3], A.ends[o + 4], A.ends[o + 5]).project(camera);
+      } else { pa.copy(node(A.conn[2 * e])).project(camera); pb.copy(node(A.conn[2 * e + 1])).project(camera); }
       if (pa.z > 1 || pb.z > 1) continue;
       const ax = (pa.x + 1) / 2 * innerWidth, ay = (1 - pa.y) / 2 * innerHeight;
       const bx = (pb.x + 1) / 2 * innerWidth, by = (1 - pb.y) / 2 * innerHeight;
@@ -703,13 +761,15 @@ PAGE = r'''<!doctype html>
   $("prev").addEventListener("click", () => { step = Math.max(0, step - 1); $("scrub").value = step; draw(); });
   $("next").addEventListener("click", () => { step = Math.min(ns - 1, step + 1); $("scrub").value = step; draw(); });
   $("colour").addEventListener("change", e => { mode = e.target.value; legend(); draw(); });
-  ["ghost", "arms", "loads", "dots", "region"].forEach(id => $(id).addEventListener("change", draw));
+  ["ghost", "arms", "loads", "dots", "region", "sizes"].forEach(id => $(id).addEventListener("change", draw));
   ["sup", "cn", "soil", "codes"].forEach(id => $(id).addEventListener("change", render));
   $("size").addEventListener("input", render);
   M.regions.forEach((r, k) => { const o = document.createElement("option"); o.value = String(k); o.textContent = r; $("region").append(o); });
   const u = M.units || {};
+  if (M.offset_note) $("sizes_l").title = M.offset_note;
   $("sub").textContent = `${M.case} · ${nn} nodes · ${ne} members · ${ns} steps` + (M.tendons.length ? ` · ${M.tendons.length} tendons` : "")
-    + (u.length ? ` · ${u.length}, ${u.force || "N"}` : "") + (M.gravity.length ? ` · gravity ${JSON.stringify(M.gravity[0][1])}` : "");
+    + (u.length ? ` · ${u.length}, ${u.force || "N"}` : "") + (M.gravity.length ? ` · gravity ${JSON.stringify(M.gravity[0][1])}` : "")
+    + (M.offset_note ? ` · ${M.offset_note}` : "");
   function render() { place(); renderer.render(scene, camera); glyphPass(); }
   controls.addEventListener("change", render);
   addEventListener("resize", () => { fit(); renderer.setSize(innerWidth, innerHeight); symbolLegend(); render(); });
@@ -723,7 +783,13 @@ PAGE = r'''<!doctype html>
   const look = (i, dist) => { const p = node(i); controls.target.copy(p);
     camera.position.set(p.x + 0.6 * dist, p.y - 1.2 * dist, p.z + 0.7 * dist); controls.update(); render(); };
   const pick = p => { picked = p; showPick(p); render(); };
+  const pickAt = (x, y) => nearest(x, y);
+  const sizedCount = () => { let n = 0; for (let e = 0; e < ne; e++) { sized.getMatrixAt(e, m4); if (m4.elements[0] || m4.elements[1] || m4.elements[2]) n++; } return n; };
   window.__vfife_model = { ready: true, steps: ns, members: ne, at: at2, node_at: nodeAt, look, pick, glyphs: () => counts,
+    sized: sizedCount, stubs: () => stubs.length, pick_at: pickAt,
+    box_at: e => { const o = 6 * e, d = A.yz, h = 0.5 * A.size[2 * e];   // the middle of a box's top face, on screen
+      return toScreen(new THREE.Vector3((A.ends[o] + A.ends[o + 3]) / 2 + d[o + 3] * h, (A.ends[o + 1] + A.ends[o + 4]) / 2 + d[o + 4] * h,
+                                        (A.ends[o + 2] + A.ends[o + 5]) / 2 + d[o + 5] * h)); },
     dots: () => dotGeo.drawRange.count };
 })();
 </script>

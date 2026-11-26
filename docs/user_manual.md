@@ -3,7 +3,7 @@
 # vfife Vector Form Intrinsic Finite Element Structural Analysis Software — User Manual
 
 **Software name**: vfife Vector Form Intrinsic Finite Element structural analysis software (vfife for short)
-**Version**: 1.20.1
+**Version**: 1.21.0
 **Runtime environment**: Python 3.10 or later; Windows, Linux, macOS; the GPU backend requires NVIDIA CUDA
 **License**: MIT
 
@@ -122,7 +122,7 @@ Output:
 
 ```
 elements: beam2, beam2_fiber, beam2_timoshenko, connector2, coupled, hexa20, hexa8, mixed_line, pyramid5, shell3, shell4, shell_line, tet10, tet4, truss2, wedge15, wedge6
-materials: bond_ceb, bond_cyclic, cdp, chaboche, concrete01, concrete02, j2, linear_elastic, orthotropic, piecewise_uniaxial, rebar, steel02, steel_cyclic, viscoelastic
+materials: bond_ceb, bond_cyclic, cdp, chaboche, concrete01, concrete02, gap, j2, linear_elastic, orthotropic, parallel, piecewise_uniaxial, rebar, series, steel02, steel_cyclic, viscoelastic
 ```
 
 If the elements and materials are listed, the installation is fine. Commands are always written as `python -m vfife ...`; after `pip install -e .`
@@ -388,6 +388,7 @@ A case is one YAML file, with the following top-level keys (in any order):
 | `nodal_masses` | No | Additional lumped masses (directional, weightless, with rotary inertia) | 9.5 |
 | `hydrodynamic_mass` | No | Hydrodynamic added mass of submerged members | 9.5 |
 | `diaphragms` | No | Rigid floor diaphragms | 9.6 |
+| `rigid_links` | No | Master-slave rigid links (1.21) | 9.7 |
 | `steps` | No | Sequence of analysis steps | 10.1 |
 | `removals` | No | Members cut at a given time | 11.10 |
 | `contact` | No | Rigid contact surfaces | 11.12 |
@@ -490,17 +491,30 @@ The generated case comes with a displacement monitor on the loaded region and a 
 area, second moments and torsion constant of their Midas shape (pipe, solid round, box, H, double channel), truss elements become `bar`s
 with their pretension, and supports, rigid links (as stiff weightless beams), self weight, nodal and uniform member loads come with them,
 with one analysis step per construction stage. Everything is converted to m and N. It lists what it did not carry over (plates,
-temperatures, the later parts of composite sections) and what it approximated. A cable's pretension is written as `jack`: the force it
-is stressed to in the step that builds it (Midas' "external" pretension); of a cable modelled as several elements over sliding saddles
-only the one that reaches the newly built structure is jacked, the others are cut to length (`prestress`) and counted. An elastic link
+temperatures, the later parts of composite sections) and what it approximated. A cable's pretension is translated as the model's
+construction-stage control says (`*STAGE-CTRL`, CPFC, from 1.21): External (and a model that does not say) is written as `jack`, the
+force it is stressed to in the step that builds it; Internal as `prestress`, each element cut to the length of its force and then
+sharing what the structure gives; the report's notes say which. `vfife init` always follows the switch; `convert(..., jack_which="one")` from Python asks for the rule before
+1.21 whatever the switch says: of a cable modelled as several elements over sliding saddles only the one that reaches the newly built
+structure is jacked, the others are cut to length (`prestress`) and counted. An elastic link
 becomes a connector whose springs are written in global axes (as Midas keeps them: they do not turn with its ends), built in the first
 stage in which both its ends are held by something and born free of force there; where a node no beam reaches hangs on a link, the
 link's rotational stiffness is raised so that the node turns with it. `vfife mesh model.mct` only reads, and gives the model's summary.
 
 Since 1.15 the translation also takes: the section properties the file states (`*SECT-PSCVALUE`, VALUE and tapered sections, a
 tapered section over a `*TS-GROUP`), with their shear areas -- a beam is a Timoshenko beam where they are known, as Midas' is
-(`convert(..., shear=False)` for Euler's); a section set off its nodes (offset CT/CB: the member on its centroid's line, a rigid arm to
-the drawn node, whose row still gives the displacement Midas reports there); master-slave rigid links (`*RIGIDLINK`); point springs
+(`convert(..., shear=False)` for Euler's); a section set off its nodes (offset CT/CB: from 1.21 the member stays on its drawn nodes, its
+elastic part on its centroid's line by end offsets, `end_offsets`, as in Midas; before, a centroid node and a rigid arm); beam end offsets
+(`*OFFSET`, 1.21: TYPE=ELEMENT rigid zones along the member, TYPE=GLOBAL vectors; a boundary condition: in a model with stages it is there when a stage activates its
+boundary group, as a support is; a zone weighs as its member and is rigid in bending and shear only, `axial: full`); tension-only elements (TENSTR, from 1.21 `tension_only` bars; a
+cable's, iSUB 3, own unstressed length or tension as `unstressed_lengths` or `prestress`; a hook's gap not followed); section stiffness scale
+factors (`*SECT-SCALE`, from 1.21 multiplied into the section's properties, the weight factor by a material of its own density; a boundary
+condition too, on the same rule); member loads varying linearly, projected, or in the member's own axes (from 1.21; split to the two ends by
+the lever rule); master-slave rigid links (`*RIGIDLINK`, from 1.21 the solver's `rigid_links` with the flags as written -- a saddle
+that slides on its tower, 011111, and a stay hung by its translations, 111000, too; made in the stage their boundary group comes on, or
+that builds the last of their nodes, and released where it goes off; before, those tying all six were stiff weightless beams and the
+others were left out. Left out and counted: a slave no member reaches, one a support holds in a tied direction, a chain whose links do not
+both tie all six and live as long); point springs
 (`*SPRING`); a node's own axes (`*LOCALAXIS`, turned about Z: a guided bearing in them); and **tendons** (`*TDN-PROPERTY`,
 `*TDN-PROFILE` with 2-D profiles on a straight or an element reference line, `*TDN-PRESTRESS`) as bars bonded to the girder on rigid
 arms, each jacked to the force after friction and anchorage draw-in in the stage that stresses it (its load group on and its members
@@ -519,8 +533,12 @@ carry no prestress (a translated model always has them in, as bonded bars). Mida
 section (a transformed section): integrating Midas' own moments and shears by hand over its own gross-section properties gives
 deflections that the tendon-free translation matches to 0-3%, while Midas itself is 1-6% stiffer than that, more so as the tendons
 accumulate along the cantilever. Of the 3% left, about 1% is a heavier load here (reactions 0.4-0.7% and cantilever moments about 1%
-larger) and about 2% is most likely the sections' ordinary bars, which Midas may count too (not confirmed) and this translation does not
-read. The tendons' eccentricity, 1-3% larger here, is most likely the same cause seen from the other side: a transformed section's
+larger) and about 2% is the sections' ordinary bars. With `bCALC-CSP` on in its construction stage control (`*STAGE-CTRL`), Midas varies the
+section properties stage by stage: it counts the ordinary bars (a transformed section), takes the ducts out before grouting and the
+tendons in after it. Its table of each stage's section properties (FRAME ELEMENT SECTIONAL PROPERTY FOR EACH STAGE in the .OUT) gives
+this bridge's girder A and I 0-4% over the gross section when cast and 4-11% once all is grouted; the piers, with no bars, stay gross; and
+a model without the switch (the curved bridge) is gross throughout (found in 1.21). This translation reads neither the ordinary bars nor
+the ducts: gross sections, the tendons as bonded bars. To match Midas, work out the transformed `area`, `iy` and `iz` and write them in. The tendons' eccentricity, 1-3% larger here, is most likely the same cause seen from the other side: a transformed section's
 centroid lies nearer the tendons (estimated, not checked on its own).
 
 `init` writes a solid section, so it takes only a mesh of volume elements: a shell or line mesh is refused with the section to write by hand
@@ -626,15 +644,38 @@ The compression and tension curves of `cdp` can be generated from codes (e.g. `c
 
 | type | Use | Main parameters |
 |---|---|---|
-| `concrete01` | Kent–Park concrete, tension ignored | `fpc, epsc0, fpcu, epscu` |
+| `concrete01` | Kent–Scott–Park concrete with Karsan–Jirsa unloading, tension ignored | `fpc, epsc0, fpcu, epscu` |
 | `concrete02` | Yassin's concrete with tension softening (the law of OpenSees' Concrete02) | `fpc, epsc0, fcu, epscu, rat, ft, Ets` |
-| `steel02` | Menegotto–Pinto steel with Filippou et al.'s isotropic hardening (the law of OpenSees' Steel02), optional rupture strain | `E, Fy, b, R0, cR1, cR2, a1..a4, rupture_strain` |
+| `steel02` | Menegotto–Pinto steel with Filippou et al.'s isotropic hardening (the law of OpenSees' Steel02), optional rupture strain | `E, Fy` (or `fy`)`, b, R0, cR1, cR2, a1..a4, rupture_strain` |
 | `steel_cyclic` | Cyclic steel with a low-cycle fatigue fracture criterion | `grade, fy, fu, ...` |
-| `rebar` | Bilinear reinforcing steel, isotropic/kinematic hardening | `E, yield_strength, hardening, kinematic_fraction, rupture_strain` |
+| `rebar` | Bilinear reinforcing steel, isotropic/kinematic hardening | `E, yield_strength` (or `fy`)`, hardening, kinematic_fraction, rupture_strain` |
 | `piecewise_uniaxial` | Piecewise-linear tension–compression curve | `tension, compression, hardening_mode` |
+| `gap` | Free travel between two strains, linear elastic past them (1.21) | `E, rho, lo, hi` |
+| `parallel` | Side by side: the parts share the strain, their stresses add (1.21) | `of, factors` |
+| `series` | End to end: the parts share the stress, their strains add; the split is iterated at each point (1.21) | `of, max_iterations, tolerance` |
 
 Concrete strength parameters are entered as positive values (e.g. `fpc: 40.0e6`), consistent with the shipped cases. When `rupture_strain` of `steel02` is given, a fibre whose strain reaches it ruptures and
 no longer carries force (damage category 4); this is how wire rupture is modelled.
+
+**Which steel law** (the table measured on one ±1% cyclic path is in `docs/steel02.md`):
+
+* **Monotonic loading, pushover**: `rebar`. Bilinear and the simplest, with numba and warp kernels on the solid and truss paths; but its peak keeps growing under constant-amplitude cycles (+36% after 6), so do not use it for time histories.
+* **Cyclic and seismic, reinforcement and strand**: `steel02`. Rounded reversals, stable loops; most reinforcement and strand in the shipped cases use it.
+* **Structural steel cycled to fracture (collapse, ultra-low-cycle fatigue)**: `steel_cyclic` (`docs/steel_cyclic.md`). The only law with degradation and a fatigue fracture criterion.
+* **A measured curve in hand**: `piecewise_uniaxial`. Slow (about 3.7 µs a point), for small models or single-point studies.
+
+A fibre section runs the compiled kernel only when every bar is `steel02`, or every bar is `steel_cyclic`, and the concrete is one type of `concrete01` or `concrete02`; bars of `rebar` or `piecewise_uniaxial` send the whole section to the NumPy path, about four times slower.
+
+**Composite materials** (1.21): the `of` of `parallel` and `series` lists two or more names in the material table (or material specs written in place); each part is a one-dimensional law, or another composite. `parallel`'s `factors` weight the parts' stresses, 1 each by default; `series` finds the parts' strains at each point until their stresses differ by no more than `tolerance` (1e-10 by default) of the stress, and refuses with `SERIES_NOT_CONVERGED` when it cannot. A `linear_elastic` part is E·ε (a uniaxial stress), not the 3-D constrained modulus. No part may carry `creep`, `shrinkage`, `relaxation` or `thermal_expansion`. Density: `parallel` adds the parts' densities with the `factors`, `series` takes the mean over all its parts; `rho` gives it directly. Poisson's ratio is the first part's (a fibre section's torsion reads it). Failure: a `series` has failed when any part has, a `parallel` when every part has; once a part has broken a series carries next to nothing and the run goes on. A part written inside `of` takes the case's `units` defaults as a named one does. The composites and `gap` are taken by a standalone `truss2`, by embedded bars and by fibre sections (on the NumPy path); a bar of a frame model (`mixed_line`) still takes `linear_elastic` only. A buckling-restrained brace's core beside a spring, and a stop with slack in it:
+
+```yaml
+materials:
+  core: {type: steel02, E: 2.0e11, Fy: 2.35e8, b: 0.01}
+  slack: {type: gap, E: 2.0e11, rho: 7850.0, hi: 0.002}
+  spring: {type: linear_elastic, E: 2.0e9, nu: 0.3, rho: 7850.0}
+  brace: {type: parallel, of: [core, spring]}
+  stop: {type: series, of: [slack, core]}
+```
 
 ### 6.3 Bond materials
 
@@ -805,7 +846,7 @@ sections:
 
 The six components are, in order, the stiffnesses in local ux, uy, uz, rx, ry, rz. A connector is a spring (optionally with damping) between two nodes;
 its typical use is a bearing. The local directions are determined by `orientation` and `coordinate_system: local` in the assignment.
-A component may also carry a nonlinear law (gap, bilinear hysteresis, friction, a nonlinear viscous damper, a friction pendulum); see 11.11 and `docs/connector2.md`. A connector section's `material` takes no part in the computation (a connector's law is its stiffness and its laws). A `coordinate_system: global` connector with length returns the couple its end forces leave half to each end (its springs are fixed in space, so a rigid rotation strains them).
+A component may also carry a nonlinear law (gap, bilinear hysteresis, friction, a nonlinear viscous damper, a friction pendulum, or a one-dimensional law of the material table); see 11.11 and `docs/connector2.md`. A connector section's `material` takes no part in the computation (a connector's law is its stiffness and its laws). A `coordinate_system: global` connector with length returns the couple its end forces leave half to each end (its springs are fixed in space, so a rigid rotation strains them).
 
 ### 7.4 Reinforcement geometry
 
@@ -840,7 +881,7 @@ assign:
 Each assignment targets either a `region` (a node set on the mesh) or `reinforcement` (one or several groups of bars).
 Options on an assignment belong to "this pair":
 
-* Beams: `orientation` (direction of the section's local y axis), `releases`; connectors: `orientation`, `coordinate_system` (a connector has no `releases`)
+* Beams: `orientation` (direction of the section's local y axis), `releases`, `end_offsets` (see the end of this section); connectors: `orientation`, `coordinate_system` (a connector has no `releases`)
 * Trusses/cables: `prestress`, `unstressed_length(s)` (written by `vfife formfind`), `tension_only`; `jack` (1.13, a force in N): in the analysis step that builds the cable (the first, when it is built from the start) the jack holds `jack` times the step's progress whatever the structure gives; at the step's end the cable carries exactly `jack`, and from then on it is a bar of the unstressed length it ended with. `prestress` states a length (the one that gives that stress in the mesh geometry) and loses force as the structure comes to it; `jack` states the force. One of the four. Frame models (beams, bars, connectors); refused in a fibre model
 * Embedded reinforcement: `bond` (bond–slip), `segment_length`, `host_deduction`, `anchorage`, `prestress`
   * Embedded bars carry inertia from their material's `rho` but **no weight**: `gravity` integrates the solid blocks' densities only. With the customary 2500 kg/m³ for reinforced concrete the steel's weight is already in the concrete, so nothing is counted twice. If the concrete is given a plain-concrete density (about 2400), add the bars' weight as a load.
@@ -862,6 +903,57 @@ sections take several assignments.
 
 Elements not covered by any assignment, or sections that receive no element at all, are rejected with the element numbers given
 (`ELEMENTS_UNASSIGNED`, `SECTION_EMPTY`).
+
+#### End offsets `end_offsets` (1.21)
+
+A member's elastic part need not run from node to node: `end_offsets` gives the vectors from the nodes to the ends of the
+elastic part, and the stretch between a node and its elastic end is rigid and turns with the node.
+
+```yaml
+assign:
+  # a rigid end zone: the 0.4 m of the beam inside each column is rigid
+  - {region: cross_beam, section: girder, orientation: [0, 0, 1], end_offsets: {i: [0.4, 0, 0], j: [-0.4, 0, 0]}}   # 0.4 m at each end of the line
+  # a section set off its nodes: the nodes on the top line, the centroid 1.2 m below (a tapered girder gives each end its own)
+  - {region: girder, section: box, orientation: [0, 1, 0], end_offsets: {i: [0, 0, -1.2], j: [0, 0, -1.2]}}
+```
+
+* The offsets are the **line's**: a region meshed into several members must be one chain without branches; `i` is at the
+  line's start (the point its mesh is drawn from), `j` at its end. Along the members (x) an offset is a rigid zone, at the
+  chain's two ends only; across them (y, z) it is the section set off its nodes, linear in the arc length from `i` to `j`
+  at every node (the same everywhere when the two are equal). A zone longer than the line's end member is refused; mesh finer.
+* `axes: local` (the default): components along each member's own axes, x in the chain's direction, y from `orientation`,
+  z = x cross y (on a member drawn against the chain, z is minus its section's z). `axes: global`: one vector in global
+  axes, linear in the arc length from `i` to `j` at every node, the ends included, with no rigid zone of its own; give a
+  rigid zone in `local`. An end not given has no offset.
+* A model with one section assigned to `all` must then be one chain; give a frame's lines their own assignments.
+* `per: member`: every member of the region has the two offsets, `i` at its first node and `j` at its second, along
+  and across alike; the region need not be a line (the Midas converter gives each element's offsets this way).
+* The elastic part's length, local axes and stiffness are those of its two elastic ends; a node gets the elastic end's force
+  and the moment r x f. The reference stiffness (the time step, the relaxation masses, the modes) holds the rigid stretch.
+* **Loads are on the drawn line** (the line between the nodes): a `line_load` is per unit length of it, and a moving
+  load's or a vehicle's station is measured along it. What falls on a rigid zone goes to the zone's node rigidly, force
+  and the moment of its lever; what falls beside the elastic part goes to the elastic axis at the same place along it,
+  with the moment of the lever across (a sideways load on a girder drawn on its top line twists it). The elastic part's
+  share is the consistent one, so a vehicle reads the deck's motion under its wheel back through the same vector.
+* **The mass is where the section is**: the elastic part's mass, lumped at its two ends, is carried there by the
+  nodes -- the parallel-axis inertia, the coupling of translation and rotation and the centripetal terms are in the
+  explicit step and the modes; its weight and a ground motion's inertia act there (a girder drawn on its top line
+  weighs on its centroid and does not twist). The explicit step shrinks where that coupling needs it (logged). The
+  rigid zone weighs as the member it is part of -- its mass per length times the zone's length along it -- carried at
+  the zone's middle; an offset across the member (the arm to a section set off its nodes) has no mass.
+  `end_actions` are at the elastic ends. The mass of a `line_load` with `with_mass` and a `hydrodynamic_mass` are
+  still over the length between the nodes, at the nodes.
+* Frame beams (`beam2`, `beam2_timoshenko`, the beams of `mixed_line`) and fibre beams (a `type: fiber` assignment);
+  refused on bars and connectors. A member with offsets breaks, splits off and is removed as any other: its rigid
+  stretches follow its ends onto their new particles. In contact between members its capsule is on the elastic axis.
+  A buckling analysis takes the rigid stretches and their levers (checked against a closed form for rigid zones; a
+  section set across the member under compression is not yet checked against a reference). The compiled step and the compiled relaxation take
+  such a model step by step (see the capability table).
+* `axial: elastic` (the default) keeps a rigid zone rigid in every direction (OpenSees, Nastran); `axial: full` takes
+  a frame beam's axial and torsional stiffness over the length between the nodes, the zone rigid in bending and shear
+  only (Midas, ETABS; the Midas converter writes it). Refused on fibre beams. A temperature's or shrinkage's free
+  strain still acts over the elastic part.
+* Offsets that bring the elastic ends together, or turn the elastic part round, are refused.
 
 ---
 
@@ -1005,7 +1097,56 @@ diaphragms:
 
 The nodes in the region move as a rigid body in the plane perpendicular to `normal` (two translations plus rotation about the normal), and remain free out of plane.
 
-Modal analysis and the response spectrum also apply rigid floors (from v1.0; previously they were ignored): a floor's two in-plane translations and its rotation about the normal follow three master DOFs at the floor's centre of mass.
+Modal analysis and the response spectrum also apply rigid floors (from v1.0; previously they were ignored): a floor's two in-plane translations and its rotation about the normal follow three master DOFs at the floor's centre of mass. Since 1.21 the static Newton solver takes its three masters at the same point (it took the nodes' mean point, the same constraint: the answers differ by round-off), and fibre-beam models take rigid floors too (frame, fibre-beam, shell and shell-line models; not the warp shell backend).
+
+### 9.7 Master-slave rigid links (1.21)
+
+```yaml
+rigid_links:
+  - {master: tower_top, slaves: saddle, dofs: [0, 1, 1, 1, 1, 1]}   # a saddle: free along x
+  - {master: N12, slaves: anchors_12, dofs: [1, 1, 1, 0, 0, 0]}     # translations only: a hinge
+  - {master: deck_a, slaves: deck_b, dofs: [1, 1, 1, 0, 0, 0], arm: false}   # equalDOF
+```
+
+`master` is a region of exactly one node, `slaves` a region of one or more; `dofs` are six flags in the global axes ux,
+uy, uz, rx, ry, rz, 1 where the component follows the master (Midas' `*RIGIDLINK` flags; OpenSees' `equalDOF` and
+`rigidLink`). The constraint is in **large rotation**: a slave's translation is the master's plus the arm turned with
+the master (without the arm when `arm: false`, equalDOF); with the three rotations tied the slave's orientation is the
+master's times their relative orientation when the link was made, with some of them tied those components of the
+relative rotation vector are zero. The arms and relative orientations are taken where the nodes stand when the run
+starts, so a link is made free of force.
+
+**In analysis steps** (1.21): a step's own `rigid_links` (written as the model's, with a `name` to release them by)
+are made at the step's start, after its members are built, where their nodes then stand -- free of force, as a member
+born in a step is. A step's `release` may name a link: it is freed at the step's start, and the force it carried at
+the end of the step before (on each slave's tied components, and the opposite on the master through the arm) is a
+load taken off over the step, as a released support's reaction is (the force is f_int - F at the slave, exact at
+rest; after a dynamic step that ends in motion it leaves out the slave's inertia, as a released support's reaction
+does). A link is made once and released once; a name that is both a region and a link is refused, and a slave's
+tied dof may not be one a support of the model or of any step names. In a dynamic step a link made between nodes in
+relative motion sets the slave's tied velocity to the master's at once (not a momentum-conserving merge). `vfife modal` and `vfife buckling` at a result's frame read which links
+tie there from the checkpoint, so a model whose steps make or release links is asked at the result's last state.
+
+How: on the acceleration -- the master accelerates under its own force and its slaves' tied forces (with the moments of
+their arms), through its own mass and theirs, and the slaves' tied components follow; after each position update the
+slaves' tied components are set from the constraint again, removing round-off. The relaxation's residual is the
+master's resultant (a slave's tied residual is a constraint force). A master and a slave at one position (equalDOF)
+are not reported as duplicate nodes.
+
+The scope of this version: frame, fibre-beam, shell and shell-line models (`beam2`, `beam2_timoshenko`, `mixed_line`,
+`beam2_fiber`, `shell3`, `shell4`, `shell_line`), in the explicit dynamic step, the dynamic relaxation and the modal and
+buckling analyses, and in the static Newton solver on the models it runs (frame and fibre-beam; 1.21: one constraint
+layer, `core/constraints`). Newton solves the
+master system Tᵀ K T with T at the current configuration, made again as the masters turn; the constraint's curvature is
+not in the tangent, which can slow Newton where the links carry large forces, not change its answer. A model with
+`rigid_links` keeps the step-by-step loop instead of the compiled step and relaxation ("master-slave rigid links" in the
+capability table). Refused: the warp shell backend, solid, truss and coupled models, links in an analysis step of
+a shell model (shells take no analysis steps that change the model), links in a chain (a slave that is another link's master), a node that is the slave of two links, a slave in a rigid
+diaphragm, and a tied component a support also holds. The checkpoint carries each link's arms and relative
+orientations; a state written without them (an `initial_state` relaxed before the links were added) is used, the links
+made where the run starts. A partial tie of the rotations wants small relative rotations: the spins are tied component
+by component, and at tens of degrees of relative rotation the orientation and the spin drift apart. A support on a
+master (held or driven) acts as usual and its slaves follow; a master in a rigid diaphragm is refused.
 
 ---
 
@@ -1045,6 +1186,7 @@ steps:
   - name: strike_falsework
     deactivate: [falsework]            # members removed: their forces come off over the step
     release: [temporary_pier]          # inherited supports freed: their reaction comes off over the step
+                                       # (a rigid link's name frees the link, 9.7)
     load_steps: 4
   - name: earthquake
     procedure: dynamic
@@ -1170,10 +1312,11 @@ solver:
   Shells, solids, as well as fibre fracture, plastic hinges, the cracked shear law, timed removals and a failure with
   `split: true` are rejected with an explanation. Creep, shrinkage, ageing and relaxation run on beam and mixed-line models since 1.16
   (every converged increment of a step with `to_age` is a time station, Section 11.3), not on fibre models or under `arc_length`.
-* **Rigid diaphragms (`diaphragms`)** (1.7): a floor is a linear multi-point constraint, and Newton solves the
-  master system Tᵀ K T (three masters per floor: the two in-plane translations and the rotation about the normal -- the
-  constraint relaxation applies to the accelerations). The residual is measured on the master system: the constraint forces
-  at a floor's nodes are not an imbalance.
+* **Rigid diaphragms (`diaphragms`)** (1.7) and **rigid links (`rigid_links`)** (1.21): a multi-point constraint,
+  and Newton solves the master system Tᵀ K T (three masters per floor: the two in-plane translations and the rotation
+  about the normal at the floor's centre of mass; a link's slave's tied components follow its master's dofs, through the
+  arm as it is now -- the constraint relaxation applies to the accelerations). The residual is measured on the master
+  system: the constraint forces at a floor's or a slave's nodes are not an imbalance.
 * **Member failure (`failure`)** (1.7): a member that reaches its capacity in an **accepted equilibrium** is taken
   out whole (never split off: a fragment has no static equilibrium), the same level is solved again without it, and again
   while that cascades, until nothing new fails -- the alternate-path analysis, one member at a time; the failures are
@@ -1354,8 +1497,10 @@ solver:
 | members other than frames, bars and connectors | loop | — | loop |
 | bars that creep | loop | — | loop |
 | connectors whose law has no compiled path | loop | loop | loop |
-| rigid diaphragms | loop | — | loop |
+| rigid diaphragms | loop | loop | loop |
 | soil springs | loop | loop | loop |
+| master-slave rigid links (`rigid_links`, 1.21) | loop | loop | loop |
+| members with end offsets (`end_offsets`, 1.21) | loop | loop | loop |
 | plastic hinges | compiled | — | loop |
 | a fibre section the fused kernel does not take (`solver.kernel_status` says why) | — | loop | — |
 | an imposed fibre strain other than the prestrain | — | loop | — |
@@ -2001,6 +2146,15 @@ sections:
   when the girder lifts off (zero compression) the sliding force is also zero; a constant can also be given. `stiffness` is the stick stiffness: the larger it is, the closer to
   ideal Coulomb friction, and the smaller the stable time step
 * `gap`: `lo`/`hi` give the two ends of the free travel; omitting one side means no restrainer on that side; the local ux is the elongation, so `{lo: 0}` is a compression-only support and `{hi: 0}` a tension-only tie (the manual had it the other way round before v1.0). `connector_damping` on a gap component acts only while the gap is closed
+* `material` (1.21): a one-dimensional law of the material table (`parallel`, `series` and `gap` included, Section 6.2), the force
+  F = `area`·σ(d/`length`). `area` and `length` are 1 when left out, and the table is then the component's force–deformation
+  relation itself (as OpenSees' zeroLength reads a material); with a core's area and its yielding length a steel's σ–ε is used
+  as it is, e.g. a buckling-restrained brace `ux: {type: material, material: core, area: 4.0e-3, length: 3.2}`. The reference
+  stiffness is `area`·E/`length`. The component's `connector_slip_*` field reports the material's strain d/`length`. The law's
+  state is kept in the checkpoint and starts afresh when an analysis step builds the connector. `uy` and `uz` stay two laws
+  (a square yield surface). The material's own rupture does not break the connector. The compiled connector kernel does not
+  take this law: in a model with it the connectors are evaluated in Python and the compiled step keeps the step-by-step loop
+  ("connectors whose law has no compiled path" in the capability table)
 * the SAME law (friction, bilinear or pendulum) on `uy` and `uz` is one law in the plane: it yields or slides along the resultant, on a circular surface (before v1.0 the two were independent and the surface was square: 1.414 mu N at 45 degrees)
 * `bilinear`: initial stiffness `k1`, yield force `fy`, post-yield stiffness `k2`, kinematic hardening — the backbone of lead–rubber bearings, friction pendulums and
   yielding energy-dissipation devices; one hysteresis loop dissipates 4(f_y − k₂u_y)(u_max − u_y)
@@ -2237,7 +2391,7 @@ offset_arms:
 * A member set off hands over the larger of EA/L and 12EIy/L³ along (at most `limit`) and 4EIy/L in turning (at most limit·L²/3), L its drawn length. The arm takes the largest of each, and over its own length r: area = factor·along·r/E, iy = iz = factor·max(turning·r, along·r³/12)/E, j = 2iy. Its orientation is global Z, or global X for an arm nearer the vertical than 45°.
 * The beams' stiffness is read from `assign`: the region must be a group of the mesh (or of `groups:`, or a node group of the mesh), the section must write `area` and `iy`, and the material `E`. A member set off whose section is given by its sizes, or beams assigned to a region written in the case (a box, a plane), are refused rather than skipped.
 * Sections that come out the same are written once, named `offset_arm_1`, `offset_arm_2`, ...; so the case must not have sections of those names, and an arm's region must not have an `assign` of its own. A region that is not one member, one listed twice, an arm with no member set off at its centroid end, or a material that is not there is refused (HIGH_LEVEL_BLOCK).
-* From v1.20 the Midas converter writes this. The mesh holds coordinates to 12 significant digits, so the rule's arm stiffness differs from what the converter wrote before by about 1e-11 at most. An arm the rule does not give (one whose member set off is a stub, say) keeps its own section, renamed `offset_arm_own_1`, ...; the other arms still use the rule. `vfife expand` writes each arm's section.
+* The Midas converter wrote this in 1.20; from 1.21 it writes end offsets, `end_offsets` (7.5), with no centroid nodes or arms, and the rule stays for the cases there are. In 1.20: The mesh holds coordinates to 12 significant digits, so the rule's arm stiffness differs from what the converter wrote before by about 1e-11 at most. An arm the rule does not give (one whose member set off is a stub, say) keeps its own section, renamed `offset_arm_own_1`, ...; the other arms still use the rule. `vfife expand` writes each arm's section.
 
 ## 12 Result output and post-processing
 
@@ -2458,9 +2612,10 @@ python -m vfife view bridge.yaml --scripts three_r128 -o model.html
 * The page shows the model as the solver reads it: the high-level blocks (11.14–11.16) expanded, with the tendon nodes, bars and arms `tendons:` adds, and the regions resolved as the solver resolves them. Nothing is run and no solver is built.
 * It goes step by step. The slider at the bottom picks the step, and the page draws the members standing in it. Members not built yet (or removed) are faint, or hidden; those the step builds are magenta.
 * Members are thin lines of a fixed width on the screen (`--thickness`: the beams' width in pixels, 2 by default), every member's nodes small dots, those only the rigid arms reach included; a tendon's own nodes are not drawn. Colour by member kind (beam, cable or bar, tendon, rigid arm in red, connector), section, build step or region. Rigid arms can be hidden (what stands on them stays). The region list (the regions `assign` names) shows one region's members, the rest faint -- or hidden, with the faint members off.
+* With "sections at size" ticked (1.21), beams and bars are boxes of their sections' size: depth along local z, width along local y (the axes `orientation` gives), the size taken as the result page's `--case` takes it (from the shape, or for a `general` section the depth A and I give), at most half the member's length. A member with end offsets (`end_offsets`) is drawn between its two elastic ends, and the rigid stretch from a node to an elastic end as a thin red line. Rigid arms, connectors and sections with no size stay lines. The switch cannot be ticked when no section has a size.
 * Supports, connectors and soil springs are drawn the way the usual programs draw them -- one symbol each, what each degree of freedom or component is in a short code beside it -- and each kind has its own switch (v1.20):
   * a support: a triangle under the node, filled where a translation is held, open where only rotations are, with a bar under it where a rotation is held. Its code is the six dofs ux uy uz rx ry rz, `1` held and `0` free (`111000`), a held translation red and a held rotation magenta; a dof that moves is cyan, and so is the triangle (a nonzero `value` for it, a `motion` other than displacement, or the translations a `record` drives). The model's constraints, the step's own and those kept from earlier steps count; those `release`d do not.
-  * a connector: an open square at its first node, an open triangle at its second (the nodes' dots show through), its axes as a small triad at its middle (x red, y green, z blue: x along it; y the `orientation` made normal to it, or the global axis most nearly normal to it; z = x × y; the global axes with `coordinate_system: global`). Its code is the six components: `K` a stiffness, `N` a `curves` table or a `bilinear` law, `G` a `gap` law, `F` a `friction` or `pendulum` law, `D` a damper alone, `0` free; a component with a `connector_damping` or a `damper` law beside it is blue (`KK0000`). A friction, pendulum or bilinear law the same on uy and uz -- one law in the y–z plane -- is in lower case (`Kff000`); a trailing `*` marks a coupled 6×6 stiffness or damping.
+  * a connector: an open square at its first node, an open triangle at its second (the nodes' dots show through), its axes as a small triad at its middle (x red, y green, z blue: x along it; y the `orientation` made normal to it, or the global axis most nearly normal to it; z = x × y; the global axes with `coordinate_system: global`). Its code is the six components: `K` a stiffness, `N` a `curves` table, a `bilinear` law or a `material` law, `G` a `gap` law, `F` a `friction` or `pendulum` law, `D` a damper alone, `0` free; a component with a `connector_damping` or a `damper` law beside it is blue (`KK0000`). A friction, pendulum or bilinear law the same on uy and uz -- one law in the y–z plane -- is in lower case (`Kff000`); a trailing `*` marks a coupled 6×6 stiffness or damping.
   * soil springs (`soil_springs`): a short spring to the ground at each node they act on.
   * The symbols keep their size on the screen; the size slider scales the symbols and codes (not the clicked one's full drawing). The supports' codes are placed before the connectors'. A code that would overlap one already written is left out (its symbol is still drawn); zoom in, or turn the codes off.
   * Click a support or connector to see it in full: each held dof as a bar along its axis (a ring about the axis for a rotation), each component on its axis -- a spring, a yellow spring, two plates (gap), a block on a track (friction, pendulum), a spiral (rotation), a dashpot beside it; `direction: horizontal` soil springs as one radial spring on the two horizontal axes, tied by a dashed arc; a friction or pendulum law the same on uy and uz as one law in the y–z plane, its two symbols tied the same way.
@@ -2725,7 +2880,7 @@ vfife is **an analysis engine, not design software**. The following are not incl
 * Automatic loading by lane loads and influence surfaces, transverse distribution (moving loads travel along member axes)
 * Radiation damping of the soil, t–z and q–z springs (shaft friction and the pile tip), hysteresis and gapping of p–y springs (p–y is nonlinear elastic only, Section 11.13); earthquake records are applied at the supports where they are written
 * Shear lag, distortion and restrained-torsion warping when a box girder is modelled as a beam (fibre sections obey the plane-sections assumption)
-* Construction stages (the model is complete from the first step; the dead-load state of simply-supported-then-continuous or balanced-cantilever construction is applied as a single release of falsework; **planned after 1.0**)
+* Construction stages are for line-element models only (`beam2`, `beam2_timoshenko`, `mixed_line`, `beam2_fiber`): members are built and removed step by step and supports released (Section 10.1, since 1.2). Shell and solid models are complete from the first step, and a fibre model's connectors must be built from the start; the other limits are listed in Section 10.1
 * Velocity-dependent friction and stiffness degradation of bearings; connector nonlinearity is limited to Coulomb friction, gaps and bilinear hysteresis (Section 11.11)
 * Contact with a section's real shape or with a solid mesh: members touch as capsules of a stated radius (`contact.members`, Section 11.12)
 * Shear cracking of fibre beams is only a member-level stiffness reduction (`shear`), not coupled to flexure (not MCFT),
