@@ -1,9 +1,7 @@
-> English translation of docs/用户手册.md (the Chinese manual is the reference; where they differ, it is right).
-
 # vfife Vector Form Intrinsic Finite Element Structural Analysis Software — User Manual
 
 **Software name**: vfife Vector Form Intrinsic Finite Element structural analysis software (vfife for short)
-**Version**: 1.23.0
+**Version**: 1.23.1
 **Runtime environment**: Python 3.10 or later; Windows, Linux, macOS; the GPU backend requires NVIDIA CUDA
 **License**: MIT
 
@@ -80,8 +78,8 @@ vfife has no graphical interface, and this is a deliberate design choice: **the 
 A case is a single YAML text file that can be written with any editor, tracked in version control, and generated in batches by scripts.
 Meshes are generated with Gmsh and results are viewed with ParaView.
 
-**This manual covers concepts and modelling methods; for what can be written in a case file, consult `docs/YAML参考.md`.** That file is
-generated from the code by `python -m vfife reference`: every field of every block, its type, default value, Chinese description and original English note, and
+**This manual covers concepts and modelling methods; for what can be written in a case file, consult `docs/yaml_reference.md`.** That file is
+generated from the code by `python -m vfife reference`: every field of every block, its type, default value and description, and
 the numbers of the shipped cases that use it; at the end it lists the fields that have no case. Tests guarantee that it is consistent with the code, so it does not go out of date.
 
 ---
@@ -145,8 +143,7 @@ python -m vfife schema       # writes vfife.schema.json
 ```
 
 Typing a key then lists the fields and enum values that level accepts (`mode: relaxation | static | dynamic`, a material's
-`type`); hovering over a field shows its description -- the same code comment as docs/YAML参考.md, one line in Chinese, one in
-English; a misspelt key, a value outside an enum and a missing required key are underlined. `vfife init` writes this line as
+`type`); hovering over a field shows its description -- the same code comment as docs/yaml_reference.md; a misspelt key, a value outside an enum and a missing required key are underlined. `vfife init` writes this line as
 the first line of the case it creates and puts `vfife.schema.json` beside it (an existing one is kept, with a hint to rerun
 `vfife schema` when it differs from this version). The schema changes with the version: rerun it after upgrading vfife. Notes:
 
@@ -408,7 +405,7 @@ reinforcement is independent geometry, so changing the mesh density does not aff
 * Each quantity has only one name. Several legacy spellings on sections are still read, with a `DEPRECATED_FIELD` warning from preflight:
   `b` → `width`, `h` → `height`, `d` → `diameter`, and `torsion_constant` of fibre sections → `j`.
   Materials still read a few other names of their parameters (`fc` for `fpc`, `E0` for `E`, `yield_strength` for `Fy`, ...;
-  the list is in docs/YAML参考.md, part 3); written beside the parameter's own name with a different value, the case is
+  the list is in docs/yaml_reference.md, part 3); written beside the parameter's own name with a different value, the case is
   refused (`MATERIAL_ALIAS_CONFLICT`, v1.0 -- the law used to take its own name and drop the other without a word).
 * `python -m vfife migrate case.yaml --in-place` converts a 0.x case to version 1:
   * it renames in place in the original text and adds `version: 1`, leaving comments, layout and number formatting untouched;
@@ -2627,7 +2624,7 @@ Meshes are made in Gmsh and large-scale post-processing is done in ParaView (1.3
 python -m vfife view results/case_33_falling_beam.h5            # -> results/case_33_falling_beam.html
 python -m vfife view results/case_23_suspension_bridge.h5 --case cases/case_23_suspension_bridge.yaml
 python -m vfife view results/d1_act1_typhoon.h5 results/d1_act2_quake.h5 results/d1_act3_cut_k3.h5 \
-    --case cases/d1_act3_cut_k3.yaml --names "台风,车流+地震,断吊杆 3 处" --max-frames 300 -o demo.html
+    --case cases/d1_act3_cut_k3.yaml --names "typhoon,traffic+earthquake,3 hangers cut" --max-frames 300 -o demo.html
 ```
 
 Writes a result file as **a single web page carrying its own data**: results of any line elements, shells or solids (including coupled models and their reinforcement)
@@ -2707,7 +2704,7 @@ python -m vfife view bridge.yaml --scripts three_r128 -o model.html
 
 `vfife.api` is the interface for scripts, notebooks and front ends (API version 1).
 The names in `vfife.api.__all__` are the promise: within 1.x their signatures and meanings do not change, and only parameters with default values are added.
-Name-by-name documentation is in `docs/API参考.md`, generated from the code's docstrings
+Name-by-name documentation is in `docs/api_reference.md`, generated from the code's docstrings
 (`python -m vfife reference --api`); tests guarantee the two are consistent.
 
 **Running a case**:
@@ -2879,7 +2876,7 @@ from the Actions page (Run workflow).
 | `new <template> [case]`, `new --list` | Write a case that runs as it stands from a scenario template (5.5, 1.2) |
 | `init <case> --mesh <msh>` | Generate a case skeleton from a volume mesh (an existing file needs `--overwrite`) |
 | `schema [-o FILE]` | Write the case file's JSON Schema (default `vfife.schema.json`) for completion and checking in an editor (2.4) |
-| `reference [--api\|--codes] [--check]` | Generate `docs/YAML参考.md` and `docs/vfife.schema.json` from the code (`--api`: `docs/API参考.md`; `--codes`: `docs/error_codes.md`; `--check` only checks whether it is out of date) |
+| `reference [--api\|--codes] [--check]` | Generate `docs/yaml_reference.md` and `docs/vfife.schema.json` from the code (`--api`: `docs/api_reference.md`; `--codes`: `docs/error_codes.md`; `--check` only checks whether it is out of date) |
 | `migrate <old> -o <new>` | Rewrite an old-format case in the new format |
 | `expand <case> -o <flat>` | Write the case and mesh the high-level blocks (`tendons:`, `groups:`, `offset_arms:`, ...) expand to, to look at (11.14–11.16) |
 | `verify <case>` | Check results against the verification contract |

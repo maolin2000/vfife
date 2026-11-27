@@ -5,7 +5,7 @@ The names in `__all__` are the API. Within 1.x they keep their signatures
 and meaning -- arguments may be added, with defaults, and nothing is taken
 away; everything else in the package is internal and may change. The
 reference is generated from these docstrings (`python -m vfife reference
---api`, docs/API参考.md), and a test keeps it in step.
+--api`, docs/api_reference.md), and a test keeps it in step.
 
 What the functions raise. A mistake in the input -- a name
 that is not there, a refused value, a file that is not a case -- is a
@@ -1096,7 +1096,7 @@ def _check_field_names(draft: CaseDraft, values: Mapping[str, Any]) -> None:
             raise UserError("STUDY_UNKNOWN_FIELD",
                             f"{where}: the case has no such field (from the study's change "
                             f"{', '.join(map(repr, values))})",
-                            "check the spelling against docs/YAML参考.md") from None
+                            "check the spelling against docs/yaml_reference.md") from None
     except Exception:
         pass                               # a value the run itself will refuse
     # a material's keys are the law's parameters, which the schema leaves
@@ -1126,7 +1126,7 @@ def _check_field_names(draft: CaseDraft, values: Mapping[str, Any]) -> None:
             except ValueError as exc:
                 if "does not read" in str(exc):
                     raise UserError("STUDY_UNKNOWN_FIELD", f"materials.{name}: {exc}",
-                                    "check the spelling against docs/YAML参考.md") from None
+                                    "check the spelling against docs/yaml_reference.md") from None
             except Exception:
                 pass
     # `units` is an open mapping to the schema, and a misspelt key is a
@@ -1139,7 +1139,7 @@ def _check_field_names(draft: CaseDraft, values: Mapping[str, Any]) -> None:
             raise UserError("STUDY_UNKNOWN_FIELD",
                             f"units.{bad[0]}: `units` has no such key (it takes "
                             f"{', '.join(_UNIT_KEYS)})",
-                            "check the spelling against docs/YAML参考.md")
+                            "check the spelling against docs/yaml_reference.md")
 
 
 def _write_rows(out_dir: Path, rows: List[Dict[str, Any]]) -> None:
@@ -1173,7 +1173,7 @@ def read_monitors(path):
 
 def verify(contract, result) -> dict:
     """A result checked against a verification contract (a YAML file):
-    {"status": PASS|FAIL, "checks": [...]} -- see docs/用户手册.md 13.3.
+    {"status": PASS|FAIL, "checks": [...]} -- see docs/user_manual.md 13.3.
     The contract comes first; the two given the other way round are refused
     as `VERIFY_ARGUMENTS` (it was a UnicodeDecodeError)."""
     import h5py

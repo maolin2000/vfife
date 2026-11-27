@@ -19,7 +19,7 @@ if prepared.preflight["status"] == "PASS":
 
 The API is versioned: `vfife.api.__all__` is API version 1,
 and within 1.x those names keep their parameters and meaning. The reference
-page `docs/API参考.md` is generated from the docstrings
+page `docs/api_reference.md` is generated from the docstrings
 (`python -m vfife reference --api`) and a test keeps it in step. For a
 parameter study use `load_case(path)` -> `CaseDraft.with_changes({"dotted.key":
 value})` -> `run_case`, or `study(case, {key: [values]}, output_dir=...)`; a

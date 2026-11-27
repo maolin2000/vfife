@@ -1,4 +1,4 @@
-"""docs/YAML参考.md is generated from the code and must match it."""
+"""docs/yaml_reference.md is generated from the code and must match it."""
 import pathlib
 import os
 import subprocess
@@ -14,12 +14,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def test_the_reference_on_disk_is_what_the_code_generates():
-    on_disk = (ROOT / "docs" / "YAML参考.md").read_text(encoding="utf-8")
+    on_disk = (ROOT / "docs" / "yaml_reference.md").read_text(encoding="utf-8")
     assert on_disk == reference.generate(), \
-        "docs/YAML参考.md is stale: run `python -m vfife reference`"
+        "docs/yaml_reference.md is stale: run `python -m vfife reference`"
 
 
-def test_every_field_of_the_input_model_has_a_chinese_and_an_english_doc_comment():
+def test_every_field_of_the_input_model_has_a_doc_comment():
     seen = set()
     missing = []
 
@@ -29,9 +29,8 @@ def test_every_field_of_the_input_model_has_a_chinese_and_an_english_doc_comment
         seen.add(cls)
         docs = reference.field_docs(cls)
         for name, f in cls.model_fields.items():
-            zh, en = docs.get(name, ("", ""))
-            if not zh or not en:
-                missing.append(f"{path}.{name}" + ("" if zh else " (no 中文)") + ("" if en else " (no English)"))
+            if not docs.get(name):
+                missing.append(f"{path}.{name}")
             fpath = f"{path}.{name}"
             inner, _ = reference._unwrap(f.annotation)
             if inner is not None:

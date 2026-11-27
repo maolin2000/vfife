@@ -41,16 +41,12 @@ STEM = "offset_arm"
 
 
 class OffsetArmSpec(_Strict):
-    #: 刚臂的材料（取它的 E）
     #: the arms' material (its E)
     material: str
-    #: 刚臂的刚度：所连偏心构件的多少倍（沿轴向和转动）
     #: an arm's stiffness: this times what the members set off carry, along and in turning
     factor: float = Field(30.0, gt=0.0)
-    #: 一个构件传给刚臂的刚度上限（力/长度，不写为 1e13 N/m 换算到 `units`；转动取 limit L²/3）
     #: the most a member hands an arm (force/length; none: 1e13 N/m in the case's `units`; in turning, limit L^2/3)
     limit: Optional[float] = Field(None, gt=0.0)
-    #: 刚臂：每个区域一根杆，从画出的节点到形心节点
     #: the arms: one member per region, from the drawn node to the centroid node
     regions: List[str] = Field(min_length=1)
 

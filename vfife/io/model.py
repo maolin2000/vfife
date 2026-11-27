@@ -67,16 +67,12 @@ class Strict(BaseModel):
 
 class StirrupSpec(Strict):
     """Stirrups for the truss-model cracked shear stiffness."""
-    #: 一道箍筋的总肢面积（m²，各肢之和）
     #: area of one stirrup set, all legs (m^2)
     area: float = Field(gt=0.0)
-    #: 箍筋间距（m）
     #: spacing along the member (m)
     spacing: float = Field(gt=0.0)
-    #: 有效高度 d（m）
     #: effective depth d (m)
     depth: float = Field(gt=0.0)
-    #: 箍筋弹性模量：默认 2e11 Pa，声明了非 SI 的 `units` 时换算（MPa 下为 2e5）
     #: stirrup modulus: 2e11 Pa by default, converted to the declared `units` when they are not SI (2e5 in MPa)
     E: float = Field(2.0e11, gt=0.0)
 
@@ -93,28 +89,20 @@ class FiberShearSpec(Strict):
     shear when its concrete first cracks in flexure (`cracking: flexural`,
     the flexure-shear cracks a frame member actually has), or at a stated
     shear force."""
-    #: 剪力方向：`z`（截面高度方向，绕 y 弯曲的那个平面）或 `y`
     #: the direction the shear acts along: `z` (the section's depth, the plane of bending about y) or `y`
     direction: Literal["y", "z"] = "z"
-    #: 未开裂 κGA（N）
     #: uncracked kappa G A (N)
     stiffness: float = Field(gt=0.0)
-    #: 开裂后 GA（N）；或给 `stirrups` 按桁架模型算
     #: cracked GA (N); or give `stirrups` for the truss model
     cracked_stiffness: Optional[float] = Field(None, gt=0.0)
-    #: 箍筋（桁架模型的开裂剪切刚度）
     #: stirrups (the truss model's cracked stiffness)
     stirrups: Optional[StirrupSpec] = None
-    #: 桁架模型的腹板宽 b_w（m）；默认截面在垂直于剪力方向的宽度
     #: the web width b_w for the truss model (m); by default the section's width across the shear
     web_width: Optional[float] = Field(None, gt=0.0)
-    #: 何时开裂：`flexural`（该构件的混凝土纤维第一次受拉开裂时）或一个剪力值（N）
     #: when it cracks: `flexural` (when the member's concrete first cracks in tension) or a shear force (N)
     cracking: Union[Literal["flexural"], float] = "flexural"
-    #: 箍筋屈服时的剪力（N），之后按 `hardening` 的刚度比继续
     #: the shear at which the stirrups yield (N); beyond it the stiffness is `hardening` times the cracked one
     yield_force: Optional[float] = Field(None, gt=0.0)
-    #: 屈服后刚度比
     #: post-yield stiffness ratio
     hardening: float = Field(0.01, ge=0.0, le=1.0)
 
@@ -141,165 +129,116 @@ DEPRECATED_SECTION_KEYS = {"b": "width", "h": "height", "d": "diameter", "torsio
 class SectionSpec(Strict):
     #: a girder shape's faces once it is patches (1.2; not a key of the file)
     _girder: Optional[Dict[str, Any]] = PrivateAttr(None)
-    #: 截面种类，决定承载它的单元：solid 实体、shell 壳、beam 梁（beam2）、fiber 纤维梁（beam2_fiber）、bar 杆/索（truss2）、connector 连接器（connector2）
     #: what the section is, and so which element carries it: solid (the meshed continuum),
     #: shell, beam (beam2), fiber (beam2_fiber), bar (truss2: bars, cables), connector (connector2)
     type: SectionType
-    #: `materials` 里的名字；连接器可省；纤维截面必填（patch 不写材料时用它）
     #: a name in `materials`; optional for a connector; required on a fiber
     #: section (the law of every patch that names none of its own)
     material: Optional[str] = None
     # --- solid ---
-    #: 实体：hexa8 的体积锁死处理（默认 `b-bar`；`selective`、`reduced` 加沙漏控制、`full`）
     #: solid: volumetric locking treatment for hexa8 (`b-bar` default; `selective`, `reduced` with hourglass control, `full`)
     formulation: Optional[Literal["full", "reduced", "b-bar", "selective"]] = None
-    #: 实体、只在 `reduced` 下：沙漏稳定系数
     #: solid, `reduced` only: hourglass stabilisation coefficient
     hourglass_coeff: Optional[float] = None
     # --- shell ---
-    #: 壳：板厚（m）
     #: shell: plate thickness (m)
     thickness: Optional[float] = Field(None, gt=0.0)
-    #: 壳：横向剪切修正系数（默认 5/6）
     #: shell: transverse shear correction factor (5/6 default)
     shear_correction: Optional[float] = Field(None, gt=0.0)
-    #: 壳：面内转动（钻转）刚度系数
     #: shell: drilling-rotation stiffness factor
     drilling_factor: Optional[float] = Field(None, gt=0.0)
-    #: 壳：shell4 四个角偏离平面超过这个比例时拒绝
     #: shell: a shell4 whose corners leave a plane by more than this fraction is refused
     warpage_tolerance: Optional[float] = Field(None, gt=0.0)
     # --- beam / bar: a shape, or the integrated properties directly ---
-    #: 形状：圆 `circle`、矩形 `rect`、工字 `I`、直接给性质 `general`；纤维截面另有圆管 `tube`、箱 `box`、四边形块 `patches`
     #: `tube` (circular hollow) and `box` (rectangular/square hollow) are fiber
     #: sections only: a steel spatial structure is built of tubes, and a tube
     #: discretised as a solid puts fibres where there is no steel.
     shape: Optional[Literal["circle", "rect", "I", "general", "tube", "box", "patches",
                             "box_girder", "t_girder"]] = None
-    #: 圆（梁、杆）与纤维圆管：外径；圆加 `t` 即圆管（旧写法 `d`，1.0 版起弃用）
     #: circle (beam, bar) and fiber tube: outer diameter; a circle with `t` is a tube (the old spelling `d` is deprecated since v1.0)
     diameter: Optional[float] = Field(None, gt=0.0)
-    #: 空心形状的壁厚（circle + t、rect + t；纤维 tube/box）
     #: wall thickness of a hollow shape (circle + t, rect + t; fiber tube/box)
     t: Optional[float] = Field(None, gt=0.0)
-    #: 矩形（梁、纤维）与纤维箱：沿截面 y 轴的宽，箱为外宽（旧写法 `b`，1.0 版起弃用）
     #: rect (beam, fiber) and fiber box: width along the section's y axis, outer for a box (the old spelling `b` is deprecated since v1.0)
     width: Optional[float] = Field(None, gt=0.0)
-    #: 矩形（梁、纤维）与纤维箱：沿 z 轴的高，箱为外高（旧写法 `h`，1.0 版起弃用）
     #: rect (beam, fiber) and fiber box: depth along z, outer for a box (the old spelling `h` is deprecated since v1.0)
     height: Optional[float] = Field(None, gt=0.0)
     # --- box_girder / t_girder (1.2): the dimensions on the drawing ---
-    #: 箱梁、T 梁：桥面全宽（翼缘尖到尖）
     #: box_girder, t_girder: the whole deck, tip to tip
     top_width: Optional[float] = Field(None, gt=0.0)
-    #: 箱梁：底板外宽；T 梁：下翼缘宽（给了就有下翼缘）
     #: box_girder: the bottom slab, outside to outside; t_girder: the bottom flange's width (an I or a bulb-T)
     bottom_width: Optional[float] = Field(None, gt=0.0)
-    #: 箱梁：悬臂长，从翼缘尖到腹板外侧面，在桥面顶量
     #: box_girder: from a tip to the web's outer face, measured at the top of the deck
     cantilever: Optional[float] = Field(None, ge=0.0)
-    #: 箱梁：两腹板间顶板厚；T 梁：翼缘厚
     #: box_girder: the top slab between the webs; t_girder: the flange
     top_thickness: Optional[float] = Field(None, gt=0.0)
-    #: 箱梁：底板厚；T 梁：下翼缘厚
     #: box_girder: the bottom slab; t_girder: the bottom flange
     bottom_thickness: Optional[float] = Field(None, gt=0.0)
-    #: 箱梁、T 梁：腹板厚，斜腹板按水平方向量
     #: box_girder, t_girder: each web, measured HORIZONTALLY on an inclined web
     web_thickness: Optional[float] = Field(None, gt=0.0)
-    #: 悬臂（翼缘）厚：一个值，或 [根部, 尖端]；默认 top_thickness
     #: the cantilever (flange outstand): one value or [at the web, at the tip]; default top_thickness
     cantilever_thickness: Optional[Union[float, List[float]]] = None
-    #: 箱梁：箱内顶板与腹板相交处的承托 [宽, 高]
     #: box_girder: the fillet in each inside top corner of the cell, [width, height]
     top_haunch: Optional[List[float]] = Field(None, min_length=2, max_length=2)
-    #: 箱梁：箱内底板与腹板相交处的承托 [宽, 高]
     #: box_girder: the fillet in each inside bottom corner, [width, height]
     bottom_haunch: Optional[List[float]] = Field(None, min_length=2, max_length=2)
-    #: 箱梁：箱室数（默认 1）；中腹板竖直，均分在两外腹板中线之间
     #: box_girder: the number of cells (1 default); interior webs vertical, evenly between the outer webs' centre lines
     cells: Optional[int] = Field(None, ge=1)
-    #: 箱梁、T 梁纤维截面：每块板沿厚度的纤维层数（默认 3）
     #: box_girder, t_girder fibre sections: fibres through each wall's thickness (3 default)
     layers: Optional[int] = Field(None, ge=1)
-    #: 箱梁、T 梁纤维截面：沿板长方向的纤维最大尺寸（默认 height/8）
     #: box_girder, t_girder fibre sections: the longest a fibre runs along a wall (default height / 8)
     fiber_size: Optional[float] = Field(None, gt=0.0)
-    #: 箱梁、T 梁纤维截面：构件轴线穿过的点——形心 `centroid`（默认）、桥面顶 `top`、梁底 `bottom`；钢筋与预应力束的坐标都相对它
     #: box_girder, t_girder fibre sections: where the member line passes -- `centroid` (default), the top of the deck, the bottom of the girder; bars and tendons are written about it
     origin: Optional[Literal["centroid", "top", "bottom"]] = None
-    #: 工字：翼缘宽（沿 y）
     #: I: flange width (along y)
     bf: Optional[float] = Field(None, gt=0.0)
-    #: 工字：翼缘厚
     #: I: flange thickness
     tf: Optional[float] = Field(None, gt=0.0)
-    #: 工字：两翼缘之间的腹板净高（总高 = hw + 2 tf）
     #: I: clear web height between the flanges (total depth = hw + 2 tf)
     hw: Optional[float] = Field(None, gt=0.0)
-    #: 工字：腹板厚
     #: I: web thickness
     tw: Optional[float] = Field(None, gt=0.0)
-    #: `general`：截面面积（m²）；其他形状上给了就覆盖推算值
     #: general: cross-section area (m^2); on a shape, overrides the derived value
     area: Optional[float] = Field(None, gt=0.0)
-    #: 绕截面 y 轴的惯性矩（纤维沿 z 分布），m⁴
     #: second moment about the section y axis (fibres vary in z), m^4
     iy: Optional[float] = Field(None, gt=0.0)
-    #: 绕 z 轴的惯性矩，m⁴
     #: second moment about z, m^4
     iz: Optional[float] = Field(None, gt=0.0)
-    #: 圣维南扭转常数，m⁴；纤维截面不给时用纤维的极惯矩（箱梁会偏高）（纤维截面的旧写法 `torsion_constant`，1.0 版起弃用）
     #: Saint-Venant torsion constant, m^4; on a fibre section the polar moment of the fibres when absent (the fibre sections' old spelling `torsion_constant` is deprecated since v1.0)
     j: Optional[float] = Field(None, gt=0.0)
-    #: Timoshenko：y 向剪切面积（默认由形状推算）
     #: Timoshenko: shear area for y-shear (default from the shape)
     ay: Optional[float] = Field(None, gt=0.0)
-    #: Timoshenko：z 向剪切面积
     #: Timoshenko: shear area for z-shear
     az: Optional[float] = Field(None, gt=0.0)
-    #: 杆：粘结用的接触周长（默认由形状推算）
     #: bar: contact perimeter for bond (default from the shape)
     perimeter: Optional[float] = Field(None, gt=0.0)
-    #: 梁理论：Euler–Bernoulli（默认）或 Timoshenko（需要 ay、az）
     #: beam theory: Euler-Bernoulli (default) or Timoshenko (needs ay, az)
     theory: Optional[Literal["euler", "timoshenko"]] = None
-    #: Timoshenko：ay 上的剪切修正系数（1 = 按 ay 原值）
     #: Timoshenko shear correction factor on ay (1 = use ay as given)
     kappa_y: Optional[float] = Field(None, gt=0.0)
-    #: Timoshenko：az 上的剪切修正系数
     #: Timoshenko shear correction factor on az
     kappa_z: Optional[float] = Field(None, gt=0.0)
     # --- fiber (beam2_fiber): the existing fiber_section keys, plus bars ---
-    #: 纤维：沿宽度的纤维数（rect），或沿壁的纤维数（box）
     #: fiber: number of fibres across the width (rect), or along the walls (box)
     ny: Optional[int] = Field(None, ge=1)
-    #: 纤维：沿高度的纤维数
     #: fiber: number of fibres through the depth
     nz: Optional[int] = Field(None, ge=1)
-    #: 纤维圆管：沿环向的纤维数
     #: hollow fiber sections: fibres round the ring (`tube`) and through the
     #: wall thickness (both). `ny`/`nz` count along the walls of a `box`.
     nt: Optional[int] = Field(None, ge=3)
-    #: 纤维圆管/箱：沿壁厚的纤维数
     #: fibres through the wall thickness of a tube or box
     nr: Optional[int] = Field(None, ge=1)
-    #: 纤维 rect：保护层厚度；保护层内的纤维用 `material`，核心用 `core_material`
     #: fiber rect: cover thickness; the fibres inside it carry `material`, the core `core_material`
     cover: Optional[float] = Field(None, ge=0.0)
-    #: 纤维 rect：`cover` 以内箍筋约束核心的材料（`materials` 里的名字）
     #: fiber rect: material of the stirrup-confined core inside `cover` (a name in `materials`)
     core_material: Optional[str] = None
-    #: 纤维：沿构件的积分站——gauss2（默认）或 lobatto3/4/5（含端点，铰在端部形成时用）
     #: fiber: stations along the member -- gauss2 (default) or lobatto3/4/5 (end points sampled; a hinge forms at the end)
     integration: Optional[str] = None
-    #: `shape: patches`：由四边形块拼成的纤维截面 [{corners: 四个 [y, z], ny, nz, material?, holes?}]，可有斜腹板、承托、孔洞
     #: `shape: patches`: a fibre section built of
     #: quadrilateral patches [{corners: [[y, z] x 4], ny, nz}], each
     #: subdivided bilinearly -- a box girder with inclined webs, haunches
     #: and tapered cantilevers. Coordinates in the section axes, as `bars`.
     patches: List[Dict[str, Any]] = []
-    #: 纤维截面的有效剪切刚度 κGA_s（N）：给了即按 Timoshenko 插值并加常剪应变；纤维不参与剪切，是分析者给定的弹性（或开裂折减）剪切柔度
     #: Effective shear stiffness kappa G A_s [N] of the fibre section.
     #: Absent, the member is Euler-Bernoulli; given, the
     #: bending interpolation becomes Timoshenko's (Reddy's interdependent
@@ -308,20 +247,16 @@ class SectionSpec(Strict):
     #: the elastic (or cracked-effective, e.g. ASCE 41's 0.4 E_c A_w) member
     #: shear flexibility, stated by the analyst.
     shear_stiffness: Optional[float] = Field(None, gt=0.0)
-    #: 纤维截面的开裂剪切律：未开裂 κGA → 开裂（弯曲开裂触发）后按给定或箍筋桁架模型的刚度 → 可选箍筋屈服；与 `shear_stiffness` 二选一；1.7 起也进了 numba 内核
     #: a cracking shear law for a fibre section, in series with the bending; exclusive with `shear_stiffness`; in the numba kernel since 1.7
     shear: Optional[FiberShearSpec] = None
-    #: 截面内的钢筋 [{y, z, section: 杆截面名, count?}]，`count` 把 n 根相同钢筋合在一点
     #: [{y, z, section: <bar section name>, count?}] -- OpenSees `layer` per
     #: bar; `count` lumps n identical bars at the point
     bars: List[Dict[str, Any]] = []
-    #: 纤维截面内成排的钢筋（1.2）：[{section, from: [y, z], to: [y, z], count 或 spacing, z_from: origin|top|bottom}]，两端都放，按间距时取不大于它的等间距
     #: bars laid in straight layers (1.2): [{section, from: [y, z], to: [y, z],
     #: count | spacing, z_from}] -- both ends included; `spacing` puts as many
     #: bars as fit at that spacing or closer (d16 @ 150 over 1 m is 8 bars);
     #: `z_from: top | bottom` measures z from that face, downward from the top
     bar_layers: List[Dict[str, Any]] = []
-    #: 纤维截面内的预应力束：{section, profile: [[s, y, z], ...], prestress 或 jack + friction, elastic_shortening: none|compensate}；束按各单元中点处的 profile 位置成为一根带初应变的粘结钢纤维
     #: PRESTRESSING TENDONS of a fibre section: each is
     #:   {section: <bar section>, profile: [[s, y, z], ...],
     #:    interpolation: linear | quadratic, normalised: false,
@@ -345,23 +280,18 @@ class SectionSpec(Strict):
     #: centroid), so the stated stress is what the tendon carries against the
     #: hardened, already-shortened concrete.
     tendons: List[Dict[str, Any]] = []
-    #: `{threshold: 1.0}`：截面内失效纤维达到这个比例时构件断开（写在截面上，因为截面才知道有多少纤维）
     #: `fracture: {threshold: 1.0}` -- the member is severed when that fraction
     #: of its fibres has failed. On the SECTION and not on the assignment
     #: because it is the section that says how many fibres there are and which
     #: laws they carry; what makes a fibre fail is in the material block.
     fracture: Optional[Dict[str, Any]] = None
     # --- connector ---
-    #: 连接器：六个对角刚度 [ux, uy, uz, rx, ry, rz]（N/m、N·m/rad）或对称 6×6 矩阵（docs/connector2.md）
     #: connector: six diagonal values [ux, uy, uz, rx, ry, rz] (N/m, N m/rad) or a symmetric 6x6 matrix (docs/connector2.md)
     stiffness: Optional[Any] = None
-    #: 连接器：粘滞阻尼，写法同 `stiffness`（N·s/m、N·m·s/rad）
     #: connector: viscous damping in the same form as `stiffness` (N s/m, N m s/rad)
     connector_damping: Optional[Any] = None
-    #: 连接器：某分量的分段线性力–位移骨架 [[u, F], ...]，代替该分量的刚度（可逆、单调不减）
     #: connector: per component a piecewise-linear force-displacement skeleton [[u, F], ...] replacing that component's stiffness (reversible, non-decreasing)
     curves: Dict[str, List[List[float]]] = {}
-    #: 连接器：某分量的路径相关律——`gap` 间隙/限位、`bilinear` 双线性滞回（隔震支座）、`friction` 库仑摩擦滑动；见 ConnectorLawSpec
     #: connector: a path-dependent law per component -- gap, bilinear hysteresis, Coulomb friction (schema.ConnectorLawSpec)
     laws: Dict[str, ConnectorLawSpec] = {}
 
@@ -600,19 +530,14 @@ class SectionSpec(Strict):
 # --------------------------------------------------------------------------- #
 
 class LinePrim(Strict):
-    #: 钢筋起点 [x, y, z]，网格坐标
     #: first end of the bar, [x, y, z] in mesh coordinates
     start: List[float] = Field(min_length=3, max_length=3)
-    #: 终点
     #: second end
     end: List[float] = Field(min_length=3, max_length=3)
-    #: 沿钢筋的分段数；会开裂的构件里优先用 `segment_length`（见 schema.BarLineSpec）
     #: number of segments along the bar; prefer `segment_length` in a member that cracks (see schema.BarLineSpec)
     divisions: Optional[int] = Field(None, ge=1)
-    #: 分段长度（m），对粘结钢筋是物理的弥散长度；取整到整段
     #: segment length in metres (a physical smearing length for a bonded bar), rounded to whole segments
     segment_length: Optional[float] = Field(None, gt=0.0)
-    #: `{count, offset: [dx, dy, dz]}`：复制 `count` 根，每根比上一根平移 `offset`
     #: `{count, offset: [dx, dy, dz]}`: `count` copies of the line, each shifted by `offset` from the last
     repeat: Optional[Dict[str, Any]] = None
 
@@ -620,22 +545,16 @@ class LinePrim(Strict):
 class LayerPrim(Strict):
     """OpenSees `layer straight`: `count` parallel bars from the first at
     `from`..`to`, each the next one `spacing` away."""
-    #: 第一根钢筋的起点 [x, y, z]
     #: the first bar, [x, y, z] of its start
     from_: List[float] = Field(alias="from", min_length=3, max_length=3)
-    #: 第一根钢筋的终点
     #: the first bar's end
     to: List[float] = Field(min_length=3, max_length=3)
-    #: 平行钢筋的根数
     #: how many parallel bars
     count: int = Field(ge=1)
-    #: 相邻两根的偏移 [dx, dy, dz]
     #: offset from one bar to the next, [dx, dy, dz]
     spacing: List[float] = Field(default=[0.0, 0.0, 0.0], min_length=3, max_length=3)
-    #: 每根的分段数（或 `segment_length`）
     #: segments per bar (or `segment_length`)
     divisions: Optional[int] = Field(None, ge=1)
-    #: 分段长度（m）
     #: segment length in metres
     segment_length: Optional[float] = Field(None, gt=0.0)
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -646,25 +565,18 @@ class HoopPrim(Strict):
     along it from `from` to `to` at `spacing`. `corners` are the two
     opposite corners in the plane's own two coordinates (the other two
     axes in x, y, z order)."""
-    #: 箍筋在垂直于 `axis` 的平面内的两个对角，用该平面自己的两个坐标
     #: two opposite corners of the tie in the plane normal to `axis`, in that plane's own two coordinates
     corners: List[List[float]] = Field(min_length=2, max_length=2)
-    #: 箍筋沿哪个轴堆叠
     #: the axis the ties are stacked along
     axis: Literal["x", "y", "z"]
-    #: 第一道箍筋沿 `axis` 的坐标
     #: coordinate along `axis` of the first tie
     from_: float = Field(alias="from")
-    #: 最后一道箍筋的坐标
     #: coordinate of the last tie
     to: float
-    #: 沿 `axis` 的箍距
     #: tie spacing along `axis`
     spacing: float = Field(gt=0.0)
-    #: 每道箍筋每边的分段数（或 `segment_length`）
     #: segments per side of each tie (or `segment_length`)
     divisions: Optional[int] = Field(None, ge=1)
-    #: 分段长度（m）
     #: segment length in metres
     segment_length: Optional[float] = Field(None, gt=0.0)
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -700,22 +612,16 @@ class PathPrim(Strict):
     preflight can now give you is the number a friction calculation needs, the
     tendon's total angular change, because a path has one.
     """
-    #: 至少两个点，每个 [x, y, z]；`parabola` 正好三个
     #: at least two points, each [x, y, z]; three exactly, for `parabola`
     points: Optional[List[List[float]]] = None
-    #: `polyline` 各点之间直线段（默认）或 `parabola` 过三点的抛物线
     #: `polyline` (straight legs between the points) or `parabola` (three points)
     shape: Literal["polyline", "parabola"] = "polyline"
-    #: 把 Gmsh 曲线当钢筋路径——保留字段，目前拒绝
     #: a Gmsh curve as a bar route -- reserved, and refused with a message
     group: Optional[str] = None
-    #: `polyline` 每段各分、`parabola` 整条曲线分这么多段
     #: `polyline` subdivides each leg; `parabola` divides the whole curve
     divisions: Optional[int] = Field(None, ge=1)
-    #: 分段长度（m）：polyline 按每段、parabola 按整条弧长
     #: segment length in metres along each leg (polyline) or the whole curve (parabola)
     segment_length: Optional[float] = Field(None, gt=0.0)
-    #: `{count, offset}`，同 `line`
     #: `{count, offset}` as for a `line`
     repeat: Optional[Dict[str, Any]] = None
 
@@ -765,19 +671,14 @@ def _parabola_through(points, n: int):
 
 class ReinforcementGeometry(Strict):
     """One named bar set: exactly one primitive, or a plain list of lines."""
-    #: 一根直钢筋（LinePrim）
     #: one straight bar (LinePrim)
     line: Optional[LinePrim] = None
-    #: 一组里的多根直钢筋
     #: several straight bars in one set
     lines: Optional[List[LinePrim]] = None
-    #: `count` 根平行钢筋（LayerPrim）
     #: `count` parallel bars (LayerPrim)
     layer: Optional[LayerPrim] = None
-    #: 沿某轴重复的封闭矩形箍筋（HoopPrim）
     #: closed rectangular ties along an axis (HoopPrim)
     hoop: Optional[HoopPrim] = None
-    #: 过控制点的弯起或曲线钢筋/束（PathPrim）
     #: a bent or curved bar through control points (PathPrim)
     path: Optional[PathPrim] = None
 
@@ -897,79 +798,58 @@ class ReinforcementGeometry(Strict):
 # --------------------------------------------------------------------------- #
 
 class AssignSpec(Strict):
-    #: `sections` 里的名字
     #: a name in `sections`
     section: str
-    #: 目标二选一：网格区域，或一个/多个钢筋组
     #: exactly one target: a mesh region, or one or more reinforcement sets
     region: Optional[str] = None
-    #: `reinforcement` 里的一个或多个名字：这个（杆）截面描述的钢筋
     #: one or more names in `reinforcement`: the bars this (bar) section describes
     reinforcement: Optional[Union[str, List[str]]] = None
     # beams / connectors on line regions
-    #: 梁/连接器：确定截面局部 y 轴的向量（不能与构件平行）
     #: beam/connector: a vector fixing the section's local y axis (not parallel to the member)
     orientation: Optional[List[float]] = Field(None, min_length=3, max_length=3)
-    #: 梁端释放，取自 i_rx, i_ry, i_rz, j_rx, j_ry, j_rz（i 为第一个节点）；两端铰接写 [i_ry, i_rz, j_ry, j_rz]
     #: beam end releases, from i_rx, i_ry, i_rz, j_rx, j_ry, j_rz (i = first node); a pin at both ends is [i_ry, i_rz, j_ry, j_rz]
     releases: List[str] = []
-    #: 梁端刚性偏移（1.21）：{i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}，弹性段两端离节点的向量（`local` 是构件按节点连线和 `orientation` 定的轴）。梁端刚域沿构件给，截面偏心（形心在节点下方）横向给。`axial: full` 让框架梁的轴向和扭转刚度按节点间的长度算；默认 `elastic` 按弹性段
     #: rigid end offsets (1.21): {i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}, the vectors from the nodes to the ends of the member's elastic part (`local`: the member's axes from its nodes' chord and `orientation`). A rigid end zone is an offset along the member, a section whose centroid is below its nodes one across it. `axial: full` takes a frame beam's axial and torsional stiffness over the length between the nodes; `elastic`, the default, over the elastic part
     end_offsets: Optional[Dict[str, Any]] = None
-    #: 连接器：`local`（x 沿弦、y 由 `orientation` 定）或 `global` 分量
     #: connector: `local` (x along the chord, y from `orientation`) or `global` components
     coordinate_system: Optional[Literal["local", "global"]] = None
     # embedded bars
-    #: 嵌入钢筋：`{type: bond_ceb | bond_cyclic, ...}` 让钢筋有自己的自由度并按粘结–滑移律传力；不给即完全粘结
     #: embedded bars: `{type: bond_ceb | bond_cyclic, ...}` gives the bar its own dofs and a bond-slip law; absent = perfect bond
     bond: Optional[Dict[str, Any]] = None
-    #: 嵌入钢筋：几何没给时，这组每根线的分段长度（m）
     #: embedded bars: segment length (m) for every line of the set, when the geometry gives none
     segment_length: Optional[float] = Field(None, gt=0.0)
-    #: 嵌入钢筋：几何没给时，每根线的分段数
     #: embedded bars: segments per line, when the geometry gives none
     divisions: Optional[int] = Field(None, ge=1)
-    #: 粘结钢筋：横向约束刚度（N/m），默认取钢筋自身 EA/L_trib。数值罚函数，不是销栓作用
     #: bonded bars: stiffness holding the bar across its axis (N/m); default the bar's own E A / L_trib. A numerical device, not a dowel
     transverse_penalty: Optional[float] = Field(None, gt=0.0)
-    #: 从钢筋应力里扣除混凝土基体的 E·ε（只对弹性基体；基体会损伤时求解器拒绝）
     #: subtract the host's E*eps from the bar (elastic hosts only; the solver
     #: refuses it with a damaging host -- see elements/truss.py)
     host_deduction: Optional[float] = Field(None, gt=0.0)
-    #: 纤维梁：应变渗透 {region, bar_diameter}；粘结钢筋：`ends`/`start`/`end` 把钢筋端节点绑到基体上
     #: fiber beams: strain penetration, {region, bar_diameter}; bonded bars:
     #: `ends` / `start` / `end`, the bar nodes tied to the host
     anchorage: Optional[Union[str, Dict[str, Any]]] = None
-    #: 先张：扣除损失后的**有效**预应力（Pa，受拉为正）。程序只算弹性压缩损失——写 σ_pe，不是 σ_con
     #: pretensioning: the EFFECTIVE prestress in the bar after losses, Pa,
     #: positive in tension. The program computes the elastic-shortening loss
     #: (it is what equilibrium at transfer gives) and nothing else -- write
     #: sigma_pe here, not sigma_con.
     prestress: Optional[float] = None
-    #: 后张摩擦 {mu, k, jack, anchor_set}：给了则 `prestress` 是张拉端应力，程序沿束算损失剖面；不给则整根束都是 `prestress`
     #: post-tensioning friction {mu, k, jack, anchor_set}. With it, `prestress`
     #: is the JACKING stress and the solver computes the profile along the
     #: tendon; without it, `prestress` is what the whole tendon carries.
     friction: Optional[Dict[str, Any]] = None
-    #: 线区域上的 `bar` 截面作为索：总无应力长度（代替 `prestress`）
     #: a `bar` section on a line region as a CABLE: its total
     #: unstressed length (an alternative to `prestress`), and whether it
     #: carries no compression
     unstressed_length: Optional[float] = Field(None, gt=0.0)
-    #: 区域内每个单元一个无应力长度，按单元顺序（找形的输出）
     #: one per element of the region, in element order (form-finding output)
     unstressed_lengths: Optional[List[float]] = None
-    #: 索按力张拉（N）：在建立它的那个分析步（从头就建的是第一步）结束时，每根构件的轴力正好是这个值，不管结构在张拉中让了多少；此后它是一根普通的杆，无应力长度就是那一步结束时定下的。只用于框架模型（梁、杆、连接器）
     #: the force (N) a cable is JACKED to: at the end of the analysis step that builds it (the first, when built from the start) each member carries exactly this, whatever the structure gave under it; from then on it is a bar of the unstressed length it ended with. Frame models (beams, bars, connectors) only
     jack: Optional[float] = Field(None, gt=0.0)
-    #: 索：不受压（松弛后力为零）
     #: cable: the member carries no compression (goes slack)
     tension_only: bool = False
-    #: 线构件的弹脆性断裂：见 schema.FailureSpec
     #: elastic-brittle breaking of a line member: see
     #: schema.FailureSpec
     failure: Optional[Dict[str, Any]] = None
-    #: 钢筋组的名字，供监测量（`of:`）和结果字段用；默认取截面名
     #: the reinforcement set's name for monitors (`of:`) and result fields; defaults to the section name
     name: Optional[str] = None
 
@@ -1052,19 +932,14 @@ class InputCase(Strict):
     sections: Dict[str, SectionSpec]
     reinforcement: Dict[str, ReinforcementGeometry] = {}
     assign: List[AssignSpec] = []
-    #: 框架模型的钢束，一束一条：线形、面积、张拉、摩擦、回缩、松弛；读入时展开成钢束节点、刚臂和张拉的杆（`vfife expand` 可写出展开后的样子）
     #: a frame model's tendons, one entry each: line, area, jacking, friction, draw-in, relaxation; expanded on reading into the tendon's nodes, arms and jacked bars (`vfife expand` writes what it becomes)
     tendons: List[TendonSpec] = []
-    #: 并入这些文件里的 materials、sections、reinforcement、groups、tendons、tendon_defaults（路径相对本文件）；重名拒绝，写成 `{path: ..., override: true}` 时以本文件为准
     #: merge these files' materials, sections, reinforcement, groups, tendons and tendon_defaults (paths relative to this file); a name in both is refused, or the case's wins with `{path: ..., override: true}`
     include: List[Union[str, Dict[str, Any]]] = []
-    #: 构件组：名字 → [网格的组或组名, ...]；读入后是网格里由这几块组成的一个组（单元和节点），凡写区域名的地方都可以用；降级为 `mesh.groups`
     #: groups: name -> [mesh group or group names]; once read, a group of the mesh made of those pieces (their elements and nodes), usable wherever a region is named; lowers to `mesh.groups`
     groups: Dict[str, List[str]] = {}
-    #: 各束钢束共用的设置：钢束没写的键从这里取，`stress`、`friction` 这类映射逐键合并、钢束自己写的优先；钢束里写 `null` 就是它自己的值
     #: what every tendon has unless it says otherwise: a key a tendon does not write comes from here, a mapping (`stress`, `friction`, ...) merged key by key with the tendon's own winning; `null` in a tendon is its own value
     tendon_defaults: Dict[str, Any] = {}
-    #: 偏心构件的刚臂：一条规则代替每根刚臂一个截面；读入时按所连偏心构件的刚度算出每根的截面
     #: the arms of members set off their nodes: one rule for all, each arm's section worked out on reading from what the members set off carry
     offset_arms: Optional[OffsetArmSpec] = None
 

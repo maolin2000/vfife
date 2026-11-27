@@ -1,8 +1,8 @@
-# M01 正交各向异性线弹性
+# M01 Orthotropic linear elastic
 
-`orthotropic` 为三维正交线弹性材料，适用于木材、轧制钢板、单层复合材料等方向性构件。仅支持 `hexa8/tet4/tet10/wedge6/pyramid5/hexa20/wedge15` 等连续体单元，`numpy` 后端。
+`orthotropic` is a three-dimensional orthotropic linear elastic material, for directional members such as timber, rolled plate and single-ply composites. Continuum elements only (`hexa8/tet4/tet10/wedge6/pyramid5/hexa20/wedge15`), `numpy` backend.
 
-## 输入
+## Input
 
 ```yaml
 materials:
@@ -20,8 +20,8 @@ materials:
     rho: 800
 ```
 
-9 个独立常数（`E1-3, G12/G23/G13, nu12/13/23`），对称柔度矩阵自动补全，刚度矩阵求逆前做正定性检查（`E>0, G>0, |nu|<0.5, 行列式>0`）。材料局部坐标暂与全局一致，后续通过 `orientation` 支持方向旋转。
+Nine independent constants (`E1-3, G12/G23/G13, nu12/13/23`); the symmetric compliance matrix is completed automatically, and it is checked for positive definiteness before it is inverted (`E>0, G>0, |nu|<0.5`, determinant > 0). The material axes are the global axes for now; rotating them through `orientation` is planned.
 
-各向同性退化 `E1=E2=E3, G=E/2(1+nu), nu12=nu` 时与 `linear_elastic` 在机器精度内一致（`test_isotropic_limit_matches_linear_elastic`）。
+In the isotropic limit (`E1=E2=E3, G=E/2(1+nu), nu12=nu`) it agrees with `linear_elastic` to machine precision (`test_isotropic_limit_matches_linear_elastic`).
 
-资格等级 `verified`（`qualification/orthotropic.yaml`），`numpy` 仅，暂不含失效准则与层合壳。
+Qualified `verified` (`qualification/orthotropic.yaml`), `numpy` only; no failure criterion and no laminated shells yet.

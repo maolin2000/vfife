@@ -267,7 +267,7 @@ def test_the_error_code_catalogue_is_generated_and_complete():
         assert code in listed, code
     # every code the manuals and the result format cite is in it
     statuses = {"API_VERSION", "COMPLETED_DYNAMIC", "MAX_STEPS"}
-    for doc in ("user_manual.md", "用户手册.md", "result_format.md", "diagnostics.md"):
+    for doc in ("user_manual.md", "result_format.md", "diagnostics.md"):
         cited = set(re.findall(r"`([A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+)`",
                                open(os.path.join(ROOT, "docs", doc), encoding="utf-8").read()))
         assert cited - listed - statuses - {"PREFLIGHT_FAILED"} == set(), doc
@@ -345,7 +345,7 @@ def test_describe_and_the_reference_name_every_line_field_and_static():
         fields = set(lib[el]["output_fields"])
         assert {"axial_force", "bending_y", "bending_z_max_abs", "member_failed"} <= fields, el
     assert {"axial_force_max_abs", "von_mises", "capacity_ratio"} <= set(lib["truss2"]["output_fields"])
-    ref = open(os.path.join(ROOT, "docs", "YAML参考.md"), encoding="utf-8").read()
+    ref = open(os.path.join(ROOT, "docs", "yaml_reference.md"), encoding="utf-8").read()
     row = next(l for l in ref.splitlines() if l.startswith("| `beam2` |"))
     assert "static" in row and "bending_y_max_abs" in row
     code, text = _cli("describe", "beam2")

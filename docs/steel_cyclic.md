@@ -1,112 +1,76 @@
-# steel_cyclic：循环钢材本构（Cai et al. 2023 §3）
+# steel_cyclic: cyclic steel (Cai et al. 2023, §3)
 
-带**退化曲线**与**超低周疲劳断裂应变**的单轴钢材律。0.1 版的断裂框架需要它：光有闩锁
-的话，纤维断裂时应力一步掉到零，那是本构函数上的一个有限跳跃——0.1 版证明过这种形状
-会把显式求解器困在极限环里。这条律让应力先沿退化曲线连续降到 `f_uf`，闩锁最后拿掉的
-只是一个残余。
+A uniaxial steel law with a **degradation curve** and an **ultra-low-cycle-fatigue fracture strain**. The fracture framework of 0.1 needs it: with a latch alone, the stress of a breaking fibre drops to zero in one step, a finite jump in the constitutive function, and 0.1 showed that this shape traps an explicit solver in a limit cycle. With this law the stress first falls continuously along the degradation curve to `f_uf`, and the latch removes only a residue.
 
-## 输入
+## Input
 
 ```yaml
 materials:
   steel: {type: steel_cyclic, grade: Q345B, E: 2.06e11, rho: 7850.0}
 ```
 
-`grade` 就是论文 Table 1 的一行（`Q345B` / `Q235B` / `HPS485` / `HT440`），一次给齐
-十一个参数。也可以逐个给（不给 `grade` 时**必须**给齐）：
+`grade` is a row of the paper's Table 1 (`Q345B` / `Q235B` / `HPS485` / `HT440`) and gives all eleven parameters at once. They can also be given one by one (without `grade` they **must** all be given):
 
-| 参数 | 含义 | 出处 |
+| parameter | meaning | source |
 |---|---|---|
-| `fy`, `fu` | 屈服强度、极限强度 | Table 1 |
-| `k1`, `k2` | 屈服平台终点、强化终点（以 εy 为单位） | 式 (10) |
-| `k3` | 图 4 里的 `k3σy`，即曲线自洽时的 `fu/fy`；不给 `fu` 时用它算 | Fig. 4 |
-| `a`, `b0`, `b1`, `b2` | 滞回骨架（Ramberg–Osgood）的形状 | 式 (11) |
-| `eps_cri` | 单调断裂应变（coupon 值） | 式 (13) |
-| `lambda_dsps` | ULCF 疲劳参数 | 式 (13) |
-| `f_uf` | 名义失效应力，**Table 1 没有**，默认取 `0.5 fu` | 式 (12) |
-| `skeleton_fit` | `shift`（默认）\| `raw`，见下 | 式 (11) |
+| `fy`, `fu` | yield and ultimate strength | Table 1 |
+| `k1`, `k2` | end of the yield plateau, end of hardening (in units of εy) | Eq. (10) |
+| `k3` | `k3σy` of Fig. 4, i.e. `fu/fy` for a self-consistent curve; used to compute `fu` when it is not given | Fig. 4 |
+| `a`, `b0`, `b1`, `b2` | the shape of the hysteretic skeleton (Ramberg–Osgood) | Eq. (11) |
+| `eps_cri` | monotonic fracture strain (coupon value) | Eq. (13) |
+| `lambda_dsps` | ULCF fatigue parameter | Eq. (13) |
+| `f_uf` | nominal failure stress, **not in Table 1**, `0.5 fu` by default | Eq. (12) |
+| `skeleton_fit` | `shift` (default) \| `raw`, see below | Eq. (11) |
 
-输出场：`eps_max`、`eps_acc_c`（累积压缩塑性应变）、`eps_uf`（当前断裂应变）、`failed`。
-`failure()` 接 0.1 版的框架，`damage_measure()` 报 `1 − exp(−λ·ε_acc)`（疲劳寿命消耗，
-单调不减；不是"当前应变/当前断裂应变"，后者卸载时会掉）。
+Output fields: `eps_max`, `eps_acc_c` (accumulated compressive plastic strain), `eps_uf` (the current fracture strain), `failed`. `failure()` connects to the framework of 0.1; `damage_measure()` reports `1 − exp(−λ·ε_acc)` (fatigue life used, never decreasing; not "current strain / current fracture strain", which falls on unloading).
 
-## 四条曲线和五条判据
+## Four curves and five rules
 
-| 分支 | 什么时候 | 公式 |
+| branch | when | equation |
 |---|---|---|
-| 单调曲线 | 第一次加载（拉、压都算） | (10) |
-| 滞回骨架 | 任何一次反向之后的加载 | (11) |
-| 退化曲线 | 在用的那条曲线达到 `fu` 之后 | (12) |
-| 重加载曲线 | 卸载到零应力之后、到达峰值点之前 | (14)–(18) |
+| monotonic curve | first loading (tension or compression) | (10) |
+| hysteretic skeleton | loading after any reversal | (11) |
+| degradation curve | after the curve in use has reached `fu` | (12) |
+| reloading curve | after unloading to zero stress, before the peak point | (14)–(18) |
 
-卸载永远是弹性的（斜率 E），这就是判据 (2) 的全部内容。峰值点是**各向同性**的：它的
-应变是这个点历史上到过的最大**绝对值**，正负都算——论文对钢材各向同性强化的读法，也是
-图 7 里 A 记在 +ε₁ 而 E 落在 −ε₁ 的原因。
+Unloading is always elastic (slope E); that is all of rule (2). The peak point is **isotropic**: its strain is the largest **absolute** strain the point has reached, of either sign -- the paper's reading of isotropic hardening for steel, and why in Fig. 7 A is recorded at +ε₁ and E lands at −ε₁.
 
-重加载有两条：按割线刚度 `E_k`（式 14）选，`E/5 ≤ E_k < E` 用 Légeron，`0 < E_k < E/5`
-用 Shi–Wang。**回路越宽 `E_k` 越小**，所以振幅就决定了走哪条。
+There are two reloading curves, chosen by the secant stiffness `E_k` (Eq. 14): Légeron for `E/5 ≤ E_k < E`, Shi–Wang for `0 < E_k < E/5`. **The wider the loop, the smaller `E_k`**, so the amplitude decides which applies.
 
-**两处论文没说、这里补上的：**
+**Two things the paper leaves unsaid, added here:**
 
-- **单调曲线上的小回摆不算一次循环。** 判据 (5) 说反向之后的加载走骨架。字面照做，
-  塑性平台上回退 1e-5 再推回来，应力就从单调曲线跳到骨架上：Q345B 在 2% 应变处一步
-  461 → 541 MPa，硬化段 561 → 584。现在从单调曲线上反向、还没卸到反号应力就推回来的点，
-  回到它离开的单调曲线；只在骨架（或它的退化曲线）更低的地方才改走骨架。真正卸到反号、
-  走过重加载的点，照论文走骨架。
-- **`E_k ≥ E` 时的重加载不在峰值应变处跳上骨架。** 割线比 E 还陡时式 (14) 只能走弹性线，
-  到峰值应变时应力还低于峰值点，原来在那里一步跳上骨架：推到 2%、卸到受压、再加载，
-  1e-4 的应变步跳 92 MPa。现在沿斜率 E 继续走，直到与骨架相交。
+- **A small reversal on the monotonic curve is not a cycle.** Rule (5) says loading after a reversal follows the skeleton. Taken literally, stepping back 1e-5 on the plastic plateau and pushing forward again makes the stress jump from the monotonic curve onto the skeleton: Q345B at 2% strain jumps 461 → 541 MPa in one step, 561 → 584 in the hardening range. A point that reverses on the monotonic curve and is pushed back before its stress changes sign now returns to the monotonic curve it left, changing to the skeleton only where the skeleton (or its degradation curve) is lower. A point that really unloads past zero stress and reloads follows the skeleton, as the paper says.
+- **Reloading with `E_k ≥ E` does not jump onto the skeleton at the peak strain.** When the secant is steeper than E, Eq. (14) can only follow the elastic line, and at the peak strain the stress is still below the peak point; it used to jump onto the skeleton there: pushed to 2%, unloaded into compression and reloaded, a strain step of 1e-4 jumped 92 MPa. It now continues with slope E until it meets the skeleton.
 
-`eps_u`（颈缩应变）有两个，这是图 5 的要点：单调曲线在 `k2·εy` 到达 `fu`，滞回骨架更早
-到达。Q345B 分别是 **9.20%** 和 **3.61%**——循环让颈缩提前，退化因此提前开始。
+There are two `eps_u` (necking strains), which is the point of Fig. 5: the monotonic curve reaches `fu` at `k2·εy`, the skeleton earlier. For Q345B they are **9.20%** and **3.61%**: cycling brings necking forward, and degradation starts earlier.
 
-## 三处印刷公式不闭合的地方
+## Three printed equations that do not close
 
-都在 `tests/test_steel_cyclic.py` 里钉住了，改动是明账不是暗改。
+Each is pinned in `tests/test_steel_cyclic.py`; the changes are on the record, not hidden.
 
-**式 (10) 的强化段系数**印的是 `E(1−k1)/(εy(k2−k1)²)`。代入 Table 1 的数，曲线在
-`ε = k1·εy` 处跳 `fy(1−k1)`——Q345B 是 **−1.5 GPa**，方向还反了。让二次曲线过
-`(k1εy, fy)` 与 `(k2εy, fu)` 且在后者斜率为零的系数是 `(fy−fu)/(εy²(k2−k1)²)`；当
-`fu = k3·fy`（图 4 画的就是这条）时它**正好等于把印刷式里的 k1 换成 k3**。用后者。
+**The hardening coefficient of Eq. (10)** is printed as `E(1−k1)/(εy(k2−k1)²)`. With the numbers of Table 1 the curve jumps by `fy(1−k1)` at `ε = k1·εy` -- **−1.5 GPa** for Q345B, and in the wrong direction. The coefficient that takes the parabola through `(k1εy, fy)` and `(k2εy, fu)` with zero slope at the latter is `(fy−fu)/(εy²(k2−k1)²)`; when `fu = k3·fy` (the curve Fig. 4 draws) it is **exactly the printed one with k1 replaced by k3**. The latter is used.
 
-**式 (12) 的退化曲线**印的是 `fu + (fu−fuf)·((ε−ε_uf)/(ε_u−ε_uf))²`，在颈缩点给
-`2fu − fuf`、在断裂点给 `fu`，两端都不对。与图 5 一致（颈缩处平、断裂处陡）的写法是
-`fu + (fuf−fu)·((ε−ε_u)/(ε_uf−ε_u))²`。用后者。
+**The degradation curve of Eq. (12)** is printed as `fu + (fu−fuf)·((ε−ε_uf)/(ε_u−ε_uf))²`, which gives `2fu − fuf` at necking and `fu` at fracture -- wrong at both ends. The form that agrees with Fig. 5 (flat at necking, steep at fracture) is `fu + (fuf−fu)·((ε−ε_u)/(ε_uf−ε_u))²`. The latter is used.
 
-**式 (11) 的骨架接不上弹性线**：在 ε̄ = 1 处它给 1.030 fy，即首次屈服处有 3% 的台阶。
-`skeleton_fit: shift`（默认）减掉这个常数，斜率处处不变；`raw` 忠实复现论文。
+**The skeleton of Eq. (11) does not meet the elastic line**: at ε̄ = 1 it gives 1.030 fy, a 3% step at first yield. `skeleton_fit: shift` (the default) subtracts this constant, leaving the slope unchanged everywhere; `raw` reproduces the paper faithfully.
 
-台阶什么时候会被踩到？**只有当反向的峰值应变正好落在屈服附近时**——峰值以下的区间由
-重加载曲线覆盖，骨架根本不会在那里被求值。构造这样一条路径（在屈服下方一点反向，再推
-过屈服）测出来：`raw` 一步跳 **13 MPa，35 倍弹性斜率**；`shift` 是 1.00（纯弹性）。
-这正是 0.1 版那个粘结缺陷的形状，所以默认修掉。（1.0 版起这条路径上 `raw` 也不跳了：
-那一步其实是上面说的 `E_k ≥ E` 重加载撞上骨架，现在沿 E 走到相交为止。式 (11) 本身在
-屈服处的 3% 仍在，`skeleton()` 照样量得到。）
+When is the step reached? **Only when a reversal's peak strain lies near yield** -- below the peak the reloading curve applies, and the skeleton is not evaluated there at all. A path built to reach it (reverse a little below yield, then push past yield) measures: `raw` jumps **13 MPa in one step, 35 times the elastic slope**; `shift` gives 1.00 (purely elastic). That is the shape of the sticking defect of 0.1, so the default removes it. (Since 1.0 `raw` does not jump on this path either: that step was the `E_k ≥ E` reloading meeting the skeleton, described above, which now follows E to the intersection. The 3% of Eq. (11) at yield is still there, and `skeleton()` still measures it.)
 
-## Table 1 里对不上的一行
+## A row of Table 1 that does not fit
 
-**HT440 被构造函数拒绝**：`k3 = 1.2` 但实测 `fu/fy = 1.60`，而它的四个 Ramberg–Osgood
-参数和其他三行完全一样。用实测 `fu = 800 MPa`，骨架要到 **14.8%** 应变才够得着，而单调
-曲线 **11.2%** 就到了——**循环反而推迟颈缩**，与图 5 的前提正相反。这种参数组会安安静静
-地跑完整个分析，所以在构造时就报错，并说明出路：把 `fu` 降到 `k3·fy`（601 MPa），或者
-为这种钢重新拟合 `a, b0, b1, b2`。把 `k3` 提到 1.60 **不管用**，因为拦路的是骨架曲线
-本身。
+**HT440 is refused by the constructor**: `k3 = 1.2` but the measured `fu/fy = 1.60`, while its four Ramberg–Osgood parameters are exactly those of the other three rows. With the measured `fu = 800 MPa` the skeleton reaches it only at **14.8%** strain, the monotonic curve at **11.2%** -- **cycling would delay necking**, the opposite of the premise of Fig. 5. Such a parameter set would run through a whole analysis quietly, so it is refused on construction, with the ways out: lower `fu` to `k3·fy` (601 MPa), or fit `a, b0, b1, b2` again for this steel. Raising `k3` to 1.60 **does not help**: the skeleton itself is in the way.
 
-## 与论文可核对的量
+## What can be checked against the paper
 
-| | 论文 | 这里 |
+| | paper | here |
 |---|---|---|
-| 循环硬化比单调高多少（ε̄ = 10） | "about 20%" | 17.3%（shift）/ 21.2%（raw） |
-| ±2.4% 循环的峰值应力（Q345B） | 图 12(b) 约 550 MPa | 555 MPa |
-| 单调拉断（Q345B） | `ε_cri = 0.36` | 峰值 586 MPa @ 9.20%，断于 36.0% |
-| 压缩循环缩短断裂应变 | 式 (13) | 六次 −5% 往返后 `ε_acc = 0.269`，断裂应变 36.0% → 33.4% |
+| cyclic over monotonic hardening (ε̄ = 10) | "about 20%" | 17.3% (shift) / 21.2% (raw) |
+| peak stress of ±2.4% cycles (Q345B) | Fig. 12(b), about 550 MPa | 555 MPa |
+| monotonic tension to fracture (Q345B) | `ε_cri = 0.36` | peak 586 MPa at 9.20%, fracture at 36.0% |
+| compressive cycles shorten the fracture strain | Eq. (13) | after six −5% excursions `ε_acc = 0.269`, fracture strain 36.0% → 33.4% |
 
-## 性能
+## Performance
 
-标量律用 numba 编译，**82 ns/点**（480 个纤维点一次 39 µs），与 steel02 的 68 ns 同量级。
-编译的是同一份源码：`_point.py_func` 就是 Python 版，两条路径在 3700 步的循环历程上
-**逐位相同**，纤维梁的熔合内核内联的也是同一个 `_point`。
+The scalar law is compiled with numba, **82 ns/point** (39 µs for 480 fibre points), the order of steel02's 68 ns. The same source is compiled: `_point.py_func` is the Python version, the two paths are **bit-identical** over a 3700-step cyclic history, and the fibre beam's fused kernel inlines the same `_point`.
 
-这条律因此**补上了 0.1 版留下的空缺**：内核能内联的三种律（concrete01/02、steel02）都
-没有断裂准则，所以那时走内核路径的截面不可能自己断裂；现在可以，而且两条路径的断裂事件
-逐位一致（`tests/test_steel_cyclic.py::test_the_fused_kernel_now_has_a_law_that_can_fracture`）。
+The law therefore **fills a gap left in 0.1**: the three laws the kernel could inline (concrete01/02, steel02) have no fracture criterion, so a section on the kernel path could not break by itself; now it can, and the fracture events of the two paths agree bit for bit (`tests/test_steel_cyclic.py::test_the_fused_kernel_now_has_a_law_that_can_fracture`).

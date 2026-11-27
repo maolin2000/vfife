@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import yaml
 
-from vfife import prep
+from vfife.prep import tendons as prep_tendons    # a submodule: imported, not reached as prep.tendons
 from vfife.api import prepare_case, run_case
 from vfife.io import gmsh, schema
 
@@ -73,7 +73,7 @@ def _write(tmp_path, d, name="case.yaml"):
 
 def _expanded(tmp_path, d):
     mesh, _ = gmsh.read(str(tmp_path / "girder.msh"))
-    return prep.tendons.expand(d, mesh)
+    return prep_tendons.expand(d, mesh)
 
 
 def test_a_tendon_is_its_nodes_arms_and_bars_after_the_meshs_own(tmp_path):
@@ -283,7 +283,7 @@ def test_in_millimetres_it_is_the_same_tendon(tmp_path):
     d["materials"]["strand"]["rho"] = 7.85e-9
     d["sections"]["strand"]["area"] = AREA * 1e6
     mesh, _ = gmsh.read(str(tmp_path / "girder.msh"), scale=1000.0)
-    mm, _o, rep_mm = prep.tendons.expand(d, mesh)
+    mm, _o, rep_mm = prep_tendons.expand(d, mesh)
     assert rep_mm["T1"]["jacking"] == pytest.approx(rep_si["T1"]["jacking"], rel=1e-12)
     jsi = [a_["jack"] for a_ in si["assign"] if "jack" in a_]
     jmm = [a_["jack"] for a_ in mm["assign"] if "jack" in a_]

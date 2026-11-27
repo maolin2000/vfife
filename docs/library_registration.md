@@ -1,10 +1,10 @@
-# 单元与材料注册协议
+# Registering elements and materials
 
-单元库、材料库、预检、CLI 和未来 GUI 共享一套机器可读的工程能力声明。声明的目的不是替代数值实现，而是让一个新模型在进入求解器之前就能回答“它能和什么组合、需要什么参数、产生什么结果、验证到什么程度”。
+The element library, the material library, preflight and the command line share one machine-readable statement of what each model can do. It does not replace the numerical implementation; it lets a new model answer, before it reaches a solver, what it combines with, what parameters it needs, what results it gives and how far it has been verified.
 
-## 材料注册
+## Materials
 
-材料继续使用 `@register`，同时声明工程元数据：
+A material is registered with `@register`, with its engineering metadata:
 
 ```python
 @register(
@@ -22,41 +22,37 @@ class MyMaterial(Material):
     ...
 ```
 
-构造函数参数会自动进入 `MaterialDef.parameters`；`state_names` 自动进入状态字段。不得在 CLI 或 GUI 中另建材料名称列表。
+The constructor's parameters go into `MaterialDef.parameters` and `state_names` into the state fields automatically. No other list of material names is kept, in the command line or anywhere else.
 
-当前登记材料：`linear_elastic`、`j2`、`chaboche`、`cdp`、`rebar`、`piecewise_uniaxial`。
+## Elements
 
-## 单元注册
+`ElementCapability` describes solid and line elements alike:
 
-`ElementCapability` 统一描述实体和杆系单元：
+- family and mesh topology;
+- nodal degrees of freedom;
+- formulation;
+- material kinematics and the compatible materials;
+- backends and analysis modes;
+- loads and output fields;
+- the geometric nonlinearity;
+- verification level and known limitations.
 
-- family 与网格拓扑；
-- 节点自由度；
-- formulation；
-- 材料运动学与当前兼容材料；
-- 后端和分析模式；
-- 载荷与输出字段；
-- 几何非线性方法；
-- 验证等级和已知限制。
+A continuum element's interpolation and integration are defined by its `ElementDef`, from which its capability is generated; bars, beams, mixed and coupled elements use the same `ElementCapability` protocol.
 
-连续体的插值与积分仍由 `ElementDef` 定义，能力由该定义生成；杆、梁、混合及耦合单元使用同一个 `ElementCapability` 协议。
+Every element declares `geometric_nonlinearity: co_rotational_vfife`, so that a new element that departs from VFIFE's removal of rigid-body motion does not go unnoticed.
 
-当前登记单元：`hexa8`、`tet4`、`tet10`、`wedge6`、`truss2`、`beam2`、`beam2_timoshenko`、`shell4`、`shell_line`、`connector2`、`mixed_line`、`coupled`。
-
-所有现有单元均明确声明 `geometric_nonlinearity: co_rotational_vfife`，避免未来新增单元偏离 VFIFE 的刚体运动扣除思想而未被发现。
-
-## 公共访问与组合校验
+## Access and compatibility
 
 ```python
 from vfife.catalog import library, compatibility
 
-catalog = library()  # 可直接 JSON 序列化，schema_version = 1
+catalog = library()  # JSON-serialisable, schema_version = 1
 ok, reasons = compatibility("beam2", "j2", backend="warp")
 ```
 
-`preflight.check()` 已调用同一 `compatibility()`，不支持的单元—材料—后端—分析模式组合会产生 `CAPABILITY_MISMATCH`，无需初始化求解器或 CUDA。
+`preflight.check()` calls the same `compatibility()`: an element-material-backend-analysis combination that is not supported gives `CAPABILITY_MISMATCH` without building a solver or initialising CUDA.
 
-CLI 直接公开同一目录：
+The command line shows the same catalogue:
 
 ```powershell
 vfife list
@@ -67,21 +63,21 @@ vfife capabilities --element hexa8 --material cdp --backend warp
 vfife capabilities --element beam2 --backend warp --show-unsupported
 ```
 
-`capabilities` 默认只显示支持的组合；`--show-unsupported` 会同时给出每个拒绝原因。所有三个命令都只读取注册信息，不导入网格、不构造求解器，也不会触发 CUDA 初始化。`--format json` 的顶层携带目录 `schema_version`，供脚本和未来 GUI 使用。
+`capabilities` lists the supported combinations; `--show-unsupported` adds each refusal with its reason. All three commands read the registry only: they import no mesh, build no solver and do not initialise CUDA. `--format json` carries the catalogue's `schema_version` at the top, for scripts.
 
-## 新模型准入规则
+## A new model
 
-新增单元或材料时必须：
+A new element or material must:
 
-1. 注册完整元数据，不允许只修改 schema 的 Literal；
-2. 为声明的每个后端提供实现和一致性测试；
-3. 给出验证等级，不得把只有单元测试的模型标为 benchmark；
-4. 明确输出字段、状态字段及其物理位置；
-5. 在已知限制中记录尚未支持的组合；
-6. 增加目录完整性和非法组合测试。
+1. register its full metadata (changing a `Literal` in the schema is not enough);
+2. provide an implementation and a parity test for every backend it declares;
+3. state its verification level (a model with unit tests alone is not `benchmarked`);
+4. state its output fields and state fields and where they live;
+5. record the combinations it does not support among its known limitations;
+6. add catalogue-completeness and invalid-combination tests.
 
-目前兼容材料仍由单元能力显式列出。这是刻意的保守策略：新材料注册后不会自动获得所有实体或杆系单元的支持，必须在完成对应验证后显式放行。
+The compatible materials are listed explicitly by each element. This is deliberately conservative: a new material is not supported by every solid or line element on registration, but is let through explicitly once the combination is verified.
 
-材料进入单元后的积分点生命周期见 [material_points.md](material_points.md)。注册表说明“允许什么组合”，积分点协议保证“该组合如何获得一致的状态、特征长度、稳定性信息和重启动身份”。
+How a material lives at an element's integration points is in [material_points.md](material_points.md): the registry says which combinations are allowed, the integration-point protocol how such a combination gets a consistent state, characteristic length, stability information and restart identity.
 
-模型从“登记”升级为“已验证/基准化/生产可用”的规则见 [qualification_gates.md](qualification_gates.md)。注册表中的文字标签不再单独构成工程准入证据。
+How a model moves from registered to verified, benchmarked or production is in [qualification_gates.md](qualification_gates.md); a label in the registry is not, by itself, evidence.

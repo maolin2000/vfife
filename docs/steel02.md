@@ -1,170 +1,123 @@
-# Steel02 钢筋（Giuffre-Menegotto-Pinto）
+# Steel02 reinforcing steel (Giuffrè–Menegotto–Pinto)
 
-往复加载的默认选择。`rebar_gmp` 曾是同一条律的另一个名字，0.1 版删掉了——两者在
-18 组参数、2100 步往复路径上差 0.42%（峰值应力的），而它慢 30 倍且没有标量孪生。
-案例里写了 `type: rebar_gmp` 会报错并指到这里。
+The default for cyclic loading. `rebar_gmp` was another name for the same law and was removed in 0.1: over 18 parameter sets and a 2100-step cyclic path the two differed by 0.42% (of the peak stress), and it was 30 times slower with no scalar twin. A case that writes `type: rebar_gmp` is refused with a pointer here.
 
-## 先选律，再调参数
+## Choose the law first, then its parameters
 
-四条单轴钢材律，同一条 ±1% 往复路径上量出来的差别（`steel02` 一行为 1.0 版改成
-OpenSees Steel02 之后重量的；之前是 0.58 εy、×1.08）：
+The four uniaxial steel laws, measured on the same ±1% cyclic path (the `steel02` row was measured again after 1.0 changed it to OpenSees' Steel02; before, 0.58 εy and ×1.08):
 
-| | 反向圆角 | 6 圈后峰值 | 每圈耗能 | 断裂 | 熔合内核 | ns/点 |
+| | rounding at reversal | peak after 6 cycles | energy per cycle | fracture | fused kernel | ns/point |
 |---|---|---|---|---|---|---|
-| `rebar` | 无（一步落到 0.014E） | ×1.36 | 涨 17% | `rupture_strain`（累积塑性应变） | 否 | 105 |
-| `steel02` | 4.61 εy | ×0.95 | 稳定 | `rupture_strain`（峰值拉应变） | **是** | 147 |
-| `steel_cyclic` | 4.87 εy | ×1.16 | 逐位稳定 | 退化 + ULCF | **是** | 82 |
-| `piecewise_uniaxial` | 无 | ×1.57 | 涨 23% | 无 | 否 | 3700 |
+| `rebar` | none (drops to 0.014E in one step) | ×1.36 | grows 17% | `rupture_strain` (accumulated plastic strain) | no | 105 |
+| `steel02` | 4.61 εy | ×0.95 | steady | `rupture_strain` (peak tensile strain) | **yes** | 147 |
+| `steel_cyclic` | 4.87 εy | ×1.16 | steady to the bit | degradation + ULCF | **yes** | 82 |
+| `piecewise_uniaxial` | none | ×1.57 | grows 23% | none | no | 3700 |
 
-- **单调加载、推覆**：`rebar`。双折线，最省，实体/桁架路径还有 numba 与 warp 后端；
-  要断就给 `rupture_strain`。
-- **往复、抗震**：`steel02`。圆角反向、滞回稳定。要断也给 `rupture_strain`——但
-  **它和 `rebar` 那个量的不是同一件事**，见下。1.0 版起它和 OpenSees 的
-  Steel02 是同一个模型（随机历程上与 OpenSees 的输出在舍入误差内一致），之前的 3.45%
-  包络线超出已经没有了，见本文末两节。
-- **倒塌、断裂、超低周疲劳**：`steel_cyclic`（`docs/steel_cyclic.md`）。唯一有退化曲线
-  和断裂应变的，也是最快的。
-- **手里有实测曲线**：`piecewise_uniaxial`。任意分段线性表，但一个点 3.7 µs（表驱动的
-  律没法内联进内核），只适合小模型或单点研究。
+- **Monotonic loading, pushover**: `rebar`. Bilinear, the cheapest, and on the solid and truss paths it also has numba and warp backends; give `rupture_strain` for it to break.
+- **Cyclic, seismic**: `steel02`. Rounded reversals, stable hysteresis. Give `rupture_strain` for it to break too -- but **it does not measure what `rebar`'s does**, see below. Since 1.0 it is the same model as OpenSees' Steel02 (on random histories it agrees with the OpenSees program's output to round-off); the 3.45% by which the envelope used to exceed its asymptote is gone, see the last two sections.
+- **Collapse, fracture, ultra-low-cycle fatigue**: `steel_cyclic` (`docs/steel_cyclic.md`). The only one with a degradation curve and a fracture strain, and the fastest.
+- **A measured curve**: `piecewise_uniaxial`. Any piecewise-linear table, but 3.7 µs a point (a table-driven law cannot be inlined into the kernel); for small models or single-point studies.
 
-两个坑：**`rebar` 和 `piecewise` 在等幅往复下峰值一路涨**（6 圈 +36% / +57%，混合硬化
-在累积），拿去做时程分析滞回耗能会虚高；**纤维截面只有用 `steel02` 或 `steel_cyclic`
-才跑得起熔合内核**，其他律会让整个截面退回 numpy 路径，慢四倍——这条在选型时往往比本构
-细节更决定算例能不能跑完。
+Two traps: **under constant-amplitude cycles the peaks of `rebar` and `piecewise` keep rising** (+36% / +57% over 6 cycles, as the mixed hardening accumulates), which overstates hysteretic dissipation in a time history; and **a fibre section runs the fused kernel only with `steel02` or `steel_cyclic`** -- any other law sends the whole section back to the numpy path, four times slower. When choosing, this often decides whether a case runs to the end more than the constitutive detail does.
 
-## 输入
+## Input
 
 ```yaml
-# 纤维梁内嵌钢筋
+# reinforcement in a fibre beam
 materials:
   steel: {type: steel02, E: 200e9, Fy: 350e6, b: 0.01, R0: 20, cR1: 0.925, cR2: 0.15, rho: 7850}
 sections:
   bar20: {type: bar, material: steel, shape: general, area: 3.14e-4}
   rc: {type: fiber, material: concrete, shape: rect, width: 0.25, height: 0.35, ny: 8, nz: 8,
        bars: [{y: 0.09, z: 0.14, section: bar20}]}
-# 独立材料点
+# a stand-alone material point
 #   {type: steel02, E: 200e9, Fy: 350e6, b: 0.01, R0: 20, a1: 0, a2: 1, a3: 0, a4: 1}
 ```
 
-`b` 为硬化比 `E_h/E0`，`R0/cR1/cR2` 控制滞回曲率过渡（`R = R0(1 − cR1·ξ/(cR2 + ξ))`，ξ 为上一支的塑性偏移，以 εy 计；要求 `0 ≤ cR1 < 1`、`cR2 > 0`），`a1/a2`（受压侧）与 `a3/a4`（受拉侧）控制等向硬化（`a2`、`a4` 须为正）。与 OpenSees 相同，首次加载也走圆角曲线：`Fy` 是两条渐近线的交点，曲线从下面过它——在 0.89 Fy 处比 `E·ε` 低 0.45%（R0 = 20）。`b = 1` 时就是胡克定律。
+`b` is the hardening ratio `E_h/E0`; `R0/cR1/cR2` control the curvature of the transition (`R = R0(1 − cR1·ξ/(cR2 + ξ))`, ξ the plastic excursion of the previous branch in units of εy; `0 ≤ cR1 < 1` and `cR2 > 0` are required); `a1/a2` (compression) and `a3/a4` (tension) control isotropic hardening (`a2` and `a4` must be positive). As in OpenSees, first loading also follows the rounded curve: `Fy` is the intersection of the two asymptotes and the curve passes below it -- 0.45% below `E·ε` at 0.89 Fy (R0 = 20). With `b = 1` it is Hooke's law.
 
-状态 `n_state=13`：`eps_prev/sig_prev/eps_rev/sig_rev/direction/eps_target/hysteretic_energy/eps_max/sig_target/eps_max_os/eps_min_os/eps_pl/work`。`hysteretic_energy` 为 `∫σdε − σ²/2E`，即耗散部分。率无关，`checkpoint` 安全；同一应变重复调用不改状态。
+State `n_state=13`: `eps_prev/sig_prev/eps_rev/sig_rev/direction/eps_target/hysteretic_energy/eps_max/sig_target/eps_max_os/eps_min_os/eps_pl/work`. `hysteretic_energy` is `∫σdε − σ²/2E`, the dissipated part. Rate-independent and safe to checkpoint; calling it again at the same strain does not change the state.
 
-资格 `verified`（`qualification/steel02.yaml`），`numpy` 与 `numba` 后端，已接入 `beam2_fiber` 混合截面（`case_11`，Tanaka & Park 1990 试件 1，fy=474 MPa、b=0.012 取自实测 fu/fy=1.52）。
+Qualified `verified` (`qualification/steel02.yaml`), `numpy` and `numba` backends, used in the mixed section of `beam2_fiber` (`case_11`, Tanaka & Park 1990 specimen 1, fy = 474 MPa and b = 0.012 from the measured fu/fy = 1.52).
 
-`update()` 走编译点循环（模块级 `@njit(cache=True)`，numba 不可用时回退到 `_update_reference`）。实测 480 个纤维点 1915 → 36 µs（53 倍），编译后约 68 ns/点；等价性由 `tests/test_uniaxial_numba.py` 沿完整循环历程逐步核对（应力与状态偏差 1e-14 量级）。注意批量很关键：1 个点时只快 2 倍，因为调用开销占主导。
+`update()` runs through a compiled point loop (module-level `@njit(cache=True)`, falling back to `_update_reference` without numba). Measured on 480 fibre points: 1915 → 36 µs (53 times), about 68 ns a point compiled; `tests/test_uniaxial_numba.py` checks the equivalence step by step over a full cyclic history (stress and state differ at the 1e-14 level). Batching matters: for one point it is only twice as fast, as the call overhead dominates.
 
-## `strain_scale`：钢筋锚固段的应变分担
+## `strain_scale`: the share of strain in a bar's anchorage
 
-钢筋不在构件表面停止受力，它继续伸入锚固区一段长度 Lsp。把这段抹平到长度 Le 的单元上，钢筋只承担截面应变的 `Le/(Le + Lsp)`。`strain_scale` 就是这个系数，默认 1.0（完全粘结，与该参数出现之前的所有算例一致）。
+A bar does not stop carrying force at the member's face; it continues into the anchorage for a length Lsp. Spread over an element of length Le, the bar takes only `Le/(Le + Lsp)` of the section strain. `strain_scale` is that factor, 1.0 by default (full bond, as in every case before the parameter existed).
 
-它是 `steel02` 的**参数**而非独立材料，这是被熔合内核约束死的：内核只内联一条钢筋律，第二种律型会让整个模型退回 NumPy 路径。逐单元取不同的值由 `spar[e, f]` 支持，参照路径通过 `update(..., params=)` 读同一批参数行。
+It is a **parameter** of `steel02`, not a material of its own, because of the fused kernel: the kernel inlines one steel law, and a second law type sends the whole model back to the NumPy path. Different values per element are carried by `spar[e, f]`, and the reference path reads the same parameter rows through `update(..., params=)`.
 
-定义性质由 `tests/test_strain_penetration.py` 沿完整循环历程核对：`strain_scale=k` 的材料在应变 eps 处，必须给出未缩放材料在 `k·eps` 处的同一应力（偏差 < 1e-12）。案例层面的用法见 `docs/fiber_beam.md`。
+`tests/test_strain_penetration.py` checks the defining property over a full cyclic history: a material with `strain_scale=k` at strain eps gives the stress of the unscaled material at `k·eps` (difference < 1e-12). Its use in cases is in `docs/fiber_beam.md`.
 
-## `rupture_strain`：两条律同名，量的不是同一件事
+## `rupture_strain`: one name, two different measures
 
 ```yaml
 strand: {type: steel02, E: 1.9e+11, Fy: 1.58e+9, b: 0.065, rupture_strain: 0.035}
 ```
 
-| | 判据 | 从哪儿拿这个数 |
+| | criterion | where the number comes from |
 |---|---|---|
-| `rebar` | **累积塑性应变** `alpha`，每次反向都在涨 | 拟合，或按低周疲劳估 |
-| `steel02` | **峰值拉应变**，点自己见过的最大值 | 拉伸试验的 A_gt（1×7 钢绞线按 GB/T 5224 ≥ 3.5%） |
+| `rebar` | **accumulated plastic strain** `alpha`, which grows at every reversal | fitted, or estimated from low-cycle fatigue |
+| `steel02` | **peak tensile strain**, the largest the point has seen | A_gt of a tension test (≥ 3.5% for 1×7 strand by GB/T 5224) |
 
-**同名是故意的**（算例里只记一个键），**判据不同也是故意的**：`steel02` 是
-Menegotto-Pinto，拐点是圆的，状态里根本没有塑性应变可累积。一根**单调拉断**的束两者
-一致；一根**被往复**的柱筋两者差很远，那种情况该用 `rebar` 或 `steel_cyclic`。
-`tests/test_steel02_rupture.py` 里有一条二十圈的路径把这个差别钉住了：总应变从没超过
-1%，`steel02`（限值 2%）活着，`rebar`（同样写 2%）断了。
+**The shared name is deliberate** (a case remembers one key), **and so is the different criterion**: `steel02` is Menegotto–Pinto, its corner is rounded, and its state has no plastic strain to accumulate. For a strand **pulled monotonically to rupture** the two agree; for a column bar **under cycles** they are far apart, and that case wants `rebar` or `steel_cyclic`. `tests/test_steel02_rupture.py` pins the difference with a twenty-cycle path: the total strain never exceeds 1%, `steel02` (limit 2%) survives and `rebar` (also given 2%) breaks.
 
-**受压永远触发不了它**：`eps_max` 从 0 起只取最大值，所以它单调、锁不可逆，也不需要
-额外开一列"已断"的状态。
+**Compression never triggers it**: `eps_max` starts at 0 and only takes the maximum, so it is monotonic, the latch is irreversible, and no extra "broken" state column is needed.
 
-**它是本构函数上的一个有限跳跃**——一步落到零。0.1 版为这种形状在一个粘结节点上烧掉
-8000 次动能重置，`steel_cyclic` 就是为此存在的：那条律**先沿退化曲线掉到 f_uf**，最后
-被切掉的只是一点残余。所以：**掉下来这个过程本身重要**，用 `steel_cyclic`；**只是要这
-根纤维别再受力**，用这个。
+**It is a finite jump in the constitutive function** -- a drop to zero in one step. In 0.1 that shape burnt 8000 kinetic-energy resets at one sticking node, and `steel_cyclic` exists because of it: that law **first falls along its degradation curve to f_uf**, and only a residue is cut at the end. So: when **the fall itself matters**, use `steel_cyclic`; when **the fibre should simply stop carrying force**, use this.
 
-依托算例是 `case_25`（陈恒芝的 13 m 空心板）：给了 3.5%，而这根梁的钢绞线峰值只到
-**1.91%**，裕度 1.83 倍，**九条契约一个数都没动**。写它的理由正是如此——空心板的承载力
-从此是"一根会断的钢绞线"算出来的，而不是"一根不会断的"。
+The case behind it is `case_25` (Chen Hengzhi's 13 m hollow-core slab): with 3.5% given, the strand of this beam peaks at **1.91%**, a margin of 1.83, and **none of its nine contracts moved by a digit**. That is the reason to write it: the slab's capacity is now computed with a strand that can break, not one that cannot.
 
-### 什么时候判断断裂：对**已接受的**状态，不在迭代里
+### When fracture is decided: on the **accepted** state, not within an iteration
 
-`rupture_strain` 读的是**上一个被接受状态**的峰值应变——本次调用先判断、后更新
-`eps_max`。所以跨过极限的那一次调用仍然受力，从下一次起才被切断。
+`rupture_strain` reads the peak strain of the **last accepted state**: a call decides first and updates `eps_max` after. The call that crosses the limit still carries force; the fibre is cut from the next one on.
 
-为什么：分级动力松弛的每一次迭代都从上一个收敛状态重新驱动材料点（试探状态）。一级
-荷载把整段位移增量一次性加到加载点上，最初几十次迭代里，紧挨加载点的那个单元独自承受
-这段增量——应变约为"增量 ÷ h"，远大于收敛后的值。旧写法在这一次**试探**里就把纤维切了，
-截面失去钢绞线，这一级于是收敛到**断了的那条平衡支**上，而完好的那条同样是平衡的。
+Why: every iteration of staged dynamic relaxation drives the material points again from the last converged state (a trial state). A load stage puts its whole displacement increment on the loaded point at once, and for the first few dozen iterations the element next to it takes that increment alone, at a strain of about "increment ÷ h", far above the converged value. The old code cut the fibre in that **trial**; the section lost its strand, and the stage converged on **the broken equilibrium branch**, while the intact one was an equilibrium too.
 
-它看起来像网格依赖，0.4 版也是这么读的：
+It looks like mesh dependence, and 0.4 read it so:
 
-| Li 2024 A7（ρ = 8.31%） | h = 40 mm | h = 80 mm | 截面法 | 实测 |
+| Li 2024 A7 (ρ = 8.31%) | h = 40 mm | h = 80 mm | section analysis | measured |
 |---|---|---|---|---|
-| 0.4 版（切在试探里） | 19.73 kN·m | 29.49 kN·m | 40.14 | 44.54 |
-| 0.4 版（切在接受后） | **39.48** | **39.51** | 40.14 | 44.54 |
+| 0.4 (cut in the trial) | 19.73 kN·m | 29.49 kN·m | 40.14 | 44.54 |
+| 0.4 (cut once accepted) | **39.48** | **39.51** | 40.14 | 44.54 |
 
-A4（ρ = 4.52%，钢绞线先屈服）：31.14 → **52.65 / 52.71**（实测 53.72）。
-两种网格差 0.1%，束应变在纯弯段里是均匀的——**没有局部化**。0.4 版的"残差容差收紧
-100 倍结果逐位相同"是真的，但它排除不了这个：容差管的是收敛到哪里的精度，不管收敛到
-哪一支。
+A4 (ρ = 4.52%, the strand yields first): 31.14 → **52.65 / 52.71** (measured 53.72). The two meshes differ by 0.1%, and the strand strain is uniform in the constant-moment zone -- **there is no localisation**. 0.4's "tightening the residual tolerance 100 times gives the same result to the bit" was true, but it could not rule this out: the tolerance governs how accurately a branch is reached, not which branch.
 
-配套的求解器改动：一级收敛、提交之后如果出现了新的断裂点，**同一级再解一次**（级联时
-重复，最多 50 次），然后才记录。否则记录下来的是"完好的位置 + 已切断的内力"，A7 上是
-一个 −169 kN 的反力。显式时程里没有试探状态，这个延迟就是一个时间步。
+The matching solver change: when a stage has converged and been committed and new fracture points have appeared, **the same stage is solved again** (repeatedly for a cascade, up to 50 times) before it is recorded. Otherwise the record would be "the intact positions + the cut internal forces", a reaction of −169 kN on A7. An explicit time history has no trial state; there the delay is one time step.
 
-### 仍然成立的那一半：它作用在**弥散应变**上
+### The half that still holds: it acts on a **smeared strain**
 
-纤维的应变是截面应变。完全粘结下，**承载力**不受影响——截面在束应变到 ε_u 时的弯矩
-是截面平衡决定的，与 h 无关，上表就是证据。受影响的是**断裂时的变形**：真实的束在
-裂缝处的应力高于两条裂缝之间的平均值，所以它在更小的平均应变下就断了。
+A fibre's strain is the section's strain. With full bond the **capacity** is not affected -- the section's moment when the strand reaches ε_u is set by section equilibrium, independent of h, and the table above is the evidence. What is affected is the **deformation at rupture**: a real strand is stressed more at a crack than on average between cracks, so it breaks at a smaller average strain.
 
-量级取决于粘结传递长度与裂缝间距之比。灌浆孔道里的 7 丝钢绞线粘结弱
-（EN 1992-1-1 表 6.2，ξ = 0.5），孤立裂缝的传递长度在 Li 那批梁上约 0.5 m，远大于
-实测裂缝间距（≈ 箍筋间距 100 mm）：相邻裂缝的传递区重叠，束应变接近均匀，完全粘结
-高估断裂时平均应变 3–12%（粘结强度取 0.5–2 倍）。裂缝间距到 300 mm 时是 14–43%。
-（一维粘结-滑移的首次积分；它依赖具体的粘结与锈蚀假定，所以不在库里。）
+How much depends on the ratio of the bond transfer length to the crack spacing. Seven-wire strand in a grouted duct bonds weakly (EN 1992-1-1 Table 6.2, ξ = 0.5); on Li's beams the transfer length of an isolated crack is about 0.5 m, far more than the measured crack spacing (≈ the stirrup spacing, 100 mm): the transfer zones of neighbouring cracks overlap, the strand strain is nearly uniform, and full bond overstates the average strain at rupture by 3–12% (bond strength 0.5–2 times). At a crack spacing of 300 mm it is 14–43%. (A first integration of one-dimensional bond-slip; it depends on the particular bond and corrosion assumptions, so it is not in the library.)
 
-## 1.0 版：换成 OpenSees 的 Steel02
+## 1.0: changed to OpenSees' Steel02
 
-0.4 版记下、一直没修的"包络线越过自己的渐近线 3.45%"，在第二轮审阅里和另外三处一起
-出现，四处同源——这条律不是 OpenSees 的 Steel02，而是一个变体：
+"The envelope exceeds its own asymptote by 3.45%", recorded in 0.4 and never fixed, came up in the second review with three other findings, all from one source: the law was not OpenSees' Steel02 but a variant.
 
-| | 变体（1.0 版以前） | OpenSees Steel02（1.0 版起） |
+| | the variant (before 1.0) | OpenSees' Steel02 (from 1.0) |
 |---|---|---|
-| 每支的目标点 | ±Fy_eff，屈服应变放在让**曲线**过 Fy 处 | 从反向点出发的弹性线与**另一侧硬化渐近线**的交点 |
-| R 的退化 | `R0 − cR1·ξ/(cR2+ξ)`：cR1 = 0.925 时 R 几乎不动（≈19） | `R0(1 − cR1·ξ/(cR2+ξ))`：1% 往复后降到约 2.3 |
-| `a3/a4` | 读了，没用 | 受拉侧等向硬化 |
-| 单调包络 | 高过渐近线 3.45% | 在渐近线下 |
-| 2% 处一次 2e-4 的小回摆后，推到 3% | 469.8 → **440.3** MPa（忘了硬化包络） | 456.0，回不回摆一样 |
-| 2% 处 50 次小回摆 | 应力一路走回 Fy | 再推回到包络线上 |
-| 小闭合环 | 能**产生**能量 | 耗散 |
+| each branch's target point | ±Fy_eff, the yield strain placed so that the **curve** passes through Fy | the intersection of the elastic line from the reversal point with **the other side's hardening asymptote** |
+| degradation of R | `R0 − cR1·ξ/(cR2+ξ)`: with cR1 = 0.925, R hardly moves (≈19) | `R0(1 − cR1·ξ/(cR2+ξ))`: about 2.3 after ±1% cycles |
+| `a3/a4` | read, not used | isotropic hardening in tension |
+| monotonic envelope | 3.45% above the asymptote | below the asymptote |
+| a small reversal of 2e-4 at 2%, then pushed to 3% | 469.8 → **440.3** MPa (the hardened envelope forgotten) | 456.0, with or without the reversal |
+| 50 small reversals at 2% | the stress walks back to Fy | pushed back onto the envelope |
+| small closed loops | can **create** energy | dissipate |
 
-实现是一个 Python 函数，内核编译的就是它（1.0 版时是照 OpenSees 源码转写的，之后照原论文重写，见本文末一节）。
+The implementation is one Python function, and that is what the kernel compiles (in 1.0 it was transcribed from the OpenSees source; it was later rewritten from the original paper, see the last section).
 
-**代价（0.4 版量过的方向）**：钢筋处在平台上的截面承载力下降约 2.6%
-（`case_31` 跨中截面 58.98 → 57.50 kN·m）；反向圆角从 0.58 εy 变成 4.61 εy，
-滞回环更"瘦"，每圈耗能比变体少。十几个带 `steel02` 的算例都重跑过，逐项差别见
-CHANGELOG 的 1.0.0 一节。
+**The cost (in the direction measured in 0.4)**: the capacity of sections whose bars are on the plateau drops about 2.6% (`case_31` midspan section 58.98 → 57.50 kN·m); the rounding at reversal changes from 0.58 εy to 4.61 εy, the loops are "thinner", and each cycle dissipates less than with the variant. The dozen or so cases with `steel02` were all run again; the differences item by item are in the 1.0.0 section of the CHANGELOG.
 
-`tests/test_material_invariants.py` 里这一条从 `_OPEN` 移出，改成正向断言：包络线
-必须在渐近线以下。
+In `tests/test_material_invariants.py` this item moved out of `_OPEN` into a positive assertion: the envelope must stay below the asymptote.
 
-## 照原论文重写（1.20.1 起）
+## Rewritten from the original paper (from 1.20.1)
 
-1.0 版的实现是照 OpenSees 的源码逐行移植的，而 OpenSees 的许可证不允许把它的代码放进 MIT
-许可的仓库。现在的 `_point_py` 按 Filippou、Popov、Bertero（1983，UCB/EERC-83/19）第 3.1
-节的式 (3.4)–(3.8) 重写，没有参照 OpenSees 的源码：
+The 1.0 implementation was ported line by line from the OpenSees source, and OpenSees' licence does not allow its code in an MIT-licensed repository. The present `_point_py` is rewritten from Eqs. (3.4)–(3.8) of Section 3.1 of Filippou, Popov and Bertero (1983, UCB/EERC-83/19), without reference to the OpenSees source:
 
-* 式 (3.4)–(3.6) 的归一化曲线、式 (3.7) 的 R，原文的 a1、a2 就是这里的 R0·cR1、cR2；
-* 各向同性强化按 `a1..a4` 的文档含义（压、拉两侧的屈服渐近线分别在 a2·εy、a4·εy 的塑性偏移后
-  抬高 a1·Fy、a3·Fy），偏移量取 (ε_max − ε_min)/2，指数 0.8；
-* 原文没有写定的几处——上面那个指数、ξ 用屈服应变归一、偏移从哪个应变量起——用 OpenSees 程序
-  当黑箱，对比随机应变历程上的输出定下来。`tools/opensees_reference.py` 生成对照曲线，
-  `tests/test_opensees_reference.py` 检查，差别在舍入误差内。
+* the normalised curve of Eqs. (3.4)–(3.6) and R of Eq. (3.7); the paper's a1 and a2 are R0·cR1 and cR2 here;
+* isotropic hardening by the documented meaning of `a1..a4` (the yield asymptotes of the compression and tension sides rise by a1·Fy and a3·Fy after plastic excursions of a2·εy and a4·εy), with the excursion taken as (ε_max − ε_min)/2 and the exponent 0.8;
+* what the paper leaves open -- that exponent, normalising ξ by the yield strain, the strain the excursion is measured from -- was settled by treating the OpenSees program as a black box and comparing outputs on random strain histories. `tools/opensees_reference.py` generates the reference curves and `tests/test_opensees_reference.py` checks them; the differences are round-off.
 
-参数、状态的列和含义都没变，旧算例和旧检查点照常可用。
+The parameters and the state's columns and their meaning are unchanged; old cases and old checkpoints work as before.

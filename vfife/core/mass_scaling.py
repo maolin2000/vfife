@@ -99,8 +99,8 @@ def rotary_diagonal(R, local) -> np.ndarray:
 def true_rotary(mass_step: np.ndarray, rotary: np.ndarray, row: np.ndarray, free: np.ndarray,
                 extra_floor: Optional[np.ndarray] = None):
     """The mass with its rotary part replaced by the true inertia `rotary`
-    (nn, 3), the explicit step untouched (用户定：改，稳定步长
-    不变).
+    (nn, 3), the explicit step untouched (the user's decision: change the
+    inertia, keep the stable step).
 
     `mass_step` is the mass the step is taken from -- the old rotary rule,
     v0.4's scaling included. A free, attached rotation gets

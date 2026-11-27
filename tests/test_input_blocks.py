@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import yaml
 
-from vfife import prep
+from vfife.prep import blocks             # a submodule: imported, not reached as prep.blocks
 from vfife.core.diagnostics import UserError
 from vfife.io import schema
 
@@ -45,7 +45,7 @@ def test_a_name_in_both_is_refused_unless_the_case_overrides(tmp_path):
         _load(_write(tmp_path, d, "a.yaml"))
     d["include"] = [{"path": "lib.yaml", "override": True}]
     _load(_write(tmp_path, d, "b.yaml"))
-    assert prep.blocks.include(d, str(tmp_path))["materials"]["c50"]["E"] == 3.45e10   # the case's c50 wins
+    assert blocks.include(d, str(tmp_path))["materials"]["c50"]["E"] == 3.45e10   # the case's c50 wins
 
 
 def test_an_included_file_includes_and_holds_only_definitions(tmp_path):
@@ -84,7 +84,7 @@ def test_nodal_loads_from_a_table_at_named_regions_or_places(tmp_path):
     d.pop("tendons")
     (tmp_path / "sdl.csv").write_text("x,y,z,fz\n10,0,0,-1000\n20,0,0,-2000\n", encoding="utf-8")
     d["steps"][1]["loads"] = [{"table": "sdl.csv", "keep": True}]
-    low = prep.blocks.tables(d, str(tmp_path))
+    low = blocks.tables(d, str(tmp_path))
     assert low["regions"]["sdl#1"] == {"nearest": [10.0, 0.0, 0.0]}
     assert low["steps"][1]["loads"] == [
         {"region": "sdl#1", "per_node": True, "vector": [0.0, 0.0, -1000.0], "keep": True},
@@ -207,7 +207,7 @@ def test_nodal_masses_from_a_table(tmp_path):
     d.pop("tendons")
     (tmp_path / "m.csv").write_text("region,mass\nleft,1000\nright,2000\n", encoding="utf-8")
     d["nodal_masses"] = [{"table": "m.csv", "weight": False}]
-    low = prep.blocks.tables(d, str(tmp_path))
+    low = blocks.tables(d, str(tmp_path))
     assert low["nodal_masses"] == [{"region": "left", "per_node": True, "mass": 1000.0, "weight": False},
                                    {"region": "right", "per_node": True, "mass": 2000.0, "weight": False}]
     _load(_write(tmp_path, d))

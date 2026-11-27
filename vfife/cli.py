@@ -1478,10 +1478,10 @@ def main(argv=None):
     cap.add_argument("--format", choices=("text", "json"), default="text")
     cap.set_defaults(func=cmd_capabilities)
 
-    ref = sub.add_parser("reference", help="regenerate docs/YAML参考.md and docs/vfife.schema.json "
-                                           "from the input model (--api: docs/API参考.md from vfife.api)")
+    ref = sub.add_parser("reference", help="regenerate docs/yaml_reference.md and docs/vfife.schema.json "
+                                           "from the input model (--api: docs/api_reference.md from vfife.api)")
     ref.add_argument("-o", "--output", default=None,
-                     help="write the YAML reference here instead of docs/YAML参考.md (and skip the schema)")
+                     help="write the YAML reference here instead of docs/yaml_reference.md (and skip the schema)")
     ref.add_argument("--api", action="store_true", help="the Python API reference instead")
     ref.add_argument("--codes", action="store_true",
                      help="the error-code catalogue docs/error_codes.md instead")

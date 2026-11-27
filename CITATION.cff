@@ -1,28 +1,47 @@
 cff-version: 1.2.0
-message: "If you use vfife in published work, please cite it as below."
-title: "vfife: an explicit co-rotational finite element solver (VFIFE) in Python"
+message: "If you use vfife in published work, please cite the version you used."
+title: "vfife: vector form intrinsic finite element analysis of bridges"
 type: software
-version: 1.23.0
+version: 1.23.1
 date-released: "2026-11-27"
 license: MIT
 repository-code: "https://github.com/maolin2000/vfife"
 authors:
-  - name: maolin2000
+  - family-names: Tian
+    given-names: Maolin
+    affiliation: Zhejiang University
+    orcid: "https://orcid.org/0009-0000-7476-0270"
     email: mltianzju@gmail.com
 keywords:
-  - finite element
   - vector form intrinsic finite element
+  - bridge engineering
   - explicit dynamics
   - dynamic relaxation
-  - co-rotational
+  - co-rotational formulation
   - fibre beam
-  - reinforced concrete
+  - progressive collapse
 abstract: >-
-  A config-driven explicit co-rotational finite element core: continuum
-  (hexa8/tet4/tet10/wedge/pyramid/hexa20) on NumPy, Numba and Warp/CUDA
-  backends, plus truss, 3-D frame, fibre beam, shell, cable and connector
-  line elements, embedded and bonded reinforcement, prestressing tendons,
-  moving loads, temperature, creep, shrinkage and relaxation, bearings on the
-  fibre beam, seismic base excitation, form-finding, modal analysis and
-  fracture with separation on frames, and a verification-contract test suite against published
-  experiments and NAFEMS benchmarks.
+  A structural analysis program for bridges based on the vector form
+  intrinsic finite element method. Beams, fibre beams, bars, cables,
+  connectors, shells and solids with reinforcement and tendons; dynamic
+  relaxation and Newton statics, construction stages, creep, shrinkage and
+  relaxation, moving loads and vehicles, seismic excitation, modal and
+  buckling analysis, member fracture with separation and contact. Every
+  reference case carries a verification contract against closed-form
+  solutions, laboratory tests or field measurements.
+references:
+  - type: article
+    authors:
+      - family-names: Ting
+        given-names: E. C.
+      - family-names: Shih
+        given-names: C.
+      - family-names: Wang
+        given-names: Y.-K.
+    title: "Fundamentals of a vector form intrinsic finite element: Part I. Basic procedure and a plane frame element"
+    journal: Journal of Mechanics
+    volume: 20
+    issue: 2
+    start: 113
+    end: 122
+    year: 2004

@@ -30,28 +30,21 @@ class _Strict(BaseModel):
 
 
 class TendonLine(_Strict):
-    #: 参考线上剖面 x = 0 的点
     #: a point of the tendon's reference line, where its profile's x is 0
     origin: List[float] = Field(min_length=3, max_length=3)
-    #: 参考线方向（x）；y 水平、垂直于它，z 是第三根轴（参考线不竖直时朝上）
     #: the reference line's direction (x); its y is horizontal, across it, and z the third axis (up for a line that is not vertical)
     direction: List[float] = Field(min_length=3, max_length=3)
-    #: y、z 两轴绕 x 转过的角度（度）
     #: the y and z axes turned about x by this angle (degrees)
     turn: float = 0.0
 
 
 class TendonStress(_Strict):
-    #: 张拉它的分析步（步名）；不写则是它粘结的构件最后建成的那一步
     #: the step that stresses it (its name); none: the step in which the last of the members it is bonded to is built
     step: Optional[str] = None
-    #: 张拉端：`begin`、`end`、`both`
     #: the end or ends it is jacked at: `begin`, `end`, `both`
     ends: Literal["begin", "end", "both"] = "begin"
-    #: 起点端和终点端的张拉控制应力（应力单位），或……
     #: the stress at the jack, at its begin and its end (stress unit), or ...
     stress: Optional[List[float]] = Field(None, min_length=2, max_length=2)
-    #: ……整束的张拉力（力单位），两者写一个
     #: ... the whole tendon's force at the jack (force unit); one of the two
     force: Optional[List[float]] = Field(None, min_length=2, max_length=2)
 
@@ -63,76 +56,55 @@ class TendonStress(_Strict):
 
 
 class TendonFriction(_Strict):
-    #: 摩擦系数 μ，每弧度转角
     #: the friction coefficient mu, per radian of the line's turning
     mu: float = Field(0.0, ge=0.0)
-    #: 偏差系数 k，每单位长度
     #: the wobble coefficient k, per unit of length
     k: float = Field(0.0, ge=0.0)
 
 
 class TendonDrawIn(_Strict):
-    #: 起点端锚具回缩（长度单位）
     #: the anchorage's draw-in at the begin (length unit)
     begin: float = Field(0.0, ge=0.0)
-    #: 终点端锚具回缩（长度单位）
     #: the anchorage's draw-in at the end (length unit)
     end: float = Field(0.0, ge=0.0)
 
 
 class TendonRelaxation(_Strict):
-    #: 按哪本规范算松弛（`vfife.codes`）：目前 `jtg3362`
     #: the code whose loss it follows (`vfife.codes`): `jtg3362` for now
     code: Literal["jtg3362"] = "jtg3362"
-    #: 抗拉强度标准值 fpk（应力单位）
     #: the characteristic strength fpk (stress unit)
     fpk: float = Field(gt=0.0)
-    #: 规范的松弛系数 ζ
     #: the code's relaxation coefficient zeta
     zeta: float = Field(gt=0.0)
-    #: 超张拉：ψ 取 0.9（否则 1.0）
     #: over-stressed: psi 0.9 instead of 1.0
     overstressed: bool = False
 
 
 class TendonSpec(_Strict):
-    #: 钢束名：结果里按它报告，展开出的区域以它开头（`名字/bar1`、`名字/arm1`）
     #: its name: what the results report it by, and the start of the regions it expands to (`name/bar1`, `name/arm1`)
     name: str
-    #: 它粘结的主梁节点：网格的一个节点组；用它长度范围内的节点，以及离两个锚点最近的节点
     #: the girder nodes it is bonded to: a group of the mesh; the ones along its length are used, and the nearest to each anchor
     nodes: str
-    #: 杆截面：一根钢绞线（或钢筋）的面积和材料
     #: a bar section: the area of one strand or bar, and its material
     section: str
-    #: 孔道里的根数，面积乘它
     #: strands or bars in the duct: the area is times this
     count: int = Field(1, ge=1)
-    #: 参考线
     #: its reference line
     line: TendonLine
-    #: 处处加在剖面上的 [oy, oz]
     #: [oy, oz] added to the profile everywhere
     offset: List[float] = Field([0.0, 0.0], min_length=2, max_length=2)
-    #: 平弯：[x, y, 半径] 点列；不写则在参考线上
     #: across the line: [x, y, radius] points; none: on the line
     profile_y: List[List[float]] = []
-    #: 竖弯：[x, z, 半径] 点列，折角按半径倒圆
     #: its drape: [x, z, radius] points, each corner rounded to its radius
     profile_z: List[List[float]] = Field(min_length=2)
-    #: 张拉
     #: its jacking
     stress: TendonStress
-    #: 摩擦损失
     #: its friction losses
     friction: TendonFriction = TendonFriction()
-    #: 锚具回缩
     #: its anchorages' draw-in
     draw_in: TendonDrawIn = TendonDrawIn()
-    #: 松弛（不写则不松弛）
     #: its relaxation (none: it does not relax)
     relaxation: Optional[TendonRelaxation] = None
-    #: 刚臂的刚度：钢束最刚的一段杆（4EA/L）的多少倍
     #: an arm's stiffness: this times the tendon's stiffest bar (4 E A / L)
     arm_factor: float = Field(30.0, gt=0.0)
 

@@ -1,8 +1,8 @@
-# 统一自由度与混合装配协议
+# Degrees of freedom and mixed assembly
 
-`vfife/base/dof.py`（1.22 之前是 `vfife/core/dof.py`） 是节点物理分量到全局方程编号的唯一映射层。单元不得自行假定 `6*node+dof`，而应通过 `DofLayout` 请求自由度映射。
+`vfife/base/dof.py` (before 1.22, `vfife/core/dof.py`) is the one map from the physical components of a node to the global equation numbers. An element must not assume `6*node+dof`; it asks `DofLayout` for its map.
 
-## 布局
+## Layouts
 
 ```python
 solid = DofLayout.translations(n_nodes)  # ux, uy, uz
@@ -13,36 +13,36 @@ translation_map = frame.node_dofs(nodes, TRANSLATION)
 rotation = frame.field(global_vector, ROTATION)
 ```
 
-该协议允许：
+This lets:
 
-- 实体和独立杆保留紧凑的三自由度节点状态；
-- 梁和混合杆系使用六自由度状态；
-- coupled 模型只把实体力、质量装入共享平动分量；
-- 无梁节点的旋转槽保持非活动，而不是赋予虚假微小质量；
-- 新壳、弹簧、连接和界面单元按名称请求所需分量。
+- solids and stand-alone bars keep a compact three-dof nodal state;
+- beams and mixed line models use the six-dof state;
+- a coupled model assemble the solids' forces and masses into the shared translations only;
+- the rotation slots of a node no beam reaches stay inactive, rather than being given a small false mass;
+- new shells, springs, connectors and interface elements ask for the components they need by name.
 
-`SparseAssembler` 通过单元显式 equation map 装配矩阵，并校验局部矩阵尺寸。`DofLayout.add_nodal()` 负责按命名分量装配节点载荷或耦合力。
+`SparseAssembler` assembles matrices through each element's explicit equation map and checks the size of the local matrices. `DofLayout.add_nodal()` assembles nodal loads or coupling forces by named component.
 
-## VFIFE 几何原则
+## The VFIFE geometry
 
-本协议只统一自由度所有权和装配，不改变任何单元的变形计算。梁仍先扣除刚体平移和转动，再由局部变形求等效内力；实体与杆同样保持现有共旋转/VFIFE 路径。因此混合装配不会把传统小位移全局刚度假设引入单元内力更新。
+The layout unifies who owns a degree of freedom and how things are assembled; it changes no element's deformation. A beam still removes the rigid translation and rotation first and finds its internal forces from the local deformation; solids and bars keep their co-rotational / VFIFE paths. Mixed assembly therefore brings no small-displacement global stiffness into the update of internal forces.
 
-梁的 12×12 局部—整体变换使用 `repeated_rotation()`。它生成确定的稠密块旋转矩阵，替代 SciPy 正在改变返回类型的 `sparse.block_diag`，消除了原专项测试中的 36,303 条弃用警告。
+The beam's 12×12 local-to-global transformation uses `repeated_rotation()`, a deterministic dense block rotation. It replaced SciPy's `sparse.block_diag`, whose return type was changing, and removed 36,303 deprecation warnings from the tests that used it.
 
-## 当前接入状态
+## Where it is used
 
-- 实体 `Solver`：登记三平动布局；
-- `TrussSolver`：登记三平动布局；
-- `BeamSolver`：自由度、节点载荷、质量访问、监视器及矩阵装配使用统一布局；
-- `MixedStructuralSolver`：梁/杆共用 equation map 和稀疏装配器；
-- `CoupledSolver`：实体质量与内力只装配到命名平动分量，旋转活动性通过命名旋转分量确定。
+- the solid `Solver`: registers the three-translation layout;
+- `TrussSolver`: registers the three-translation layout;
+- `BeamSolver`: degrees of freedom, nodal loads, mass access, monitors and matrix assembly through the layout;
+- `MixedStructuralSolver`: beams and bars share an equation map and the sparse assembler;
+- `CoupledSolver`: the solids' masses and internal forces are assembled into the named translations only, and which rotations are active follows from the named rotation components.
 
-## 新单元准入
+## A new element
 
-新增单元必须：
+A new element must:
 
-1. 在能力注册中声明物理自由度名称；
-2. 使用 `DofLayout` 生成 element equation map；
-3. 使用统一装配接口，不得复制 stride 算术；
-4. 对不拥有的自由度保持非活动，不得用微小质量掩盖机构；
-5. 通过局部矩阵尺寸、节点力平衡、刚体运动、混合装配和经典解测试。
+1. declare the names of its physical degrees of freedom in the capability registry;
+2. make its equation map with `DofLayout`;
+3. assemble through the common interface, without copying stride arithmetic;
+4. leave the degrees of freedom it does not own inactive, and not hide a mechanism with a small mass;
+5. pass the tests of local matrix size, nodal force balance, rigid-body motion, mixed assembly and a classical solution.

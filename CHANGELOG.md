@@ -7,6 +7,29 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.23.1] — 2026-11-27
+
+A maintenance release: documentation and tests only. The code computes
+exactly what 1.23.0 does.
+
+### Changed
+
+- **One set of documentation, in English.** The Chinese user manual and the
+  Chinese generated references are removed; `docs/user_manual.md` is the manual, and
+  the generated references are `docs/yaml_reference.md` and
+  `docs/api_reference.md` (`python -m vfife reference`, `--api`). The
+  fields' `#:` comments lost their Chinese first lines, so the editor
+  schema's descriptions are English. The pages that were written in Chinese
+  (the tutorial, the fibre beam, steel and concrete laws, convergence
+  debugging and the registration protocols) are in English. The README is
+  shorter, and `CITATION.cff` names the author.
+
+### Fixed
+
+- Two tests reached a submodule of `vfife.prep` as an attribute
+  (`prep.blocks`, `prep.tendons`) without importing it, and passed only when
+  another test in the same worker had imported it first; they import it now.
+
 ## [1.23.0] — 2026-11-27
 
 A feature release on the 1.0 formats, and the last before a stable period:
@@ -980,7 +1003,7 @@ are unchanged.
     On a real rigid frame (24 stages, 132 tendons) the tendons' stiffness
     alone brings the dead-load deflection from 1.067 to 1.035 of Midas'
     (Midas counts them in the section); the tendons' own effect is 1.05
-    to 1.15 of Midas' "钢束一次", growing with the stages as Midas' time
+    to 1.15 of Midas' primary tendon effect, growing with the stages as Midas' time
     losses do;
   - shear: Midas' beam is a Timoshenko beam with the section's ASy, ASz,
     and so is the translated one where they are known (stated, or a
@@ -3917,8 +3940,10 @@ sees it, and none of them is a load.
   mattered**. Version 0.4 had no published
   statement of the Hangzhou Bay piers and derived a SOLID 6.25 x 1.80 m from
   their weights. Three independent papers -- this unit's own
-  黄燕庆《水中低墩区引桥总体设计》§3, 赵毅《高墩区引桥下部结构及基础设计》§3 and
-  罗园辉《高墩区引桥墩身的施工》§1 -- state a HOLLOW rectangle, 6.25 m across
+  Huang Yanqing on the overall design of the approach spans in the low-pier
+  zone (§3), Zhao Yi on their substructure and foundations in the high-pier
+  zone (§3) and Luo Yuanhui on building their pier shafts (§1), all in
+  Chinese -- state a HOLLOW rectangle, 6.25 m across
   the bridge by 2.60 m along it at the base growing to 4.00 m at the top, walls
   0.50 m. In the plane of the frame that is **4.4x stiffer** (I 3.04 -> 13.39
   m4 at mid-height); ACROSS the bridge the old assumption was right to 8%, by

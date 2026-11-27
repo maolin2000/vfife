@@ -1,6 +1,6 @@
 """The YAML reference, generated from the code.
 
-`docs/YAML参考.md` answers two questions a hand-written manual keeps getting
+`docs/yaml_reference.md` answers two questions a hand-written manual keeps getting
 wrong as the library moves: WHAT can a case file say, and WHERE is a working
 example. Both are read from the source of truth rather than remembered:
 
@@ -12,7 +12,7 @@ example. Both are read from the source of truth rather than remembered:
     so a field that no case exercises is listed by name at the end -- either
     it wants an example or it is dead.
 
-`tests/test_reference.py` regenerates the file and fails when it differs
+`tests/test_reference.py` regenerates the files and fails when it differs
 from the one in the repository, so a new field without its documentation is
 a red test, not a stale page.
 """
@@ -44,36 +44,62 @@ MATERIALS = frozenset(library()["materials"])
 # validates it. A `*` level is a user-chosen name (a section, a region); a
 # `[]` level is a list. Nested model classes are found from the annotations.
 BLOCKS: List[Tuple[str, Optional[type], str]] = [
-    ("version", None, "算例格式版本：写 `1`（1.0 版起）；不写与 `1` 按同样的规则读（旧写法读入并给 DEPRECATED_FIELD 警告），写更大的数则拒绝。`vfife migrate` 会加上"),
-    ("name", None, "算例名，也是结果文件的默认标题"),
-    ("units", None, "单位声明（`length`、`force`、`stress`、`time`，另收 `moment`、`mass`、`temperature`、`density`）：preflight 据此检查量级；写出的数不换算，带单位的默认值换算到声明的单位；写了 `stress` 而缺 `length` 或 `force` 时由另外两个推出（`{force: N, stress: MPa}` 即 mm），推不出则 UNITS_INCOMPLETE 拒绝；结果文件记为 `unit_*` 属性"),
-    ("include", None, "并入其他文件里的 materials、sections、reinforcement、groups、tendons、tendon_defaults：`[路径, ...]`，或 `{path, override: true}` 让本文件的定义优先；重名拒绝"),
-    ("groups.*", None, "构件组：名字 → `[网格的组或组名, ...]`；读入后是网格里由这几块组成的一个组，凡写区域名的地方都可以用；降级为 `mesh.groups`"),
-    ("mesh", sc.MeshSpec, "网格：结构化盒子、Gmsh `.msh`、Abaqus `.inp`，或写在算例里的线单元网格（`lines`，1.1）"),
-    ("materials.*", None, "材料库：名字 → `{type, 参数...}`；每种材料的参数见第二部分"),
-    ("sections.*", im.SectionSpec, "截面：几何 + 材料，被 `assign` 指派到区域上"),
-    ("reinforcement.*", im.ReinforcementGeometry, "钢筋/预应力束的几何：按图纸坐标画，与网格无关"),
-    ("regions.*", sc.RegionSpec, "命名节点集：按几何、按 Gmsh 物理组、按编号，或集合运算"),
-    ("assign[]", im.AssignSpec, "唯一让截面遇到几何的地方：区域 ← 截面（+ 钢筋、粘结、预应力、断裂）"),
-    ("tendon_defaults", None, "各束钢束共用的设置：钢束没写的键从这里取，映射（`stress`、`friction` 等）逐键合并、钢束自己写的优先；剖面可写 `{table: 文件.csv}`，按钢束名取行"),
-    ("offset_arms", OffsetArmSpec, "偏心构件的刚臂：`{material, factor, limit, regions}`，一条规则代替每根刚臂一个截面；读入时按所连偏心构件的刚度算出每根的截面"),
-    ("tendons[]", TendonSpec, "框架模型的钢束，一束一条：线形、面积、张拉、摩擦、回缩、松弛；读入时展开成钢束节点、刚臂和张拉的杆"),
-    ("constraints[]", sc.ConstraintSpec, "约束：固定自由度，或强制位移/速度/加速度时程"),
-    ("loads[]", sc.LoadSpec, "荷载：力、力偶、线荷载、面力、压力、体力、重力、温度、移动荷载、车辆、地面运动"),
-    ("nodal_masses[]", sc.NodalMassSpec, "附加节点质量：默认三向、有重量；可定向（附加质量，无重量）、可加转动惯量"),
-    ("hydrodynamic_mass[]", sc.HydrodynamicMassSpec, "水下构件的 Morison 附加质量：横向、无重量"),
-    ("soil_springs[]", sc.SoilSpringSpec, "桩的土弹簧：按深度给的 p–y 曲线，非线性弹性（1.2）"),
-    ("diaphragms[]", sc.DiaphragmSpec, "刚性隔板：区域内节点在某个平面内作刚体运动"),
-    ("amplitudes.*", None, "幅值表：名字 → `[[进度或时间, 系数], ...]`，或 `hold`；荷载和约束用名字引用"),
-    ("steps[]", sc.StepSpec, "多分析步：每步自己的约束、荷载与迭代预算，按顺序执行"),
-    ("removals[]", sc.RemovalSpec, "定时移除：某个区域的构件在给定时刻退出（断索情景）"),
-    ("contact", sc.ContactSpec, "刚性面接触：地面、海底、承台——节点碰到即受罚力，动力下可带库仑摩擦"),
-    # it was missing from the reference altogether
+    ("version", None,
+     "Case format version: `1` (from 1.0); left out, it is read by the same rules as `1` (old spellings read with a DEPRECATED_FIELD warning); a larger number is refused. `vfife migrate` adds it"),
+    ("name", None,
+     "The case's name, also the result file's default title"),
+    ("units", None,
+     "The units declared (`length`, `force`, `stress`, `time`; also `moment`, `mass`, `temperature`, `density`): preflight checks magnitudes by them; numbers written are not converted, defaults that carry a unit are converted to them; `stress` without `length` or `force` has them inferred from the other two (`{force: N, stress: MPa}` is mm), or UNITS_INCOMPLETE refuses; the result records them as `unit_*` attributes"),
+    ("include", None,
+     "Merge the materials, sections, reinforcement, groups, tendons and tendon_defaults of other files: `[path, ...]`, or `{path, override: true}` for this file's definitions to win; a repeated name is refused"),
+    ("groups.*", None,
+     "Member groups: name -> `[mesh groups or group names, ...]`; read as one group of the mesh made of those parts, usable wherever a region name is; lowered to `mesh.groups`"),
+    ("mesh", sc.MeshSpec,
+     "The mesh: a structured box, a Gmsh `.msh`, an Abaqus `.inp`, or a line mesh written in the case (`lines`, 1.1)"),
+    ("materials.*", None,
+     "Material table: name -> `{type, parameters...}`; each material's parameters are in part 3"),
+    ("sections.*", im.SectionSpec,
+     "Sections: geometry + material, assigned to regions by `assign`"),
+    ("reinforcement.*", im.ReinforcementGeometry,
+     "Reinforcement and tendon geometry, drawn in drawing coordinates, independent of the mesh"),
+    ("regions.*", sc.RegionSpec,
+     "Named node sets: by geometry, by Gmsh physical group, by number, or set operations"),
+    ("assign[]", im.AssignSpec,
+     "The one place a section meets geometry: region <- section (+ reinforcement, bond, prestress, fracture)"),
+    ("tendon_defaults", None,
+     "Settings the tendons share: a key a tendon leaves out is taken from here; mappings (`stress`, `friction`, ...) merge key by key, the tendon's own winning; a profile may be `{table: file.csv}`, rows taken by tendon name"),
+    ("offset_arms", OffsetArmSpec,
+     "Rigid arms of members set off their nodes: `{material, factor, limit, regions}`, one rule instead of a section per arm; each arm's section is computed on reading from the stiffness of the members it joins"),
+    ("tendons[]", TendonSpec,
+     "Tendons of a frame model, one entry each: profile, area, jacking, friction, draw-in, relaxation; expanded on reading into tendon nodes, rigid arms and jacked bars"),
+    ("constraints[]", sc.ConstraintSpec,
+     "Constraints: fixed degrees of freedom, or prescribed displacement, velocity or acceleration histories"),
+    ("loads[]", sc.LoadSpec,
+     "Loads: forces, moments, line loads, tractions, pressure, body force, gravity, temperature, moving loads, vehicles, ground motion"),
+    ("nodal_masses[]", sc.NodalMassSpec,
+     "Added nodal masses: by default in three directions and with weight; may be directional (added mass, no weight) and carry rotary inertia"),
+    ("hydrodynamic_mass[]", sc.HydrodynamicMassSpec,
+     "Morison added mass of submerged members: transverse, weightless"),
+    ("soil_springs[]", sc.SoilSpringSpec,
+     "Soil springs on piles: p-y curves by depth, nonlinear elastic (1.2)"),
+    ("diaphragms[]", sc.DiaphragmSpec,
+     "Rigid diaphragms: the region's nodes move as a rigid body in a plane"),
+    ("amplitudes.*", None,
+     "Amplitude tables: name -> `[[progress or time, factor], ...]`, or `hold`; loads and constraints refer to them by name"),
+    ("steps[]", sc.StepSpec,
+     "Analysis steps: each with its own constraints, loads and iteration budget, run in order"),
+    ("removals[]", sc.RemovalSpec,
+     "Timed removals: a region's members leave at a given time (a cable-loss scenario)"),
+    ("contact", sc.ContactSpec,
+     "Contact with rigid surfaces: ground, sea bed, pile cap -- a node that touches gets a penalty force, with Coulomb friction in dynamics"),
     ("response_spectrum", sc.ResponseSpectrumSpec,
-     "反应谱：在计算结束时的平衡状态上做模态、按谱求各阶峰值并组合（CQC/SRSS）"),
-    ("solver", sc.SolverSpec, "求解：动力松弛（静力）或显式动力，阻尼、步长、后端、质量缩放、起始状态"),
-    ("output", sc.OutputSpec, "输出：结果文件、写出频率、场、检查点、监测量"),
+     "Response spectrum: modes at the equilibrium state the run ends in, each mode's peak from the spectrum, combined (CQC/SRSS)"),
+    ("solver", sc.SolverSpec,
+     "Solution: dynamic relaxation (statics) or explicit dynamics; damping, time step, backend, mass scaling, initial state"),
+    ("output", sc.OutputSpec,
+     "Output: result file, output interval, fields, checkpoints, monitors"),
 ]
+
 
 # Blocks the input model types as a free dict but a schema class defines:
 # documented as their own tables, and the walk records their fields too.
@@ -92,22 +118,12 @@ CASE_GLOB = "cases/case_*.yaml"
 
 # ---------------------------------------------------------------- doc comments
 _FIELD_RE = re.compile(r"^    (\w+)\s*:")
-_CJK = re.compile(r"[\u3000-\u9fff\uff00-\uffef]")
 
 
-def _is_chinese(line: str) -> bool:
-    """A Chinese summary line, as opposed to an English line that merely
-    cites a 阶段 note."""
-    return len(_CJK.findall(line.replace("阶段", ""))) >= 2
-
-
-def field_docs(cls: type) -> Dict[str, Tuple[str, str]]:
-    """`#:` comments above each field of a Pydantic class: (Chinese, English).
-
-    The convention: the FIRST `#:` line of a field, when it begins with a CJK
-    character, is the one-line Chinese summary; the lines after it are the
-    English original. A field with no Chinese line gets ("", english)."""
-    out: Dict[str, Tuple[str, str]] = {}
+def field_docs(cls: type) -> Dict[str, str]:
+    """`#:` comments above each field of a Pydantic class, joined: the
+    field's documentation."""
+    out: Dict[str, str] = {}
     pending: List[str] = []
     for raw in inspect.getsource(cls).splitlines():
         line = raw.rstrip()
@@ -118,9 +134,7 @@ def field_docs(cls: type) -> Dict[str, Tuple[str, str]]:
         m = _FIELD_RE.match(line)
         if m and not s.startswith("model_config"):
             if pending:
-                zh = pending[0] if _is_chinese(pending[0]) else ""
-                en = pending[1:] if zh else pending
-                out[m.group(1)] = (zh, " ".join(en))
+                out[m.group(1)] = " ".join(pending)
             pending = []
         elif s and not s.startswith("#"):
             pending = []
@@ -164,7 +178,7 @@ def type_name(tp) -> str:
         return "any"
     if inspect.isclass(tp):
         if issubclass(tp, BaseModel):
-            return f"见 {tp.__name__}"
+            return f"see {tp.__name__}"
         return {"str": "str", "float": "float", "int": "int", "bool": "bool"}.get(tp.__name__, tp.__name__)
     return str(tp).replace("typing.", "")
 
@@ -174,13 +188,13 @@ def default_text(field) -> str:
     if d is PydanticUndefined:
         if field.default_factory is not None:
             return "—"
-        return "**必填**"
+        return "**required**"
     if isinstance(d, BaseModel):
-        return "（默认块）"
+        return "(default block)"
     if d is None:
         return "—"
     if isinstance(d, (list, dict)) and not d:
-        return "空"
+        return "empty"
     return f"`{d}`"
 
 
@@ -267,7 +281,7 @@ def _cases(hits: Dict[str, set], key: str, limit: int = 8) -> str:
     if not c:
         return "—"
     if len(c) > limit:
-        return f"{len(c)} 个（{', '.join(c[:4])} …）"
+        return f"{len(c)} ({', '.join(c[:4])} ...)"
     return ", ".join(c)
 
 
@@ -282,7 +296,7 @@ def _table(cls: type, path: str, hits, unused: List[str], seen: set,
     lines = [f"### `{path}` — {cls.__name__}", ""]
     if cls.__doc__:
         lines += [inspect.cleandoc(cls.__doc__).replace("\n", " "), ""]
-    lines += ["| 字段 | 类型 | 默认 | 说明 | 英文原注 | 算例 |", "|---|---|---|---|---|---|"]
+    lines += ["| field | type | default | description | cases |", "|---|---|---|---|---|"]
     nested: List[Tuple[type, str]] = []
     for name, f in cls.model_fields.items():
         key = f.alias or name
@@ -290,11 +304,10 @@ def _table(cls: type, path: str, hits, unused: List[str], seen: set,
         used = _cases(hits, fpath)
         if used == "—":
             unused.append(fpath)
-        zh, en = docs.get(name, ("", ""))
-        zh = zh.replace("|", "\\|"); en = en.replace("|", "\\|").replace("``", "`")
-        if not zh:
+        doc = docs.get(name, "").replace("|", "\\|").replace("``", "`")
+        if not doc:
             undocumented.append(fpath)
-        lines.append(f"| `{key}` | {type_name(f.annotation)} | {default_text(f)} | {zh} | {en} | {used} |")
+        lines.append(f"| `{key}` | {type_name(f.annotation)} | {default_text(f)} | {doc} | {used} |")
         inner, how = _unwrap(f.annotation)
         if inner is not None:
             nested.append((inner, fpath + ("[]" if how == "[]" else ".*" if how == "*" else "")))
@@ -307,28 +320,31 @@ def _table(cls: type, path: str, hits, unused: List[str], seen: set,
 
 
 def generate(root: pathlib.Path = ROOT) -> str:
+    """docs/yaml_reference.md."""
     hits, cases = usage(root / "cases")
     lib = library()
     out: List[str] = []
-    out += [f"# vfife YAML 参考（自动生成，{__version__}）", ""]
-    out += ["> 由 `python -m vfife reference` 从 `vfife/io/model.py`、`vfife/io/schema.py` 和材料/单元目录生成；"
-            "`tests/test_reference.py` 保证它与代码一致。**不要手改**——改字段的 `#:` 注释，再重新生成。",
-            "> 说明列是字段上方 `#:` 注释的中文第一行，英文原注是其余行。概念、建模方法和完整例子见 `docs/用户手册.md`；每个字段最后一列是",
-            f"> 用到它的自带算例编号（`cases/case_NN_*.yaml`，共 {len(cases)} 个，每个都有 `verification/` 下的契约）。", ""]
+    out += [f"# vfife YAML reference (generated, {__version__})", ""]
+    out += ["> Generated by `python -m vfife reference` from `vfife/io/model.py`, `vfife/io/schema.py` and the "
+            "material and element catalogue; `tests/test_reference.py` keeps it in step with the code. "
+            "**Do not edit** -- edit the field's `#:` comment and generate again.",
+            "> Concepts, modelling methods and complete examples are in `docs/user_manual.md`. The last column "
+            f"of each table lists the shipped cases that use the field (`cases/case_NN_*.yaml`, {len(cases)} of "
+            "them, each with a contract under `verification/`).", ""]
 
-    out += ["## 一 算例文件的顶层块", "",
-            "| 块 | 含义 | 用到它的算例 |", "|---|---|---|"]
-    for block, cls, zh in BLOCKS:
+    out += ["## 1 Top-level blocks of a case file", "",
+            "| block | meaning | cases |", "|---|---|---|"]
+    for block, cls, meaning in BLOCKS:
         key = block.rstrip("*[]").rstrip(".")
-        out.append(f"| `{key}` | {zh} | {_cases(hits, key)} |")
-    out += ["", "内部格式的块（由 `materials/sections/assign` 降解生成，旧算例可直接写）：" +
-            "、".join(f"`{k}`" for k in INTERNAL) + "。" +
-            ("用到的算例：" + "; ".join(f"`{k}` {_cases(hits, 'internal:' + k)}" for k in INTERNAL
-                                  if _cases(hits, 'internal:' + k) != "—")
-             if any(_cases(hits, 'internal:' + k) != "—" for k in INTERNAL)
-             else "自带算例全部用输入格式。"), ""]
+        out.append(f"| `{key}` | {meaning} | {_cases(hits, key)} |")
+    used_internal = [f"`{k}` {_cases(hits, 'internal:' + k)}" for k in INTERNAL
+                     if _cases(hits, 'internal:' + k) != "—"]
+    out += ["", "Internal-form blocks (what `materials/sections/assign` lower to; old cases may write them "
+            "directly): " + ", ".join(f"`{k}`" for k in INTERNAL) + ". " +
+            ("Cases that use them: " + "; ".join(used_internal) + "." if used_internal
+             else "The shipped cases all use the input format."), ""]
 
-    out += ["## 二 每个块的字段", ""]
+    out += ["## 2 The fields of each block", ""]
     unused: List[str] = []
     undocumented: List[str] = []
     seen: set = set()
@@ -337,40 +353,47 @@ def generate(root: pathlib.Path = ROOT) -> str:
             continue
         out += _table(cls, block, hits, unused, seen, undocumented)
 
-    out += ["## 三 材料", "",
-            "`materials.<名>: {type: <材料名>, <参数>...}`。参数没有默认值表的，看 `docs/` 里同名文档或算例。"
-            "带单位的默认值（`rho`、`concrete01/02` 的 `fpc`、`steel02` 的 `E`/`Fy`、`steel_cyclic` 的 `E` 与牌号的 `fy`/`fu`、`bond_ceb` 与 `bond_cyclic` 的 `tau_max`/`s1..s3`）按 SI 给出，声明了非 SI 的 `units` 时换算到声明的单位。"
-            "同一参数的别名（`concrete01/02` 的 `fc`=`fpc`、`eps_c0`=`epsc0`、`eps_cu`=`epscu`，`concrete02` 的 `fpcu`/`fcu2`=`fcu`、`concrete01` 的 `fcu`=`fpcu`，`steel02` 的 `E0`=`E`、`yield_strength`=`fy`=`Fy`，`rebar`、`j2`、`chaboche` 的 `fy`=`yield_strength`）与正名同时给出且不等时拒绝（`MATERIAL_ALIAS_CONFLICT`）。", ""]
+    out += ["## 3 Materials", "",
+            "`materials.<name>: {type: <material>, <parameters>...}`. Where a parameter has no default in the table, "
+            "see the document of the same name in `docs/` or a case. "
+            "Defaults that carry a unit (`rho`, `fpc` of `concrete01/02`, `E`/`Fy` of `steel02`, `E` and the grade's "
+            "`fy`/`fu` of `steel_cyclic`, `tau_max`/`s1..s3` of `bond_ceb` and `bond_cyclic`) are given in SI and "
+            "converted to the declared `units` when those are not SI. "
+            "An alias of a parameter (`fc`=`fpc`, `eps_c0`=`epsc0`, `eps_cu`=`epscu` of `concrete01/02`; "
+            "`fpcu`/`fcu2`=`fcu` of `concrete02`; `fcu`=`fpcu` of `concrete01`; `E0`=`E`, "
+            "`yield_strength`=`fy`=`Fy` of `steel02`; `fy`=`yield_strength` of `rebar`, `j2`, `chaboche`) "
+            "written beside its proper name with a different value is refused (`MATERIAL_ALIAS_CONFLICT`).", ""]
     for name, m in sorted(lib["materials"].items()):
         used = _cases(hits, f"material:{name}")
         if used == "—":
             unused.append(f"materials.{name}")
         out += [f"### `{name}`", "",
-                f"* 运动学 {', '.join(m['kinematics'])}；后端 {', '.join(m['backends'])}；"
-                f"分析模式 {', '.join(m['analysis_modes'])}；"
-                f"{'非线性' if m['nonlinear'] else '线性'}"
-                f"{'，正则化' if m.get('regularised') else ''}",
-                "* 参数：" + ", ".join(f"`{p}`" for p in m["parameters"]),
-                "* 输出字段：" + (", ".join(f"`{p}`" for p in m["output_fields"]) or "无"),
+                f"* kinematics {', '.join(m['kinematics'])}; backends {', '.join(m['backends'])}; "
+                f"analysis modes {', '.join(m['analysis_modes'])}; "
+                f"{'nonlinear' if m['nonlinear'] else 'linear'}"
+                f"{', regularised' if m.get('regularised') else ''}",
+                "* parameters: " + ", ".join(f"`{p}`" for p in m["parameters"]),
+                "* output fields: " + (", ".join(f"`{p}`" for p in m["output_fields"]) or "none"),
                 ]
         if m.get("caveat"):
-            out.append(f"* 注意：{m['caveat']}")
-        out.append(f"* 算例：{used}")
+            out.append(f"* note: {m['caveat']}")
+        out.append(f"* cases: {used}")
         params_used = sorted(k.split(".", 1)[1] for k in hits if k.startswith(f"material:{name}."))
         if params_used:
-            out.append("* 算例里出现过的参数：" + ", ".join(f"`{p}`" for p in params_used))
+            out.append("* parameters the cases use: " + ", ".join(f"`{p}`" for p in params_used))
         out.append("")
 
-    out += ["## 四 单元与截面类型", "",
-            "截面 `type` 对应的单元：`solid` → 实体（由网格决定 tet4/tet10/hexa8/hexa20/wedge6/wedge15/pyramid5），"
-            "`shell` → shell3/shell4，`beam` → beam2（`theory: timoshenko` 为 beam2_timoshenko），"
-            "`fiber` → beam2_fiber，`bar` → truss2，`connector` → connector2。", "",
-            "“功能”一栏是这种单元的模型能用的模型级功能（`vfife/elements/library.py` 的 `FEATURES`，预检、schema、"
-            "各分析的拒绝都读这一张表）：`static` 静力牛顿法和弧长法，`diaphragms` 刚性楼板，`rigid_links` 主从刚性连接，"
-            "`step_changes` 建立或拆除构件、刚性连接的分析步，`buckling` 线性屈曲。", "",
-            "| 单元 | 后端 | 分析模式 | 功能 | 可用材料 | 输出字段 |", "|---|---|---|---|---|---|"]
+    out += ["## 4 Elements and section types", "",
+            "The element a section `type` makes: `solid` -> solids (tet4/tet10/hexa8/hexa20/wedge6/wedge15/pyramid5, "
+            "from the mesh), `shell` -> shell3/shell4, `beam` -> beam2 (`theory: timoshenko`: beam2_timoshenko), "
+            "`fiber` -> beam2_fiber, `bar` -> truss2, `connector` -> connector2.", "",
+            "\"Features\" are the model-level features a model of the element takes (`FEATURES` in "
+            "`vfife/elements/library.py`, the one table preflight, the schema and every analysis's refusals read): "
+            "`static` Newton statics and arc length, `diaphragms` rigid diaphragms, `rigid_links` master-slave rigid "
+            "links, `step_changes` analysis steps that build or remove members and rigid links, `buckling` linear "
+            "buckling.", "",
+            "| element | backends | analysis modes | features | materials | output fields |", "|---|---|---|---|---|---|"]
     for name, e in sorted(lib["elements"].items()):
-        # `mode: static` runs these, as `describe` says (elements.library.FEATURES)
         modes = list(e["analysis_modes"]) + (["static"] if "static" in e.get("features", ())
                                              and "static" not in e["analysis_modes"] else [])
         out.append(f"| `{name}` | {', '.join(e['backends'])} | {', '.join(modes)} | "
@@ -378,24 +401,26 @@ def generate(root: pathlib.Path = ROOT) -> str:
                    f"{', '.join(e['compatible_materials'])} | {', '.join(e.get('output_fields', [])) or '—'} |")
     out.append("")
 
-    out += ["## 五 没有任何自带算例用到的字段", "",
-            "这些字段能写、会被校验，但没有带契约的例子。用之前先在测试里找它（`grep -r 字段名 tests/`）；"
-            "长期没有例子的字段是删除候选。", ""]
+    out += ["## 5 Fields no shipped case uses", "",
+            "These can be written and are validated, but have no example with a contract. Before using one, look "
+            "for it in the tests (`grep -r <field> tests/`); a field long without an example is a candidate for "
+            "removal.", ""]
     out += [f"* `{u}`" for u in unused]
-    out += ["", "## 六 代码里没有中文说明的字段", "",
-            f"{len(undocumented)} 个。字段上方第一行 `#:` 注释以中文开头即为中文说明，其后是英文原注；补上再生成即可。", ""]
+    out += ["", "## 6 Fields without a description in the code", "",
+            f"{len(undocumented)}. A field's description is its `#:` comment; add it and generate again.", ""]
     out += [f"* `{u}`" for u in undocumented]
-    out += ["", "## 七 弃用的写法", "",
-            "仍然读，preflight 给一条 `DEPRECATED_FIELD` 警告；`vfife migrate <算例> --in-place` 在原文里就地改名、"
-            "加上 `version`，注释和格式不动，并核对改写前后降解出的模型相同。", "",
-            "| 块 | 旧写法 | 现在的写法 |", "|---|---|---|"]
+    out += ["", "## 7 Deprecated spellings", "",
+            "Still read, with a `DEPRECATED_FIELD` warning from preflight; `vfife migrate <case> --in-place` renames "
+            "them in the text itself and adds `version`, leaving comments and layout alone, and checks that the "
+            "model lowered before and after is the same.", "",
+            "| block | old spelling | now |", "|---|---|---|"]
     out += [f"| `sections.*` | `{old}` | `{new}` |" for old, new in im.DEPRECATED_SECTION_KEYS.items()]
     out.append("")
     return "\n".join(out)
 
 
 def generate_api() -> str:
-    """docs/API参考.md: every name in `vfife.api.__all__` with its signature
+    """docs/api_reference.md: every name in `vfife.api.__all__` with its signature
     and docstring. The docstrings are the reference; this
     only lays them out, so the page cannot say something the code does not."""
     import dataclasses
@@ -426,21 +451,23 @@ def generate_api() -> str:
     def doc(obj) -> List[str]:
         d = inspect.getdoc(obj) or ""
         if not d:
-            return ["（无说明）", ""]
+            return ["(no docstring)", ""]
         return ["```text", d, "```", ""]
 
-    out = [f"# vfife Python API 参考（自动生成，API 版本 {api.API_VERSION}，{__version__}）", "",
-           "> 由 `python -m vfife reference --api` 从 `vfife/api.py` 的签名和文档字符串生成；"
-           "`tests/test_api_v1.py` 保证它与代码一致。**不要手改**——改文档字符串，再重新生成。", "",
-           "`vfife.api.__all__` 里的名字就是 API：1.x 之内签名和含义不变，只会加带默认值的参数；"
-           "包里其余的一切都是内部实现，可能改变。概念和完整例子见 `docs/用户手册.md` 12.6。", "",
-           "## 模块说明", ""] + doc(api)
-    out += ["## 名字一览", "", "| 名字 | 种类 | 一句话 |", "|---|---|---|"]
+    out = [f"# vfife Python API reference (generated, API version {api.API_VERSION}, {__version__})", "",
+           "> Generated by `python -m vfife reference --api` from the signatures and docstrings of "
+           "`vfife/api.py`; `tests/test_api_v1.py` keeps it in step with the code. **Do not edit** -- "
+           "edit the docstring and generate again.", "",
+           "The names in `vfife.api.__all__` are the API: within 1.x their signatures and meaning do not "
+           "change, and parameters are only added with defaults; everything else in the package is "
+           "internal and may change. Concepts and complete examples: `docs/user_manual.md` 12.6.", "",
+           "## The module", ""] + doc(api)
+    out += ["## Names", "", "| name | kind | summary |", "|---|---|---|"]
     for name in api.__all__:
         obj = getattr(api, name)
-        kind = ("类" if inspect.isclass(obj) else "函数" if callable(obj) else "常量")
+        kind = "class" if inspect.isclass(obj) else "function" if callable(obj) else "constant"
         para = " ".join((inspect.getdoc(obj) or "").split("\n\n")[0].split())
-        first = para.split(". ")[0].rstrip(".") + "." if kind != "常量" else f"`{obj!r}`"
+        first = para.split(". ")[0].rstrip(".") + "." if callable(obj) else f"`{obj!r}`"
         out.append(f"| `{name}` | {kind} | {first.replace('|', '/')} |")
     out.append("")
     for name in api.__all__:
@@ -450,7 +477,7 @@ def generate_api() -> str:
         if inspect.isclass(obj):
             out += [f"## `{name}`", ""]
             if dataclasses.is_dataclass(obj):
-                out += ["| 字段 | 类型 | 默认 |", "|---|---|---|"]
+                out += ["| field | type | default |", "|---|---|---|"]
                 for f in dataclasses.fields(obj):
                     dflt = "—" if f.default is dataclasses.MISSING else f"`{f.default!r}`"
                     typ = str(f.type).replace("|", "\\|")
@@ -468,7 +495,8 @@ def generate_api() -> str:
                 if not callable(fn):
                     continue
                 label = f"{name}.{mname}" + ("" if isinstance(member, property) else sig(fn))
-                out += [f"### `{label}`" + ("（属性）" if isinstance(member, property) else ""), ""] + doc(fn)
+                prop = " (property)" if isinstance(member, property) else ""
+                out += [f"### `{label}`" + prop, ""] + doc(fn)
         else:
             out += [f"## `{name}{sig(obj)}`", ""] + doc(obj)
     return "\n".join(out).rstrip("\n") + "\n"
@@ -507,9 +535,9 @@ def generate_codes(root: pathlib.Path = ROOT) -> str:
                 if not entry["message"] and msg:
                     msg = re.sub(r"\{[^{}]*\}", "…", msg).replace("|", "/").strip()
                     entry["message"] = (msg[:110] + "…") if len(msg) > 110 else msg
-    out = ["# vfife 错误代码 / error codes（自动生成，" + __import__("vfife").__version__ + "）", "",
-           "> 由 `python -m vfife reference --codes` 从源码生成；`tests/test_review6_docs.py` 保证它与代码一致。"
-           "**不要手改。**", "",
+    out = ["# vfife error codes (generated, " + __import__("vfife").__version__ + ")", "",
+           "> Generated by `python -m vfife reference --codes` from the source; `tests/test_review6_docs.py` "
+           "keeps it in step with the code. **Do not edit.**", "",
            "Every code a refusal (`UserError`, raised by the Python API and printed by the command line as "
            "`error [CODE]: …`) or a preflight issue (`vfife check`, the start of every run; ERROR stops, "
            "WARNING and INFO do not) carries. A code is a stable name a script or a front end can match on; "
@@ -545,10 +573,10 @@ def _models_in(tp) -> List[type]:
     return out
 
 
-def _all_docs(cls: type) -> Dict[str, Tuple[str, str]]:
+def _all_docs(cls: type) -> Dict[str, str]:
     """`field_docs` over the class and its bases (a field documented where
     it is declared)."""
-    docs: Dict[str, Tuple[str, str]] = {}
+    docs: Dict[str, str] = {}
     for k in reversed(cls.__mro__):
         if inspect.isclass(k) and issubclass(k, BaseModel) and k is not BaseModel:
             try:
@@ -558,15 +586,15 @@ def _all_docs(cls: type) -> Dict[str, Tuple[str, str]]:
     return docs
 
 
-def _describe(zh: str, en: str) -> str:
-    en = en.replace("``", "`")
-    return "\n\n".join(s for s in (zh, en) if s)
+def _describe(doc: str) -> str:
+    """A field's description in the editor's schema."""
+    return doc.replace("``", "`")
 
 
 def generate_schema() -> dict:
     """The JSON Schema of a case file as written, for an editor:
     every field's `#:` comment as its `description` (the
-    same text as docs/YAML参考.md), Literal fields as `enum`, a material's
+    same text as docs/yaml_reference.md), Literal fields as `enum`, a material's
     `type` from the catalogue, and the dict-typed sub-blocks (`fracture`,
     `bond`, `friction`, `failure`) with their own fields."""
     from . import api
@@ -614,14 +642,14 @@ def generate_schema() -> dict:
             prop = (node.get("properties") or {}).get(f.alias or name)
             if prop is None:
                 continue
-            text = _describe(*docs[name]) if name in docs else extra_docs.get(name, "")
+            text = _describe(docs[name]) if name in docs else extra_docs.get(name, "")
             if text:
                 prop["description"] = text
 
-    blocks = {b.rstrip("*[]").rstrip("."): zh for b, _, zh in BLOCKS}
+    blocks = {b.rstrip("*[]").rstrip("."): meaning for b, _, meaning in BLOCKS}
     from .io import schema as _sc
-    root_docs = {**{k: _describe(*v) for k, v in _all_docs(_sc.Case).items()},
-                 **{k: _describe(*v) for k, v in _all_docs(InputCase).items()}}
+    root_docs = {**{k: _describe(v) for k, v in _all_docs(_sc.Case).items()},
+                 **{k: _describe(v) for k, v in _all_docs(InputCase).items()}}
     annotate(s, model, {k: blocks.get(k) or root_docs.get(k, "") for k in model.model_fields})
     for key, node in defs.items():
         cls = classes.get(key) or classes.get(node.get("title", ""))
@@ -636,8 +664,7 @@ def generate_schema() -> dict:
         "type": "object", "required": ["type"], "additionalProperties": True,
         "properties": {"type": {
             "enum": names,
-            "description": "材料类型；参数见 docs/YAML参考.md 第三部分\n\nmaterial type; its "
-                           "parameters are listed in docs/YAML参考.md part 3",
+            "description": "material type; its parameters are listed in docs/yaml_reference.md part 3",
             # VS Code shows these beside each value
             "enumDescriptions": ["parameters: " + ", ".join(lib[n]["parameters"]) for n in names]}}}
 
@@ -649,8 +676,8 @@ def generate_schema() -> dict:
         for key in ("TendonLine", "TendonRelaxation"):
             defs.get(key, {}).pop("required", None)
         table = {"type": "object", "required": ["table"], "additionalProperties": False,
-                 "properties": {"table": {"type": "string", "description": "CSV 文件（name, x, z|y, radius）\n\na CSV file (name, x, z|y, radius)"},
-                                "name": {"type": "string", "description": "取这个名字的行；不写则取钢束自己名字的行\n\nthe rows of this name; none: of the tendon's own"}}}
+                 "properties": {"table": {"type": "string", "description": "a CSV file (name, x, z|y, radius)"},
+                                "name": {"type": "string", "description": "the rows of this name; none: of the tendon's own"}}}
         for key in ("profile_y", "profile_z"):
             prop = spec["properties"][key]
             rows = {k: v for k, v in prop.items() if k not in ("description", "title", "default")}
@@ -662,15 +689,12 @@ def generate_schema() -> dict:
             td["properties"] = {k: v for k, v in spec["properties"].items() if k != "name"}
     # a load or a nodal mass may be a CSV table of rows
     def table_entry(extra: Dict[str, str]) -> dict:
-        props = {"table": {"type": "string", "description": "CSV 文件，路径相对算例（11.15 节）\n\na CSV file, "
-                                                               "relative to the case (11.15)"}}
+        props = {"table": {"type": "string", "description": "a CSV file, relative to the case (11.15)"}}
         props.update({k: {"description": v} for k, v in extra.items()})
         return {"type": "object", "required": ["table"], "additionalProperties": False, "properties": props}
 
-    load_table = table_entry({"keep": "与荷载的 keep 相同\n\nas a load's keep",
-                              "amplitude": "与荷载的 amplitude 相同\n\nas a load's amplitude"})
-    mass_table = table_entry({"weight": "与节点质量的 weight 相同\n\nas a nodal mass's weight",
-                              "components": "与节点质量的 components 相同\n\nas a nodal mass's components"})
+    load_table = table_entry({"keep": "as a load's keep", "amplitude": "as a load's amplitude"})
+    mass_table = table_entry({"weight": "as a nodal mass's weight", "components": "as a nodal mass's components"})
     for owner, key, table in ((s["properties"], "loads", load_table),
                               (defs.get("StepSpec", {}).get("properties", {}), "loads", load_table),
                               (s["properties"], "nodal_masses", mass_table)):
@@ -693,12 +717,10 @@ def cmd_reference(args) -> int:
         target = pathlib.Path(args.output) if args.output else ROOT / "docs" / "error_codes.md"
         return _write_or_check(text, target, args.check, "python -m vfife reference --codes")
     if getattr(args, "api", False):
-        text = generate_api()
-        target = pathlib.Path(args.output) if args.output else ROOT / "docs" / "API参考.md"
-        return _write_or_check(text, target, args.check, "python -m vfife reference --api")
-    text = generate()
-    target = pathlib.Path(args.output) if args.output else ROOT / "docs" / "YAML参考.md"
-    rc = _write_or_check(text, target, args.check, "python -m vfife reference")
+        target = pathlib.Path(args.output) if args.output else ROOT / "docs" / "api_reference.md"
+        return _write_or_check(generate_api(), target, args.check, "python -m vfife reference --api")
+    target = pathlib.Path(args.output) if args.output else ROOT / "docs" / "yaml_reference.md"
+    rc = _write_or_check(generate(), target, args.check, "python -m vfife reference")
     if args.output:
         return rc
     # and the editor's schema beside it

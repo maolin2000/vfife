@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 
-import pytest
 
 from vfife.core import capabilities
 
@@ -90,11 +89,6 @@ def test_every_key_the_code_asks_for_is_in_the_table_and_every_row_is_asked_for(
     assert set(capabilities.BY_KEY) <= used, set(capabilities.BY_KEY) - used
 
 
-def test_a_row_the_manuals_list_has_both_languages():
-    for lim in capabilities.LIMITS:
-        assert (lim.feature is None) == (lim.feature_zh is None), lim.key
-
-
 def test_the_words_did_not_change():
     # the reasons are read by tests and by users' scripts: moving them into
     # the table kept them as they were (1.17)
@@ -111,7 +105,6 @@ def test_the_manuals_tables_are_current():
     assert out.returncode == 0, out.stdout + out.stderr + "\n(python tools/capability_tables.py rewrites them)"
 
 
-@pytest.mark.parametrize("lang", ["en", "zh"])
-def test_the_table_has_a_column_for_every_path(lang):
-    rows = capabilities.table(lang).splitlines()
+def test_the_table_has_a_column_for_every_path():
+    rows = capabilities.table().splitlines()
     assert all(r.count("|") == len(capabilities.PATHS) + 2 for r in rows)

@@ -1,78 +1,78 @@
-# 上手指引：从一块几何到一张 ParaView 图
+# Tutorial: from a piece of geometry to a ParaView picture
 
-这份文档手把手走完一个完整算例：**Gmsh 建网格 → 写 YAML → 运行 → ParaView 看结果 → 校核**。
+This page walks through one complete case: **mesh in Gmsh → write the YAML → run → look at the result in ParaView → check it**.
 
-例子是一根钢悬臂托架，端部受集中力。它足够简单，能用梁理论手算校核；也足够真实，会撞上一个所有人第一次都会撞的坑（四面体锁死）。
+The example is a steel cantilever bracket with a point load at its tip. It is simple enough to check by beam theory by hand, and real enough to run into the trap everyone meets the first time (locking tetrahedra).
 
-**文中每一条命令和每一段输出都是实际跑出来的**，你照着做应该看到同样的数字。全程约 15 分钟，其中求解占 3 分钟。
+**Every command and every output on this page was actually run**; follow it and you should see the same numbers. It takes about 15 minutes, 3 of them solving.
 
-> 约定：命令写作 `python -m vfife ...`。若你已 `pip install -e .`，可直接用 `vfife ...`。
+> Convention: commands are written `python -m vfife ...`. After `pip install -e .` you can type `vfife ...`.
 
 ---
 
-## 0. 准备
+## 0. Setting up
 
 ```bash
-conda activate vfife          # 或你自己的环境
-cd <项目根目录>
-python -m vfife list          # 能列出单元和材料就说明装好了
+conda activate vfife          # or your own environment
+cd <project root>
+python -m vfife list          # listing elements and materials means it is installed
 ```
 
-另外需要 **Gmsh**（建网格）和 **ParaView**（看结果），两者都是独立软件，各自下载安装即可。
+You also need **Gmsh** (meshing) and **ParaView** (results), two separate programs, each downloaded and installed on its own.
 
 ---
 
-## 1. 在 Gmsh 里建几何和网格
+## 1. Geometry and mesh in Gmsh
 
-新建 `bracket.geo`：
+Create `bracket.geo`:
 
 ```c
 SetFactory("OpenCASCADE");
-L = 1.2; b = 0.15; h = 0.20;          // 悬臂长 1.2 m，截面 150 × 200 mm
+L = 1.2; b = 0.15; h = 0.20;          // a 1.2 m cantilever, section 150 × 200 mm
 Box(1) = {0, 0, 0, L, b, h};
 
-Physical Volume("steel")   = {1};      // 实体本身
-Physical Surface("fixed")  = {1};      // x = 0 的固定端
-Physical Surface("tip")    = {2};      // x = L 的加载端
+Physical Volume("steel")   = {1};      // the solid itself
+Physical Surface("fixed")  = {1};      // the fixed end at x = 0
+Physical Surface("tip")    = {2};      // the loaded end at x = L
 
-Mesh.MeshSizeMax = 0.05;               // 目标单元尺寸 50 mm
+Mesh.MeshSizeMax = 0.05;               // target element size 50 mm
 ```
 
-### 这里唯一要紧的事：Physical 组
+### The one thing that matters here: Physical groups
 
-**没有 Physical 组，网格就没法用。** 求解器靠这些名字知道哪里固定、哪里加载 —— YAML 里写的 `region: fixed` 指的就是这里的 `Physical Surface("fixed")`。
+**Without Physical groups a mesh cannot be used.** Their names are how the solver knows where it is fixed and where it is loaded -- `region: fixed` in the YAML is this `Physical Surface("fixed")`.
 
-面的编号（上面的 `{1}`、`{2}`）**不能靠猜**。在 Gmsh GUI 里点选面即可在状态栏看到编号；或者用一小段脚本列出每个面的形心：
+The surface numbers (`{1}`, `{2}` above) **must not be guessed**. Click a surface in the Gmsh GUI to see its number in the status bar, or list each surface's centroid with a few lines of script:
 
 ```python
 import gmsh
 gmsh.initialize(); gmsh.open("bracket.geo"); gmsh.model.occ.synchronize()
 for dim, tag in gmsh.model.getEntities(2):
     c = gmsh.model.occ.getCenterOfMass(2, tag)
-    print(f"面 {tag}: 形心 x={c[0]:.3f}")
+    print(f"surface {tag}: centroid x={c[0]:.3f}")
 gmsh.finalize()
 ```
 
 ```
-面 1: 形心 x=0.000      ← 固定端
-面 2: 形心 x=1.200      ← 加载端
+surface 1: centroid x=0.000      ← fixed end
+surface 2: centroid x=1.200      ← loaded end
 ```
 
-编号错了不会报错，只会把边界条件加到别的面上，然后你得到一个看起来很合理的错答案。**第 2 步就是用来当场发现这件事的。**
+A wrong number is not an error: the boundary condition goes onto another surface, and you get a reasonable-looking wrong answer. **Step 2 is there to catch this on the spot.**
 
-### 生成网格
+### Making the mesh
 
 ```bash
 gmsh -3 bracket.geo -o bracket.msh
 ```
 
-`-3` 表示生成三维单元。忘了它就只有面网格，求解器会告诉你。
+`-3` makes three-dimensional elements. Forget it and there is only a surface mesh, which the solver will tell you.
 
 ---
 
-## 2. 先看看这个网格里有什么
+## 2. Look at what is in the mesh first
 
-**不要跳过这一步。** 它花两秒，能挡住后面一半的问题：
+**Do not skip this.** It takes two seconds and stops half the later problems:
 
 ```bash
 python -m vfife mesh bracket.msh
@@ -91,24 +91,24 @@ mesh: /tmp/tut/bracket.msh
   next          python -m vfife init <case>.yaml --mesh bracket.msh
 ```
 
-三件事值得看清楚：
+What to read:
 
-| 看什么 | 为什么 |
+| what | why |
 |---|---|
-| `fixed` 的范围是 `x=0` | 证明你选对了面。如果这里显示 `x=1.2`，说明 `.geo` 里的编号写反了 —— 现在改，比跑完再改便宜 |
-| `element tet4` | Gmsh 三维默认就是四面体。**记住这一点，第 8 步会用到** |
-| `formulations full` | tet4 **只支持** `full`。写别的会被拦下来 |
-| 三维单元有几种 | 一种最省事。若显示 `element  mixed: tet4 (18253) + pyramid5 (2957)`，那也能直接算 —— 各类单元共用节点，作为一个整体求解。金字塔是 Gmsh 的过渡单元，`.geo` 里一句 `Recombine Surface` 就会产生它们。代价见第 8 节：混合网格目前只能用 `numpy` 后端，`formulations` 也只剩各块的交集 |
+| `fixed` lies at `x=0` | the right surface was chosen. Had it said `x=1.2`, the numbers in the `.geo` are swapped -- cheaper to fix now than after a run |
+| `element tet4` | Gmsh makes tetrahedra by default in 3-D. **Remember this; step 8 needs it** |
+| `formulations full` | tet4 supports `full` **only**; anything else is refused |
+| how many kinds of 3-D element | one is simplest. `element  mixed: tet4 (18253) + pyramid5 (2957)` runs as well -- the kinds share nodes and are solved as one. Pyramids are Gmsh's transition elements, made by a `Recombine Surface` line in the `.geo`. The cost is in section 8: a mixed mesh runs on the `numpy` backend only, and `formulations` is the intersection of the blocks' |
 
 ---
 
-## 3. 生成 YAML 骨架
+## 3. The YAML skeleton
 
 ```bash
 python -m vfife init bracket.yaml --mesh bracket.msh
 ```
 
-它会问三个问题（组名就是第 2 步看到的那些）：
+It asks three questions (the group names are those seen in step 2):
 
 ```
 Imported Gmsh Physical groups: fixed, steel, tip
@@ -119,7 +119,7 @@ Total load on 'tip' as Fx Fy Fz in N [0 0 -1000]: 0 0 -10000
   next          python -m vfife info bracket.yaml
 ```
 
-生成的文件：
+The file it writes:
 
 ```yaml
 version: 1
@@ -129,22 +129,22 @@ units: {length: m, force: N, stress: Pa}
 mesh:
   type: gmsh
   path: bracket.msh
-  scale: 1.0                 # 网格若用 mm 建，这里写 0.001
+  scale: 1.0                 # 0.001 if the mesh was drawn in mm
 
 materials:
-  steel: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 7850.0}   # 默认是钢，按需要改
+  steel: {type: linear_elastic, E: 2.1e+11, nu: 0.3, rho: 7850.0}   # steel by default; change as needed
 
 sections:
-  body: {type: solid, material: steel, formulation: full}   # formulation 按网格里的单元自动选；
-                                                            # 唯一的 solid 截面自动赋给整个网格
+  body: {type: solid, material: steel, formulation: full}   # the formulation is chosen from the mesh's elements;
+                                                            # the one solid section is given to the whole mesh
 
 constraints:
   - region: fixed
-    dofs: [1, 1, 1]          # 1 = 约束，0 = 自由，顺序 [ux, uy, uz]
+    dofs: [1, 1, 1]          # 1 = fixed, 0 = free, in the order [ux, uy, uz]
 
 loads:
   - region: tip
-    vector: [0.0, 0.0, -10000.0]   # 作用在该区域上的**总力**，自动分摊到节点
+    vector: [0.0, 0.0, -10000.0]   # the **total force** on the region, shared out to its nodes
 
 solver:
   backend: numpy
@@ -158,70 +158,56 @@ output:
   every: 100000
   fields: [displacement, von_mises]
   monitors:
-    u: {kind: displacement, region: tip, dof: z}     # 加载区域沿荷载方向的位移
-    R: {kind: reaction, region: fixed, dof: z}       # 支座在同一方向的反力
+    u: {kind: displacement, region: tip, dof: z}     # the loaded region's displacement along the load
+    R: {kind: reaction, region: fixed, dof: z}       # the support's reaction in the same direction
 ```
 
-### 改一改监测量
+### Adjusting the monitors
 
-骨架已经带了两条监测量：加载区域的位移 `u` 和支座反力 `R`（沿荷载的方向）。把它们改成读得懂的名字，
-再让结果多写几帧，你就能不开 ParaView 知道答案对不对：
+The skeleton already carries two monitors: the loaded region's displacement `u` and the support reaction `R` (along the load). Give them readable names and write a few more frames, and you will know whether the answer is right without opening ParaView:
 
 ```yaml
 output:
   path: results/bracket.h5
-  every: 2000                      # 每 2000 步写一帧（供 ParaView 动画）
+  every: 2000                      # a frame every 2000 steps (for a ParaView animation)
   fields: [displacement, von_mises]
   monitors:
     tip_uz:   {kind: displacement, region: tip,   dof: z}
     reaction: {kind: reaction,     region: fixed, dof: z}
 ```
 
-顺手把 `tolerance` 收紧到 `1.0e-8`（这是个线弹性小算例，收敛很快）。
+While at it, tighten `tolerance` to `1.0e-8` (a small linear elastic case converges fast).
 
-> **`reaction` 是最有价值的一个监测量。** 它应该与你施加的荷载**等值反号** ——
-> 支座要托住向下的荷载，它给出的力就是向上的。若量值对不上，说明约束或荷载加错了
-> 地方；这是最省事的自查。
+> **`reaction` is the most valuable monitor.** It should be **equal and opposite** to the load you apply --
+> the support holds up a downward load with an upward force. If the magnitudes do not match, a constraint or a
+> load is in the wrong place; this is the cheapest self-check there is.
 
-`reaction` 和 `displacement` 读的是区域里的**节点**。另外两种读别的东西：
+`reaction` and `displacement` read the region's **nodes**. Two other kinds read other things:
 
 ```yaml
   monitors:
-    # 单元场，限制在一个区域里。归约: max | min | mean | absmax
+    # an element field, restricted to a region. reduce: max | min | mean | absmax
     dc_span:   {kind: element, field: dc, reduce: max, region: span_block}
-    # 应力是张量，要给 component（xx yy zz xy yz zx，本包只有一套 Voigt 顺序）
+    # stress is a tensor: give the component (xx yy zz xy yz zx, this package's one Voigt order)
     sigma_bot: {kind: element, field: stress, component: xx, reduce: mean,
                 region: span_soffit}
-    # 钢筋/预应力筋。`of` 是**配筋指派上的 name**，不是配筋几何的键
+    # reinforcement and tendons. `of` is the **name on the reinforcement assignment**, not the geometry's key
     sigma_p:   {kind: bar, of: tendons, field: axial_stress, reduce: mean,
                 region: tendon_flat}
 ```
 
-- `field` 对 `element` 来说是材料能输出的任意逐单元量（CDP 是 `d`/`dt`/`dc`），
-  外加 `stress` 和 `von_mises`；对 `bar` 是 `axial_stress`、`axial_force`、
-  `plastic_strain`。名字写错会在**建模阶段**报错并列出可用的。
-- `element` 的区域归属规则和截面指派完全一致：**单元的每个节点**都在区域里。
-  所以一个只有一层节点的面区域不拥有任何单元，这会当场报错，而不是安静地
-  归约出一个 0。
-- `displacement` 可加 `relative_to: <区域>`：报告的是本区域减去那个区域的平均
-  位移。一个自由飞行的物体，质心在走、两端在绕它转——`{kind: displacement,
-  region: A, dof: z, relative_to: C}` 读出来的就是那个转动（0.1 版的 case_19）。
-- `bar` 的区域是**几何**判据：钢筋有自己的节点，区域解析出的节点集与它无关，
-  所以判据是段的两端都落在区域的 `box` 里。不是 box 的区域（Gmsh 物理组、
-  显式节点表）会被拒绝，而不是用包围盒近似。
-- 两者的 `region` 都可以省略，那就是整个模型。
-- 被侵蚀删掉的单元不参与 `element` 归约：它的损伤停在离场那一刻，让它决定
-  `max` 等于让监测量报告历史而不是状态。
+- For `element`, `field` is any per-element quantity the material outputs (`d`/`dt`/`dc` for CDP), plus `stress` and `von_mises`; for `bar`, `axial_stress`, `axial_force`, `plastic_strain`. A misspelt name is refused **when the model is built**, with the available ones listed.
+- An `element` region owns an element by the same rule as section assignment: **every node of the element** is in the region. A surface region one layer of nodes thick therefore owns no element, which is refused on the spot rather than quietly reducing to 0.
+- `displacement` takes `relative_to: <region>`: it reports this region's mean displacement minus that region's. A body in free flight moves its centre of mass while its ends rotate about it -- `{kind: displacement, region: A, dof: z, relative_to: C}` reads that rotation (case_19 of 0.1).
+- A `bar` region is a **geometric** test: reinforcement has its own nodes, unrelated to the node set the region resolves to, so the test is that both ends of a segment lie in the region's `box`. A region that is not a box (a Gmsh physical group, an explicit node list) is refused rather than approximated by its bounding box.
+- Both may leave out `region`, meaning the whole model.
+- An element deleted by erosion takes no part in an `element` reduction: its damage stops at the moment it leaves, and letting it decide `max` would make the monitor report history rather than state.
 
-**为什么要有这两种。** 验证契约只能读 `monitor`、整模型的 `field` 极值和
-`diagnostic`。在它们之前，`cases/case_15` 无法断言它整个建立于其上的
-预应力筋应力（筋应力写在 `rebar_steps/` 里，契约读不到），只能用拱度当替身；
-也无法说"常弯段没有压碎"，只能说"全模型没有任何单元压碎"，而全局最大值由
-锚固区决定。两件事都是监测量形状的，所以它们现在是监测量。
+**Why these two exist.** A verification contract can read only monitors, whole-model extremes of fields and diagnostics. Before them, `cases/case_15` could not assert the tendon stress it is built on (written in `rebar_steps/`, out of the contract's reach) and used the camber as a stand-in; nor could it say "nothing crushed in the constant-moment zone", only "no element of the whole model crushed", whose global maximum the anchorage zone decides. Both have the shape of a monitor, so they are monitors now.
 
 ---
 
-## 4. 求解前检查
+## 4. Checking before solving
 
 ```bash
 python -m vfife info bracket.yaml
@@ -239,28 +225,28 @@ case: bracket
   regions       fixed(25), tip(25), steel(565), all(565), surface(available)
 ```
 
-`info` 不求解，只把模型建起来再打印一遍。**preflight 会检查刚体位移、孤立节点、单元与材料是否兼容等**，它报 FAIL 时不要硬跑。
+`info` does not solve; it builds the model and prints it. **Preflight checks rigid-body motion, orphan nodes, element-material compatibility and more**; when it reports FAIL, do not force a run.
 
-除了你自己命名的区域，还有两个总是可用：`all`（全部节点）和 `surface`（网格外表面，用到才计算）。
+Besides the regions you named, two are always there: `all` (every node) and `surface` (the mesh's outer surface, computed when used).
 
 ---
 
-## 5. 运行
+## 5. Running
 
 ```bash
 python -m vfife run bracket.yaml
 ```
 
-运行时的进度行：
+The progress line while it runs:
 
 ```
   step     8000/40000   20.0%  resid 4.71e-06  KE 1.203e-12  resets 62    458 steps/s  eta   70s
 ```
 
-- **`resid`** 是不平衡力的相对残差 —— 它降到 `tolerance` 以下就是收敛。**这是唯一要盯的数**
-- `KE` 是动能，`resets` 是动能阻尼的重启次数（求解器在耗散振荡，正常）
+- **`resid`** is the relative residual of the out-of-balance force -- below `tolerance` means converged. **The one number to watch.**
+- `KE` is the kinetic energy, `resets` the restarts of kinetic damping (the solver dissipating oscillation; normal)
 
-结束时：
+At the end:
 
 ```
   analysis      CONVERGED (residual …, analysis step 1 of 1)
@@ -271,80 +257,75 @@ python -m vfife run bracket.yaml
   written       results/bracket.h5 (+ .xdmf time series, _last.xdmf fallback for ParaView; .ckpt.h5 checkpoint)
 ```
 
-**先看 `analysis` 这一行**：`CONVERGED` 才是答案；`MAX_STEPS` 等失败状态照样写出结果文件（供诊断），但命令以退出码 3 结束。
+**Read the `analysis` line first**: only `CONVERGED` is an answer; `MAX_STEPS` and the other failures still write the result file (for diagnosis), but the command exits with code 3.
 
-**先看 `reaction`：+1.0000e+04 N，与施加的 −10 kN 等值反号。** 平衡成立，边界条件加对了。
+**Then `reaction`: +1.0000e+04 N, equal and opposite to the −10 kN applied.** Equilibrium holds; the boundary conditions are in the right places.
 
-> 想中途停下：按 **Ctrl-C**。结果文件会正常关闭并在旁边保留检查点 `results/bracket.ckpt.h5`，之后用
-> `python -m vfife run bracket.yaml --restart results/bracket.h5 -o results/bracket_rest.h5` 从断点续跑——
-> 续算写进**新文件**（写回原文件会被拒绝：`RESTART_OVERWRITES`），两个文件的帧接起来就是一次完整的计算。
+> To stop part way: **Ctrl-C**. The result file is closed properly and the checkpoint `results/bracket.ckpt.h5` is kept beside it; later
+> `python -m vfife run bracket.yaml --restart results/bracket.h5 -o results/bracket_rest.h5` continues from there --
+> into a **new file** (writing back to the original is refused: `RESTART_OVERWRITES`); the two files' frames together are one complete run.
 
 ---
 
-## 6b. 曲线：出图与导出
+## 6b. Curves: plotting and exporting
 
-ParaView 看的是场，**监视器的时程曲线**要用另外两条命令 —— 不需要写任何 Python：
+ParaView shows fields; **the monitors' histories** take two other commands -- no Python needed:
 
 ```bash
-python -m vfife plot results/bracket.h5                       # 全部监视器 vs 时间，写成 results/bracket.png
-python -m vfife plot results/bracket.h5 --y tip_uz            # 只画一条
-python -m vfife plot results/bracket.h5 --x tip_uz --y reaction   # 一个对另一个
-python -m vfife export results/bracket.h5                     # 全部监视器 -> results/bracket.csv
+python -m vfife plot results/bracket.h5                       # every monitor against time, written to results/bracket.png
+python -m vfife plot results/bracket.h5 --y tip_uz            # one of them
+python -m vfife plot results/bracket.h5 --x tip_uz --y reaction   # one against another
+python -m vfife export results/bracket.h5                     # every monitor -> results/bracket.csv
 python -m vfife export results/bracket.h5 --monitor tip_uz --monitor reaction
 ```
 
-**`--x` 加 `--y` 是关键的一条**：反力对位移画出来就是荷载-位移曲线，
-配上循环幅值就是**滞回环**。
+**`--x` with `--y` is the important one**: reaction against displacement is the load-displacement curve, and with a cyclic amplitude it is the **hysteresis loop**.
 
-坐标轴标签是自动的 —— 监视器把自己的 `kind`/`region`/`dof` 存在结果文件里，
-所以 `--x tip_uz` 的横轴会标成 `tip_uz  (displacement z on tip) [m]`（单位取自算例声明的 `units`），不用你去记
-当初写的名字是什么意思。
+The axis labels are automatic -- a monitor stores its `kind`/`region`/`dof` in the result file, so `--x tip_uz` is labelled `tip_uz  (displacement z on tip) [m]` (the unit from the case's declared `units`), and you need not remember what the name meant.
 
-`plot` 需要 matplotlib（`pip install vfife[plot]`）。没装也不会报栈，会告诉你
-装什么，以及 `export` 不需要任何额外依赖。
+`plot` needs matplotlib (`pip install vfife[plot]`). Without it there is no traceback: it tells you what to install, and that `export` needs nothing extra.
 
 ---
 
-## 6. 在 ParaView 里看
+## 6. Looking in ParaView
 
-运行产出三个文件：
+A run makes three files:
 
-| 文件 | 用途 |
+| file | use |
 |---|---|
-| `bracket.h5` | 全部数据 |
-| `bracket.xdmf` | **在 ParaView 里打开这个** —— 完整时间序列 |
-| `bracket_last.xdmf` | 只含最后一帧的备用文件，某些 ParaView 版本读时间序列有问题时用它 |
+| `bracket.h5` | all the data |
+| `bracket.xdmf` | **open this in ParaView** -- the full time series |
+| `bracket_last.xdmf` | the last frame alone, a fallback for ParaView versions that have trouble with time series |
 
-操作步骤：
+Steps:
 
-1. **File → Open → `results/bracket.xdmf`**，读取器选 **XDMF Reader**，点 **Apply**
-2. 左上角下拉框把 `Solid Color` 改成 **`von_mises`**，右边的下拉改成 **Cell Data**
-3. 点 **Filters → Alphabetical → Warp By Vector**，Vectors 选 `displacement`，
-   Scale Factor 填 **500**（位移只有 0.24 mm，不放大看不见），**Apply**
-4. 点工具栏的 **▶** 播放，能看到加载过程
+1. **File → Open → `results/bracket.xdmf`**, choose the **XDMF Reader**, click **Apply**
+2. In the drop-down at the top left change `Solid Color` to **`von_mises`**, and the one beside it to **Cell Data**
+3. **Filters → Alphabetical → Warp By Vector**, Vectors `displacement`, Scale Factor **500** (the displacement is only 0.24 mm and invisible unmagnified), **Apply**
+4. Press **▶** in the toolbar to play the loading
 
-看到的应该是：根部上下表面应力最高、向端部递减 —— 经典的悬臂弯曲分布。
+You should see the highest stress at the top and bottom faces of the root, decreasing towards the tip -- the classic bending distribution of a cantilever.
 
 ---
 
-## 7. 校核 —— 这一步不能省
+## 7. Checking -- not to be skipped
 
-跑出数不等于跑对数。这个例子可以用梁理论手算：
+A number from a run is not a right number. This example can be checked by beam theory by hand:
 
 ```
-截面    b = 0.15 m, h = 0.20 m,  I = b·h³/12 = 1.0e-4 m⁴
-弯曲    δ = P·L³/(3·E·I) = 1e4 × 1.728 / (3 × 2.1e11 × 1e-4) = 0.2743 mm
-剪切    δ = P·L/(κ·G·A),  κ = 5/6                            = 0.0059 mm
-合计                                                          = 0.2802 mm
+section  b = 0.15 m, h = 0.20 m,  I = b·h³/12 = 1.0e-4 m⁴
+bending  δ = P·L³/(3·E·I) = 1e4 × 1.728 / (3 × 2.1e11 × 1e-4) = 0.2743 mm
+shear    δ = P·L/(κ·G·A),  κ = 5/6                            = 0.0059 mm
+total                                                          = 0.2802 mm
 ```
 
-而计算给出 **0.2350 mm** —— 只有理论值的 **83.9%**，也就是**偏刚 16%**。
+The analysis gave **0.2350 mm** -- **83.9%** of theory, i.e. **16% too stiff**.
 
-### 这不是 bug，是四面体锁死
+### Not a bug: tetrahedral locking
 
-`tet4` 是常应变单元：整个单元内应变是常数，没有足够的自由度表达弯曲，于是表现得比真实结构硬。网格加密**不能**有效解决（收敛极慢）。
+`tet4` is a constant-strain element: the strain is constant over the element, with too few degrees of freedom to express bending, so it behaves stiffer than the real structure. Refining the mesh does **not** cure it effectively (it converges very slowly).
 
-正确做法是**换二次单元**：
+The right thing is **a quadratic element**:
 
 ```bash
 gmsh -3 -order 2 bracket.geo -o bracket_o2.msh
@@ -358,17 +339,17 @@ python -m vfife mesh bracket_o2.msh
   formulations  full, b-bar
 ```
 
-单元数没变，节点数从 565 涨到 3399（多了棱中点）。而且 tet10 支持 `b-bar`。改两行 YAML：
+The same number of elements, nodes up from 565 to 3399 (the mid-edge nodes). And tet10 supports `b-bar`. Change two lines of the YAML:
 
 ```yaml
 mesh:
-  path: bracket_o2.msh       # ← 换网格
+  path: bracket_o2.msh       # ← the new mesh
 
 sections:
-  body: {type: solid, material: steel, formulation: b-bar}   # ← tet10 支持，抗锁死更好
+  body: {type: solid, material: steel, formulation: b-bar}   # ← supported by tet10, better against locking
 ```
 
-重跑：
+Run again:
 
 ```
   max |u|       2.811409e-04
@@ -376,55 +357,55 @@ sections:
   reaction      final -9.999995e+03
 ```
 
-**0.2809 mm，是梁理论的 100.2%。**
+**0.2809 mm, 100.2% of beam theory.**
 
-| 单元 | 结果 | 对梁理论 |
+| element | result | against beam theory |
 |---|---|---|
-| tet4 / full | 0.2350 mm | 83.9%（锁死） |
+| tet4 / full | 0.2350 mm | 83.9% (locking) |
 | tet10 / b-bar | 0.2809 mm | **100.2%** |
 
-### 记住这条
+### Remember this
 
-> **实体四面体做受弯构件，用 tet10，不要用 tet4。**
-> tet4 只适合填充和以受压为主的部位。若必须用一阶单元，改用六面体（`gmsh` 里 recombine），六面体配 `b-bar` 没有这个问题。
+> **For a solid member in bending use tet10, not tet4.**
+> tet4 suits filling and mainly compressed regions. If first-order elements are a must, use hexahedra (recombine in `gmsh`); a hexahedron with `b-bar` does not have this problem.
 
-这也是为什么**每个算例都值得找一个能手算的量去对**。这次差 16%，是单元选择问题；如果你没校核，这 16% 会一路带进结论里。
+This is also why **every case deserves one quantity checked by hand**. The 16% here was the choice of element; without the check it would have gone all the way into the conclusions.
 
 ---
 
-## 8. 常见问题对照表
+## 8. What you see and what it means
 
-| 你看到 | 含义 | 怎么办 |
+| you see | it means | what to do |
 |---|---|---|
-| `error: unknown material 'linear_elasitc'` | 材料名拼错 | 提示里会给"你是不是想写"和全部可用名字 |
-| `element.Iz: Extra inputs are not permitted` | YAML 字段名不对 | 冒号前那串就是出错的字段路径 |
-| `FORMULATION_UNSUPPORTED: element 'tet4' does not support 'b-bar'` | 单元与格式不匹配 | 用 `vfife mesh` 看该单元支持哪些 |
-| `UNKNOWN_REGION: region 'fixd' is referenced but unavailable` | 区域名写错 | 用 `vfife mesh` 对一遍名字。**注意它通常连带报出下面那条 `RIGID_BODY_MODE`** —— 那是后果不是第二个毛病，修好名字两条一起消失 |
-| `RIGID_BODY_MODE: ... suppresses only N of 6 ...` | 结构没被约束住，能整体平动或转动 | 若同时有 `UNKNOWN_REGION`，先修那个。否则检查约束是否足够 |
-| `MAX_STEPS: ... residual=... > tolerance=...` | 迭代用完了还没收敛 | 先看 `resid` 是在缓慢下降还是卡住。缓慢下降就加 `n_steps`；卡住通常是模型有机构，或非线性材料软化。**梁 / 壳 / 纤维梁的算例若是以前能收敛、现在不能**，多半是半步起步修复带来的预算变化，见 `docs/convergence_debugging.md` |
-| `MIXED_MESH_BACKEND: ... runs on the numpy backend only` | 网格里不止一种三维单元，但你要求了 `numba` / `warp` | 混合网格**能算**，只是暂时只有 `numpy` 后端。要用融合内核或 GPU，就把网格统一成一种单元：`.geo` 里加 `Mesh.SubdivisionAlgorithm = 2;` → 全六面体（hexa8 本来就是更好的单元，支持 `b-bar` 且不锁死）；或删掉 `Recombine Surface` / `Transfinite` 行 → 全四面体。注意 `Mesh.RecombineAll = 0` **覆盖不了**显式的 Recombine 行，必须删 |
-| `FORMULATION_UNSUPPORTED: element 'tet4' ...`（网格是混合的） | 一个 `formulation` 设置要同时满足所有单元块。`b-bar` 对 hexa8 合法、对 tet4 不合法 | 提示里给的就是各块的交集，通常是 `full`。`vfife mesh` 的 `formulations` 一行也只列交集 |
-| `[WARNING] REPEATED_ELEMENTS_IN_ONE_VOLUME: N tet4 cells were written more than once inside a single volume` | **Gmsh 划分失败了，而且它报了错你没看见。** 最常见的原因是 `.geo` 里的 `Recombine Surface {:}` 把**内部界面**也重组了 —— 那个面两侧都是体，属于 non-manifold quad boundary，Gmsh 明确不支持，会刷出成百上千行 `Error : ... non-manifold quad boundaries not supported yet`，**然后照样把文件写出来** | 读取时已经自动合并（节点集相同就是同一个单元，留着会让那一带刚度和质量翻倍），所以**能继续算**。但根子在 `.geo`：只重组外表面，别碰内部界面。见下方"只重组外表面"写法 |
-| `[INFO] MERGED_SHARED_ELEMENTS: N cells were listed under more than one entity` | 同一个单元同时属于两个 Physical 组（比如界面上的单元既算外层又算芯部）。MSH 2.2 更是**每个 Physical 组各写一遍** | 不用管。已合并成一个单元，并且**同时属于所有点名过它的组**，区域选择照常可用 |
-| `DUPLICATE_NODE` + 混合网格 | 两块单元在界面上**各用各的节点**，坐标重合但编号不同 —— 也就是界面不协调。这种模型能读能算，算出来是**两个几乎独立的物体** | 检查两块的接触面：六面体侧是四边形、四面体侧是三角形时天然不协调。要么让界面两侧都不重组（靠金字塔过渡），要么用 `BooleanFragments` + 共享面保证共节点 |
-| 不收敛，而且看不出是模型的哪里 | 可能根本不是模型：荷载不保守、框架不客观、虚拟质量兜不住、或这个状态本身没有稳定平衡 | `python -m vfife probe 算例.yaml --result 结果.h5` 在**停滞的那个状态**上把这四个与单元无关的问题各问一遍，几千自由度以内几秒钟。详见 `docs/convergence_debugging.md` |
-| `NONFINITE` | 出现 inf/nan，发散 | 检查是否有约束不足的部位。也可以试着减小 `relaxation_safety`（默认 0.6，可试 0.3，也就是加大虚拟质量）——**但这不是万灵药，两个方向都可能更差**：在材料软化的问题上实测加大质量反而**更早**失败。详见 `docs/convergence_debugging.md` |
-| 跑完了但 ParaView 里没有某个场 | `output.fields` 里的名字拼错了，会被静默忽略 | 对照 `vfife describe <单元名>` 里的 `output_fields` |
+| `error: unknown material 'linear_elasitc'` | a misspelt material name | the message suggests what you meant and lists every name |
+| `element.Iz: Extra inputs are not permitted` | a wrong YAML field name | the string before the colon is the field's path |
+| `FORMULATION_UNSUPPORTED: element 'tet4' does not support 'b-bar'` | element and formulation do not match | `vfife mesh` shows what the element supports |
+| `UNKNOWN_REGION: region 'fixd' is referenced but unavailable` | a misspelt region name | check the names with `vfife mesh`. **It usually brings the `RIGID_BODY_MODE` below with it** -- a consequence, not a second fault; fix the name and both go |
+| `RIGID_BODY_MODE: ... suppresses only N of 6 ...` | the structure is not held: it can translate or rotate as a whole | with an `UNKNOWN_REGION` as well, fix that first; otherwise check the constraints are sufficient |
+| `MAX_STEPS: ... residual=... > tolerance=...` | the iterations ran out before convergence | see whether `resid` is falling slowly or stuck. Slowly: more `n_steps`; stuck: usually a mechanism in the model, or a softening nonlinear material. **A beam, shell or fibre-beam case that used to converge and now does not** is most likely the budget change from the half-step-start fix, see `docs/convergence_debugging.md` |
+| `MIXED_MESH_BACKEND: ... runs on the numpy backend only` | more than one kind of 3-D element in the mesh, with `numba` / `warp` asked for | a mixed mesh **runs**, on the `numpy` backend only for now. For the fused kernels or the GPU make the mesh one kind: `Mesh.SubdivisionAlgorithm = 2;` in the `.geo` → all hexahedra (hexa8 is the better element anyway, with `b-bar` and no locking); or delete the `Recombine Surface` / `Transfinite` lines → all tetrahedra. `Mesh.RecombineAll = 0` **does not override** an explicit Recombine line; it must be deleted |
+| `FORMULATION_UNSUPPORTED: element 'tet4' ...` (on a mixed mesh) | one `formulation` must suit every element block; `b-bar` is valid for hexa8 and not for tet4 | the message gives the intersection of the blocks, usually `full`; the `formulations` line of `vfife mesh` lists only the intersection |
+| `[WARNING] REPEATED_ELEMENTS_IN_ONE_VOLUME: N tet4 cells were written more than once inside a single volume` | **Gmsh's meshing failed, and you missed its error.** The commonest cause is `Recombine Surface {:}` in the `.geo` recombining **internal interfaces** too -- a face with volume on both sides is a non-manifold quad boundary, which Gmsh says it does not support; it prints hundreds of lines of `Error : ... non-manifold quad boundaries not supported yet` **and writes the file anyway** | they are merged on reading (the same node set is the same element; kept twice they would double the stiffness and mass there), so it **can still run**. The root is in the `.geo`: recombine the outer surface only, not the internal interfaces. See "Recombining the outer surface only" below |
+| `[INFO] MERGED_SHARED_ELEMENTS: N cells were listed under more than one entity` | one element belongs to two Physical groups (an element at an interface counted in both the skin and the core); MSH 2.2 even **writes it once per Physical group** | nothing to do: it is merged into one element that **belongs to every group naming it**, and region selection works as usual |
+| `DUPLICATE_NODE` with a mixed mesh | two element blocks use **their own nodes** at an interface, coincident in position but numbered differently -- a non-conforming interface. Such a model reads and runs, and computes **two almost independent bodies** | look at the blocks' common face: quadrilaterals on the hexahedral side and triangles on the tetrahedral side are non-conforming by nature. Either recombine neither side of the interface (with pyramids to transition), or use `BooleanFragments` with shared faces to guarantee shared nodes |
+| no convergence, and no telling where in the model | it may not be the model at all: a non-conservative load, a frame that is not objective, a fictitious mass that does not cover, or a state with no stable equilibrium | `python -m vfife probe case.yaml --result result.h5` asks these four element-independent questions **in the stalled state**, a few seconds for up to a few thousand dof. See `docs/convergence_debugging.md` |
+| `NONFINITE` | inf/nan appeared: divergence | check for under-constrained parts. You may try a smaller `relaxation_safety` (default 0.6, try 0.3, i.e. a larger fictitious mass) -- **but it is no cure-all, and either direction may be worse**: on a softening material more mass was measured to fail **earlier**. See `docs/convergence_debugging.md` |
+| a run finished, but a field is missing in ParaView | a misspelt name in `output.fields` is ignored silently | compare with `output_fields` in `vfife describe <element>` |
 
-任何命令加 `--debug` 可以看到完整的 Python 栈，用于排查工具本身的问题。
+`--debug` on any command shows the full Python traceback, for problems with the tool itself.
 
 ---
 
-## 9. 再往前一步
+## 9. One step further
 
-这个算例是线弹性、单一荷载步。真正的分析通常需要：
+This case is linear elastic with one load step. Real analyses usually need:
 
-**非线性材料** —— 把 `material` 换掉即可，其余不动：
+**A nonlinear material** -- change the `material` and leave the rest:
 
 ```yaml
 materials:
   concrete:
-    type: cdp                          # 混凝土塑性损伤
+    type: cdp                          # concrete damaged plasticity
     E: 3.0e10
     nu: 0.2
     rho: 2400.0
@@ -434,48 +415,42 @@ sections:
   body: {type: solid, material: concrete}
 ```
 
-用 `python -m vfife list materials` 看全部，`python -m vfife describe cdp` 看某一个的参数和适用范围。
+`python -m vfife list materials` lists them all, `python -m vfife describe cdp` gives one's parameters and scope.
 
-**分级加载**（要画荷载-位移曲线时必须用）：
+**Staged loading** (needed for a load-displacement curve):
 
 ```yaml
 solver:
-  load_steps: 20                     # 20 个平衡点，每个都收敛到 tolerance
+  load_steps: 20                     # 20 equilibrium points, each converged to tolerance
   max_steps_per_load: 5000
 ```
 
-**多个分析步 + 幅值曲线**（先自重、再推覆；或往复加载）：
+**Several analysis steps + amplitudes** (self-weight first, then a pushover; or cyclic loading):
 
 ```yaml
 amplitudes:
   drift: {cyclic: {peaks: [0.5, 1.0], repeats: 2}}
 
 steps:
-  - name: gravity                    # 模型级 loads 在这一步加上，之后保持
+  - name: gravity                    # the model-level loads are applied in this step and kept
   - name: push
     constraints:
       - {region: top, dofs: [1,0,0], value: 0.02, amplitude: drift}
     load_steps: 16
 ```
 
-**实体面上的弯矩**——实体没有转动自由度，`moment` 加在一个面区域上时
-是一个有势的定轴力偶：势能 −|M|·θ(x)，θ 是面上节点最佳拟合刚体转动绕 M 轴转过的
-角度。参考构形下它的梯度就是教科书的线性弯曲应力 M z / I（法向分量则是圣维南扭转
-的线性剪应力）按节点从属面积化成的节点力；`follower: true` 让这对力偶随面一起转、
-大小始终是 M，整圈平滑、无状态；不写 `follower` 就是参考分布冻结的死荷载，力偶随
-转角按余弦衰减。两者都是保守的。三维里定向不变的力偶本身不保守（绕略微不同的轴
-转一整圈做功不同），这个势只在面转到与 M 轴平行（弯曲卷圆碰不到）时付账：
+**A moment on a solid face** -- a solid has no rotational degrees of freedom, and `moment` on a face region is a couple of fixed axis with a potential: −|M|·θ(x), θ the angle the face's best-fit rigid rotation turns about the axis of M. In the reference configuration its gradient is the textbook linear bending stress M z / I (the normal component, the linear shear stress of Saint-Venant torsion) turned into nodal forces by tributary area; `follower: true` makes the couple turn with the face with magnitude M throughout, smooth over a full turn and stateless; without `follower` it is a dead load with the reference distribution frozen, the couple decaying with the cosine of the rotation. Both are conservative. In three dimensions a couple of fixed orientation is not conservative in itself (a full turn about slightly different axes does different work); this potential pays only when the face turns parallel to the axis of M (which rolling up in bending never reaches):
 
 ```yaml
 regions:
   tip: {plane: {point: [1, 0, 0], normal: [1, 0, 0]}}
 steps:
   - loads:
-      - {region: tip, moment: [0.0, 39.27, 0.0], follower: true}   # N m，绕 y
+      - {region: tip, moment: [0.0, 39.27, 0.0], follower: true}   # N m, about y
     load_steps: 40
 ```
 
-**自定义区域**（当 Gmsh 物理组不够用时）：
+**Regions of your own** (when the Gmsh physical groups are not enough):
 
 ```yaml
 regions:
@@ -485,70 +460,53 @@ regions:
   interior:  {difference: [all, surface]}
 ```
 
-**只重组外表面** —— 想要外表面规整、内部随意时，不要写 `Recombine Surface {:}`：
-它会把 `BooleanFragments` 生成的内部界面也重组，Gmsh 直接报错并输出坏网格。
-把内部界面减掉：
+**Recombining the outer surface only** -- for a regular outer surface with an unconstrained interior, do not write `Recombine Surface {:}`: it also recombines the internal interfaces `BooleanFragments` makes, and Gmsh reports errors and writes a bad mesh. Subtract the internal interfaces:
 
 ```gmsh
 v() = BooleanFragments { Volume{1}; Delete; }{ Volume{2}; Delete; };
 sh() = Abs(Boundary{ Volume{v(0)}; });
 co() = Abs(Boundary{ Volume{v(1)}; });
-sh() -= co();              // 去掉两块共享的内部界面
+sh() -= co();              // remove the internal interface the two share
 Recombine Surface{ sh() };
 ```
 
-另外要清楚：**`Recombine Surface` 不会把四面体变成六面体**。它只重组*面*，
-体网格仍是四面体，只是在每个四边形面下面塞一个金字塔过渡单元。真正的六面体
-边界层要用 `Extrude { ... } Layers{n}; Recombine;`。
+Be clear too that **`Recombine Surface` does not turn tetrahedra into hexahedra**. It recombines *surfaces* only; the volume mesh is still tetrahedral, with a pyramid transition element tucked under each quadrilateral face. A real hexahedral boundary layer needs `Extrude { ... } Layers{n}; Recombine;`.
 
-**混合网格** —— 规则区域用六面体、异形区域用四面体，是真实构件的常规做法，
-Gmsh 也几乎必然在两者交界处塞金字塔。这些单元块共用节点，作为**一个**整体求解：
-质量、内力按块求和，时间步取各块的最小值，ParaView 里也是一个网格一套场。
-两处代价：**(a)** 目前只能用 `numpy` 后端；**(b)** `formulation` 只有一个设置，
-必须同时满足所有块，hex+tet 就意味着 `full`。`vfife mesh` 两行都会直接告诉你。
+**Mixed meshes** -- hexahedra in the regular parts and tetrahedra in the irregular ones is the usual way with real members, and Gmsh almost always puts pyramids where they meet. The blocks share nodes and are solved as **one** body: masses and internal forces summed block by block, the time step the smallest of the blocks', one mesh with one set of fields in ParaView. Two costs: **(a)** the `numpy` backend only for now; **(b)** there is one `formulation`, which must suit every block, so hex + tet means `full`. `vfife mesh` says both directly.
 
-**哪些单元能混？** 七种实体单元的**任意组合**都能建、能算 —— 求解器按块处理，不认单元名。
-但两块要真正"焊在一起"，得在界面上提供**同一种面型**：
+**Which elements mix?** **Any combination** of the seven solid elements builds and runs -- the solver works block by block and does not care about element names. But for two blocks to be really "welded", they must present **the same kind of face** at the interface:
 
 | | tet4 | hexa8 | wedge6 | pyramid5 | tet10 | hexa20 | wedge15 |
 |---|---|---|---|---|---|---|---|
-| **tet4** | · | ✗ | 三角3 | 三角3 | ✗ | ✗ | ✗ |
-| **hexa8** | ✗ | · | 四边4 | 四边4 | ✗ | ✗ | ✗ |
-| **wedge6** | 三角3 | 四边4 | · | 三角3 | ✗ | ✗ | ✗ |
-| **pyramid5** | 三角3 | 四边4 | 三角3 | · | ✗ | ✗ | ✗ |
-| **tet10** | ✗ | ✗ | ✗ | ✗ | · | ✗ | 三角6 |
-| **hexa20** | ✗ | ✗ | ✗ | ✗ | ✗ | · | 四边8 |
-| **wedge15** | ✗ | ✗ | ✗ | ✗ | 三角6 | 四边8 | · |
+| **tet4** | · | ✗ | tri3 | tri3 | ✗ | ✗ | ✗ |
+| **hexa8** | ✗ | · | quad4 | quad4 | ✗ | ✗ | ✗ |
+| **wedge6** | tri3 | quad4 | · | tri3 | ✗ | ✗ | ✗ |
+| **pyramid5** | tri3 | quad4 | tri3 | · | ✗ | ✗ | ✗ |
+| **tet10** | ✗ | ✗ | ✗ | ✗ | · | ✗ | tri6 |
+| **hexa20** | ✗ | ✗ | ✗ | ✗ | ✗ | · | quad8 |
+| **wedge15** | ✗ | ✗ | ✗ | ✗ | tri6 | quad8 | · |
 
-两条规律：**线性单元和二次单元永远不能相接**（二次面上多出的边中点，线性单元不认识）；
-**hexa8 和 tet4 直接相接也不协调** —— 一个给四边形面、一个给三角形面。
-金字塔和楔形两头都能接，所以它们是标准的过渡单元 —— Gmsh 自动塞金字塔正是干这个。
+Two rules: **linear and quadratic elements never conform** (a linear element does not know the mid-edge nodes of a quadratic face); **hexa8 meeting tet4 directly does not conform either** -- one presents quadrilaterals, the other triangles. Pyramids and wedges connect on both sides, which makes them the standard transition elements -- which is what Gmsh's automatic pyramids are for.
 
-实测过 hexa8+tet4 直接相接（共用四个角节点、四边形面被两个三角形盖住）：
-它**通过分片试验**（残差 2.5e-12），界面位移跳跃约为挠度的 **0.1%**，且随网格加密线性消失
-（h 减半，跳跃减半）。也就是说能算、会收敛，但界面在任何有限网格上都不是严格连续的。
-要严格协调就让 Gmsh 在中间插金字塔。
+hexa8 meeting tet4 directly (four corner nodes shared, the quadrilateral face covered by two triangles) was measured: it **passes the patch test** (residual 2.5e-12), the displacement jump at the interface is about **0.1%** of the deflection and vanishes linearly with refinement (h halved, the jump halved). It runs and converges, but the interface is not exactly continuous on any finite mesh. For exact conformity let Gmsh insert pyramids between them.
 
-**更快的后端** —— 单一单元类型的大模型换 `backend: numba`（CPU 融合内核）或
-`backend: warp`（GPU）。支持三后端的只有 `hexa8` / `tet4` / `tet10` / `wedge6`；
-`hexa20` / `wedge15` / `pyramid5` 以及全部梁、壳、桁架单元目前仅 `numpy`。
-`vfife mesh` 的 `backends` 一行就会告诉你当前网格能用哪些。
+**Faster backends** -- a large model of one element type can use `backend: numba` (fused CPU kernels) or `backend: warp` (GPU). Only `hexa8` / `tet4` / `tet10` / `wedge6` have all three backends; `hexa20` / `wedge15` / `pyramid5` and all beam, shell and truss elements are `numpy` only for now. The `backends` line of `vfife mesh` tells you what the current mesh can use.
 
-参考算例都在 `cases/` 目录，`cases/README.md` 有一张对照表。
+The reference cases are in `cases/`, with a table in `cases/README.md`.
 
 ---
 
-## 附：完整命令清单
+## Appendix: all the commands
 
 ```bash
-gmsh -3 -order 2 bracket.geo -o bracket.msh    # 1. 建网格（二次单元）
-python -m vfife mesh bracket.msh               # 2. 看网格里有什么
-python -m vfife init bracket.yaml --mesh bracket.msh   # 3. 生成骨架
-#    编辑 bracket.yaml：材料、监测量
-python -m vfife info bracket.yaml              # 4. 检查
-python -m vfife run  bracket.yaml              # 5. 求解
-#    ParaView 打开 results/bracket.xdmf        # 6. 看场
-python -m vfife plot   results/bracket.h5      # 6b. 看曲线
-python -m vfife export results/bracket.h5      #     或导出 CSV
-#    对反力和一个可手算的量做校核              # 7. 校核
+gmsh -3 -order 2 bracket.geo -o bracket.msh    # 1. mesh (quadratic elements)
+python -m vfife mesh bracket.msh               # 2. what is in the mesh
+python -m vfife init bracket.yaml --mesh bracket.msh   # 3. the skeleton
+#    edit bracket.yaml: material, monitors
+python -m vfife info bracket.yaml              # 4. check
+python -m vfife run  bracket.yaml              # 5. solve
+#    open results/bracket.xdmf in ParaView     # 6. fields
+python -m vfife plot   results/bracket.h5      # 6b. curves
+python -m vfife export results/bracket.h5      #     or a CSV
+#    check the reaction and one quantity by hand   # 7. check
 ```

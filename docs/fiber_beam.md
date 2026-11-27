@@ -1,8 +1,8 @@
-# 纤维梁 beam2_fiber
+# Fibre beam beam2_fiber
 
-`beam2_fiber` 为共旋转 Euler-Bernoulli 纤维梁，6 DOF/节点，截面纤维离散 + `B^T·s` 沿轴积分，支持 `concrete01/02 + steel02/steel_cyclic/rebar/piecewise_uniaxial/linear_elastic` 混合。
+`beam2_fiber` is a co-rotational Euler–Bernoulli fibre beam with 6 dof a node: the section is divided into fibres and `B^T·s` is integrated along the axis; mixed sections of `concrete01/02 + steel02/steel_cyclic/rebar/piecewise_uniaxial/linear_elastic` are supported.
 
-## 输入
+## Input
 
 ```yaml
 materials:
@@ -18,70 +18,56 @@ sections:
     height: 0.35
     ny: 8
     nz: 8
-    integration: lobatto3       # gauss2 (默认) | lobatto3 | lobatto4 | lobatto5（端点含端截面屈服；五点在四分之一处再放一个）
-    bars:                       # OpenSees 的 layer：一根一行，引用 bar 截面
+    integration: lobatto3       # gauss2 (default) | lobatto3 | lobatto4 | lobatto5 (end points include the end sections' yielding; five points add one at the quarter points)
+    bars:                       # OpenSees' layer: one bar a row, referring to a bar section
       - {y: 0.09, z: 0.14, section: bar20}
 assign:
   - {region: all, section: rc}
 ```
 
-- `rect` 均分 `ny×nz` 纤维，面积 `dy·dz`，`y∈[-w/2,w/2] z∈[-h/2,h/2]`；
-- **空心截面**（钢结构用）：`shape: tube`（圆管，`diameter` 外径 + `t` 壁厚 +
-  `nt` 环向根数 + 可选 `nr` 壁厚方向层数）与 `shape: box`（方管/矩管，`width`/`height`
-  外廓 + `t` + `ny`/`nz` 沿墙根数）。管里放 `bars:` 直接拒绝——钢管没有配筋，钢管混凝土
-  需要这个库没有的约束模型。
+- `rect` divides into `ny×nz` equal fibres of area `dy·dz`, `y∈[-w/2,w/2] z∈[-h/2,h/2]`;
+- **Hollow sections** (for steel): `shape: tube` (a round tube: `diameter` outside, `t` wall, `nt` fibres around, optionally `nr` layers through the wall) and `shape: box` (square or rectangular tube: outer `width`/`height`, `t`, `ny`/`nz` fibres along the walls). `bars:` in a tube is refused -- a steel tube has no reinforcement, and a concrete-filled tube needs a confinement model this library does not have.
 
-  圆管的纤维放在每个楔形的 **RMS 半径** `sqrt((r0²+r1²)/2)` 而不是面积形心：一个集中点
-  扛不住格子的一阶矩和二阶矩两个，放形心上二阶矩偏小（点没有自身惯矩），放 RMS 上二阶矩
-  精确、而一阶矩因为楔形全等仍按对称为零。于是 **A、Iy、Iz 在任意 `nt ≥ 3` 下都精确**
-  （放形心上：8 根差 5.1%、20 根差 0.84%）。方管的格子不全等，做不到这一点，走形心网格、
-  随细分从下方收敛。`rect` 保持不变。
-- **任意形状：`shape: patches`**：`patches: [{corners: [[y, z]×4], ny, nz}, ...]`，
-  每个四边形按双线性映射分成 `ny×nz` 个小格，纤维在小格形心、面积是小格自己的（鞋带公式，
-  三角形写成一个角点重合的四边形）——OpenSees 的 `patch quad`。杭州湾 70 m 箱梁（斜腹板、
-  倒角、变厚悬臂）是十个 patch、166 根纤维（`benchmarks/generate_hzb_girder.py`）；
-  加密到 4 倍时 A、I 与精确值差 < 0.3%。扫掠导出按 patch 的小格画实体。坐标的原点是
-  节点线（构件轴），要放在形心上自己先算（生成器算了）。
-- **空心**：patch 可以带 `holes: [[y, z, r], ...]`（圆孔）。格子中心在孔里就丢掉，被孔切到的
-  按 4×4 采样给面积权重——一个单位方里挖 r=0.25 的圆，净面积到 0.3%（空心板梁）。
-- `j`（旧写法 `torsion_constant`，仍读）：纤维截面的 Saint-Venant 扭转常数 J（m⁴）。不给时用纤维的极惯矩
-  Iy+Iz——圆截面对，箱梁大五倍（杭州湾：Bredt 的 J = 29.5 对 150 m⁴），扭转模态会高一倍多。
-- `bars` 的一行可带 `count: n`：n 根同样的钢筋并在一点（顶板一百多根 Φ16 并成十行）。
-- `gauss2`（`s=0.21/0.79`）、`lobatto3`（`0/0.5/1`）、`lobatto4`（`0/0.276/0.724/1`）、`lobatto5`（`0/0.173/0.5/0.827/1`）可选；Lobatto 含端点，循环端截面更精确，五点把一个积分点放到离端 0.17L 处——2h 长的构件不拆就能分辨 0.5h 的铰（case_11 上峰值 161 → 165 kN，滞回能不变）；`checkpoint` 形状 `(nel, n_stations, n_in_group, n_state)`，内核按积分点数编译；
-- 混合截面按 `fiber_group` 分组，每组独立 `material.update` 与 `state`，总 `N=ΣσA, My=ΣσzA, Mz=Σ-σyA` 再 `B^T` 组装。
+  A round tube's fibres sit at each wedge's **RMS radius** `sqrt((r0²+r1²)/2)` rather than its centroid: one point cannot carry both the first and the second moment of its cell; at the centroid the second moment is short (a point has no inertia of its own), at the RMS radius the second moment is exact while the first is still zero by symmetry, the wedges being congruent. So **A, Iy and Iz are exact for any `nt ≥ 3`** (at the centroid: 5.1% off with 8 fibres, 0.84% with 20). A box's cells are not congruent and cannot do this; it uses the centroid grid and converges from below with refinement. `rect` is unchanged.
+- **Any shape: `shape: patches`**: `patches: [{corners: [[y, z]×4], ny, nz}, ...]`; each quadrilateral is divided by a bilinear map into `ny×nz` cells, the fibre at the cell's centroid with the cell's own area (the shoelace formula; a triangle is a quadrilateral with two corners coincident) -- OpenSees' `patch quad`. The Hangzhou Bay 70 m box girder (inclined webs, fillets, tapered cantilevers) is ten patches and 166 fibres (`benchmarks/generate_hzb_girder.py`); refined four times, A and I are within 0.3% of exact. The sweep export draws the patches' cells as solids. The origin of the coordinates is the node line (the member axis); to put it at the centroid, compute that first (the generator does).
+- **Holes**: a patch may carry `holes: [[y, z, r], ...]` (circular). A cell whose centre is in a hole is dropped, and one a hole cuts is weighted by 4×4 sampling -- a circle of r = 0.25 cut from a unit square has its net area to 0.3% (hollow-core slabs).
+- `j` (old spelling `torsion_constant`, still read): the fibre section's Saint-Venant torsion constant J (m⁴). Without it the fibres' polar moment Iy+Iz is used -- right for a circle, five times too large for a box girder (Hangzhou Bay: Bredt's J = 29.5 against 150 m⁴), putting the torsional modes at more than twice their frequency.
+- A row of `bars` may carry `count: n`: n identical bars at one point (a hundred-odd Φ16 in a top slab as ten rows).
+- `gauss2` (`s=0.21/0.79`), `lobatto3` (`0/0.5/1`), `lobatto4` (`0/0.276/0.724/1`), `lobatto5` (`0/0.173/0.5/0.827/1`); Lobatto includes the end points and is more accurate for cyclic end sections, and five points put one integration point 0.17L from the end -- a member 2h long resolves a 0.5h hinge without being divided (case_11: peak 161 → 165 kN, hysteretic energy unchanged); the `checkpoint` shape is `(nel, n_stations, n_in_group, n_state)`, and the kernel is compiled per number of points;
+- a mixed section is grouped by `fiber_group`, each group with its own `material.update` and `state`; the totals `N=ΣσA, My=ΣσzA, Mz=Σ-σyA` are then assembled with `B^T`.
 
-`public_benchmark` 首例为 `cases/case_11_fiber_rc_column_cyclic.yaml`：Tanaka & Park (1990) 试件 1（400×400 柱，反弯点 1.6 m，8Φ20，f'c=25.6 MPa，轴压 819 kN = 0.2f'c·Ag），4×Line2、`lobatto3`、480 循环级、`concrete02+steel02`，实测滞回见 `verification/Tanaka_90_specimen_1.txt`（593 点）。
+The first `public_benchmark` is `cases/case_11_fiber_rc_column_cyclic.yaml`: Tanaka & Park (1990) specimen 1 (a 400×400 column, 1.6 m to the point of contraflexure, 8Φ20, f'c = 25.6 MPa, axial load 819 kN = 0.2f'c·Ag), 4×Line2, `lobatto3`, 480 cyclic stages, `concrete02+steel02`; the measured hysteresis is in `verification/Tanaka_90_specimen_1.txt` (593 points).
 
-对实验的实测偏差（`benchmarks/plot_tanaka_hysteresis.py` 每次运行都会打印）：
+The measured deviations from the test (`benchmarks/plot_tanaka_hysteresis.py` prints them on every run):
 
-| 量 | 实验 | 模拟 | 比值 |
+| quantity | test | analysis | ratio |
 |---|---|---|---|
-| 峰值力 | 166.8 / −167.1 kN | 148.4 / −161.1 kN | 0.89 / 0.96 |
-| 8 mm 割线刚度 | 14.75 kN/mm | 17.02 kN/mm | 1.15 |
-| 滞回耗能 | 116.3 kJ | 127.6 kJ | 1.10 |
+| peak force | 166.8 / −167.1 kN | 148.4 / −161.1 kN | 0.89 / 0.96 |
+| secant stiffness at 8 mm | 14.75 kN/mm | 17.02 kN/mm | 1.15 |
+| hysteretic energy | 116.3 kJ | 127.6 kJ | 1.10 |
 
-强度偏高与截面独立校核一致：同一批纤维在正确的 N=819 kN 下 M-φ 极限 291.5 kN·m（V=182 kN，比实测高 9%，即保护层不剥落），梁给出 193 kN，比自身截面能力高 6%，由 `steel02` 的循环强化覆盖。刚度偏高源于无粘结滑移、无剪切变形。
+The high strength agrees with an independent section check: the same fibres at the right N = 819 kN reach an M-φ limit of 291.5 kN·m (V = 182 kN, 9% above the test, i.e. with no cover spalling), and the beam gives 193 kN, 6% above its own section capacity, covered by the cyclic hardening of `steel02`. The high stiffness comes from having no bond slip and no shear deformation.
 
-**这三个数是在修掉三个求解器 bug 之后才有意义的**（耗能曾一路是 0.32 → 1.77 → 1.69 → 1.30）：材料状态逐迭代提交、纤维细分放在不弯曲的轴上、轴向内力少乘 1/L0。钢筋强化比取 0.005 而非由 fu/fy 反推的 0.012——后者让钢筋在 ±3.5% 漂移下就达到 709 MPa（实测极限 721），单调 M-φ 完全看不出这一点，只有循环历程才暴露。
+**These three numbers mean something only after three solver bugs were fixed** (the energy went 0.32 → 1.77 → 1.69 → 1.30): the material state committed at every iteration, the fibre subdivision on an axis that does not bend, and the axial internal force missing a factor 1/L0. The steel hardening ratio is 0.005 rather than the 0.012 implied by fu/fy -- the latter takes the bars to 709 MPa at ±3.5% drift (measured ultimate 721); a monotonic M-φ does not show this at all, only the cyclic history does.
 
-软化混凝土无正则化，网格敏感已在 `test_fiber_benchmarked` 中以线弹性网格收敛 + 开裂后 5-60kN 段记录。另注意：本算例用 4 个 400 mm 单元而非更细的网格，因为 8×200 mm 会让分级松弛在首个循环级停滞（诊断指向中部节点横向自由度，残差 9.7 kN），原因见算例注释。
+The softening concrete is not regularised; the mesh sensitivity is recorded in `test_fiber_benchmarked` as linear elastic mesh convergence plus the post-cracking 5-60 kN range. Note also that the case uses four 400 mm elements rather than a finer mesh, because 8×200 mm makes staged relaxation stall at the first cyclic stage (diagnostics pointing at a transverse dof of a middle node, residual 9.7 kN); the reason is in the case's comments.
 
-## 内力路径的熔合内核
+## The fused kernel of the internal forces
 
-`beam2_fiber` 接受 `backend: numpy` 与 `backend: numba`（0.1 版起）。`numpy` 是可读的参考路径，在满足条件时**自动**分派到 `kernels/numba_fiber_beam.py` 的熔合内核；`numba` 则**要求**内核，建不出来时用内核自己的理由拒绝（`solver.kernel_status`），而不是悄悄慢一百倍。内核：整单元一趟做完（聚集、共旋转、纤维应变、本构、截面合力、Hermite 虚功、旋回），两个单轴律以标量设备函数内联，形状导数 `Bky/Bkz` 因只依赖站点与单元长度而在装配期预计算一次。
+`beam2_fiber` takes `backend: numpy` and `backend: numba` (since 0.1). `numpy` is the readable reference path and dispatches **automatically** to the fused kernel of `kernels/numba_fiber_beam.py` when its conditions hold; `numba` **requires** the kernel and, when it cannot be built, refuses with the kernel's own reason (`solver.kernel_status`) rather than quietly running a hundred times slower. The kernel does a whole element in one pass (gather, co-rotation, fibre strains, constitutive laws, section resultants, Hermite virtual work, rotation back), with the two uniaxial laws inlined as scalar device functions; the shape derivatives `Bky/Bkz` depend only on the station and the element length and are computed once at assembly.
 
-**适用条件：全部截面纤维一条本构律，全部钢筋（若有）另一条。** 没有钢筋的均质截面（钢管、钢箱）同样走内核，钢筋数组为空（0.1 版之前它们被一句 `if not is_hybrid: return` 挡在外面，一根 456 杆的网壳只跑 12 步/秒，去掉那句后 88 步/秒）。钢筋材料类型或参数不一致时内核不适用，自动回退到 NumPy 参照路径（`solver.kernel_status` 会说明原因）。这是内核的真实限制，`tests/test_fiber_beam_kernel.py` 对回退与「回退后仍能求解」都有断言。
+**Condition: one constitutive law for all the section's fibres, another for all its bars (if any).** A homogeneous section without bars (a steel tube or box) also takes the kernel, with empty bar arrays (before 0.1 a line `if not is_hybrid: return` kept them out: a 456-member lattice shell ran 12 steps/s, 88 with that line gone). When the bars' material types or parameters differ, the kernel does not apply and the NumPy reference path is used instead (`solver.kernel_status` gives the reason). That is a real limit of the kernel; `tests/test_fiber_beam_kernel.py` asserts both the fallback and that the fallback still solves.
 
-实测（case_11，4 单元 × 3 站点 × 40 纤维）：
+Measured (case_11, 4 elements × 3 stations × 40 fibres):
 
-| | 每次内力评估 | 完整算例 |
+| | one evaluation of the internal forces | the whole case |
 |---|---|---|
-| 参照路径 | 2.54 ms | 约 47 分钟 |
-| 熔合内核 | **0.025 ms** | **58 秒** |
+| reference path | 2.54 ms | about 47 minutes |
+| fused kernel | **0.025 ms** | **58 seconds** |
 
-内力评估 101 倍，端到端 18.7 倍（松弛循环里剩余的 Python 成为新的主导项），完整算例结果与参照路径逐位一致到舍入级（单元场偏差恰为 0）。
+101 times for the internal forces, 18.7 times end to end (the Python left in the relaxation loop becomes the new dominant term); the whole case agrees with the reference path to round-off (the element fields differ by exactly 0).
 
-## 一个模型里几个纤维截面
+## Several fibre sections in one model
 
 ```yaml
 sections:
@@ -92,7 +78,7 @@ assign:
   - {region: beams,   section: beam, orientation: [0, 1, 0]}
 ```
 
-每个截面自己的区域、自己的 `orientation`，**自己的材料、`cover`/`core_material`、`bars` 和 `anchorage`**（0.2 版起：每个截面拥有自己的材料组——保护层、核心、每根钢筋一组——`solver.materials` 是各截面组的拼接，参考路径逐单元只驱动自己截面的组；内核仍一族律一次内联、参数逐纤维读，钢筋槽位补到最宽截面）。纤维数不同的截面**补零到最宽的那个**（补上的纤维面积为零、不参与断裂占比），于是内核的纤维数仍是编译期常量，单截面模型的算术逐位不变（0.1 版查几何，0.2 版查分组，都对旧代码逐位）。仍然的限制，写在输入校验里，撞上会报单元号：`integration`/`fracture`/`formulation` 是单元级设置，各截面必须一致；不许 `all` 与别的区域并列；区域重叠或有单元没被任何截面覆盖都拒绝；内核要求全部截面的混凝土律同一类型、全部钢筋律同一类型（参数可不同），否则回退参考路径。
+Each section has its own region, its own `orientation`, and **its own materials, `cover`/`core_material`, `bars` and `anchorage`** (since 0.2 each section owns its material groups -- cover, core, one per bar -- and `solver.materials` is the sections' groups concatenated; the reference path drives each element's own section's groups; the kernel still inlines one family of laws once and reads parameters fibre by fibre, with the bar slots padded to the widest section). Sections with different numbers of fibres are **padded with zeros to the widest** (the padding fibres have zero area and do not count in the fracture fraction), so the kernel's fibre count is still a compile-time constant and a single-section model's arithmetic is unchanged to the bit (0.1 checked the geometry, 0.2 the grouping, both bit for bit against the old code). The limits that remain are in the input checks and name the element: `integration`/`fracture`/`formulation` are element-level settings and must agree across sections; `all` may not stand beside other regions; overlapping regions or an element no section covers are refused; the kernel requires one concrete law type for all sections and one steel law type (the parameters may differ), or it falls back to the reference path.
 
 ```yaml
 sections:
@@ -105,30 +91,21 @@ assign:
   - {region: beams,   section: beam,   orientation: [0, 1, 0], anchorage: {region: joints, bar_diameter: 0.02}}
 ```
 
-这是 `cases/case_21_vecchio_emara_frame.yaml`（Vecchio & Emara 1992 单跨两层 RC 框架推覆）的写法：36 s，峰值 345 kN 对实测 333，平台 3% 以内，上升段偏硬 1.15 倍——那是这个单元没有的剪切变形（试验作者自己量过占总变形 20%），契约把它写成区间而不是调掉。
+This is how `cases/case_21_vecchio_emara_frame.yaml` (the pushover of Vecchio & Emara's 1992 one-bay two-storey RC frame) is written: 36 s, peak 345 kN against 333 measured, the plateau within 3%, the rising branch 1.15 times too stiff -- the shear deformation this element lacks (the authors measured it at 20% of the total), which the contract records as a range rather than tuning it away.
 
-## 构件剪切柔度
+## Member shear flexibility
 
 ```yaml
 sections:
   col: {type: fiber, material: c30, shape: rect, width: 0.3, height: 0.4, ny: 4, nz: 16,
-        shear_stiffness: 1.25e9}     # kappa·G·A_s [N]，分析者给出
+        shear_stiffness: 1.25e9}     # kappa·G·A_s [N], given by the analyst
 ```
 
-纤维截面可以声明一个有效剪切刚度 κGA_s。给了它，构件的弯曲插值从 Hermite 换成 Reddy 的
-相依插值（Timoshenko），每根构件每个弯曲平面一个 φ = 12EI/(GA_s L²)：曲率行乘 μ = 1/(1+φ)
-并在转角项里带 φ，再加一条沿构件为常数的剪应变 γ，V = GA_s·γ 通过它自己的行进内力。
-**纤维看不到剪切**——这是构件级的弹性（或分析者给的开裂有效）剪切柔度。不给它，φ = 0，
-曲率行就是 Hermite 的那几个数，逐位不变。两条路径都读同一组预计算的行；`actions[:, 1]`、
-`[:, 2]` 报告局部 y、z 方向的剪力。
+A fibre section may declare an effective shear stiffness κGA_s. With it, the member's bending interpolation changes from Hermite to Reddy's interdependent interpolation (Timoshenko), with one φ = 12EI/(GA_s L²) per member per bending plane: the curvature rows are multiplied by μ = 1/(1+φ) and carry φ in their rotation terms, and a shear strain γ constant along the member is added, with V = GA_s·γ entering the internal forces through its own row. **The fibres do not see shear** -- this is a member-level elastic shear flexibility (or a cracked effective one the analyst gives). Without it φ = 0 and the curvature rows are Hermite's numbers, unchanged to the bit. Both paths read the same precomputed rows; `actions[:, 1]` and `[:, 2]` report the shear forces along local y and z.
 
-守着它的：剪切柔性悬臂 PL³/3EI + PL/GA_s 一个单元就精确到 2e-4（相依插值对等截面构件
-节点精确）；开剪切的 RC 截面上内核对参考 < 1e-10；不给剪切刚度时曲率行与 Hermite 逐位相同。
-Vecchio & Emara 框架（case_21）上，无参数的未开裂 κGA 值 2%（30 mm 处 1.17 → 1.15）；
-试验作者量到的"剪切占总变形 20%"大半是**开裂后**的剪切，未开裂刚度的四分之一能到 1.10，
-但那是一个这里没有推导的参数，算例不用。
+What guards it: a shear-flexible cantilever, PL³/3EI + PL/GA_s, is exact to 2e-4 with one element (the interdependent interpolation is nodally exact for prismatic members); on an RC section with shear the kernel agrees with the reference to < 1e-10; without a shear stiffness the curvature rows are Hermite's to the bit. On Vecchio & Emara's frame (case_21) the parameter-free uncracked κGA is worth 2% (at 30 mm 1.17 → 1.15); most of the authors' measured "20% of the deformation in shear" is shear **after cracking**, and a quarter of the uncracked stiffness reaches 1.10, but that is a parameter not derived here, and the case does not use it.
 
-## 预应力束
+## Prestressing tendons
 
 ```yaml
 sections:
@@ -142,194 +119,106 @@ sections:
     t: 0.3
     tendons:
       - section: strand
-        profile: [[0, 1.6, 0], [35, -1.5, 0], [70, 1.6, 0]]   # [s, y, z]，s 沿构件自起点
-        interpolation: quadratic                               # 三点过一条抛物线
-        jack: 1.395e9                                          # 张拉控制应力
+        profile: [[0, 1.6, 0], [35, -1.5, 0], [70, 1.6, 0]]   # [s, y, z], s along the member from its start
+        interpolation: quadratic                               # a parabola through each three points
+        jack: 1.395e9                                          # jacking stress
         friction: {mu: 0.17, k: 0.0015, jack: both, anchor_set: 0.006}
         elastic_shortening: compensate
       - section: strand
-        profile: [[0, -1.7, 0], [70, -1.7, 0]]                 # 直束
+        profile: [[0, -1.7, 0], [70, -1.7, 0]]                 # a straight tendon
         prestress: 1.2e9
 ```
 
-束是**每个单元有自己位置的一根钢纤维**：线形 `profile` 在每个单元中点取值，(y, z) 是截面
-坐标（同 `bars`），`s` 是沿构件自起点（全局 x 较小的那端，其次 y、z）的距离，`normalised:
-true` 时是构件长度的分数；`linear` 是控制点间的折线，`quadratic` 是**每三个相邻点一条抛物线**
-（点 0-1-2、2-3-4、……，每条都过它自己的三个点；所以点数必须是奇数、至少三个，偶数个按名字
-拒绝）。1.0 版之前它是穿过全部点的**一条最小二乘抛物线**，五点的连续束会被放成一根 z = −0.08
-的直束。放进去的曲线（单元中点处、以及沿束密采样）必须落在截面外轮廓以内，否则拒绝——抛物线
-的顶点可能落在两个控制点之间、跑出截面，以前只检查列出的点。外轮廓（`bars` 的位置
-同样检查）：`rect`/`box` 是外矩形，`tube` 是外圆，`patches` 是各块的并集（容差为截面尺寸的
-1%，块常把倒角画成直角：杭州湾两根角筋在块外 25 mm）；箱室、管孔和块的 `holes` 都算在内
-（孔道本身就是孔，体外束走在箱室里）。此前用的是包络矩形，T 梁腹板旁的空角、圆管外接
-正方形的四角都会被接受。报错里的 s 用 profile 自己的单位（`normalised` 时是分数）。
-束带一个**初应变**：`prestress` 是截面无应变时束的应力除以束的模量，或者 `jack` 是千斤顶处
-的应力、`friction` 是实体埋筋早就用的后张损失剖面（`elements/truss.tendon_profile`：
-σ(s) = σ_con·exp(−(μθ + ks))，锚固回缩反射），在束自己的折线上逐单元求值。
+A tendon is **a steel fibre with its own position in each element**: the `profile` is evaluated at each element's midpoint; (y, z) are section coordinates (as for `bars`), `s` is the distance along the member from its start (the end with the smaller global x, then y, z), a fraction of the member length when `normalised: true`. `linear` is the polyline through the control points; `quadratic` is **one parabola through each three consecutive points** (points 0-1-2, 2-3-4, ..., each through its own three; so the number of points must be odd and at least three, and an even number is refused by name). Before 1.0 it was **one least-squares parabola** through all the points, and a five-point continuous tendon was laid as a straight tendon at z = −0.08. The curve as laid (at the element midpoints, and sampled densely along the tendon) must fall inside the section's outline, or it is refused -- a parabola's vertex may lie between two control points and leave the section, and only the listed points used to be checked. The outline (the positions of `bars` are checked the same way): the outer rectangle of `rect`/`box`, the outer circle of `tube`, the union of the patches for `patches` (tolerance 1% of the section size, as patches often draw fillets as right angles: two corner bars of Hangzhou Bay are 25 mm outside the patches); box cells, tube bores and patch `holes` count as inside (a duct is a hole itself, and external tendons run in the box cell). The bounding rectangle used before accepted the empty corners beside a T beam's web and the corners of a tube's circumscribed square. The s in a refusal is in the profile's own units (a fraction when `normalised`).
 
-**弹性压缩由松弛算出**：初应变的束拉着截面，混凝土在束处缩短，束应力随之掉——这是先张
-放张的物理。后张的千斤顶读数已经含了这次缩短，`elastic_shortening: compensate` 把截面
-（毛截面、未开裂、该截面全部束）在束处的线弹性应变加回去，使给的应力就是束**最终**承担
-的应力（0.3 版的算例上 8%）。截面应变用毛截面关于**原点**的 3×3 刚度（含一次矩和惯性积）
-求：原点不在形心的 T 梁、箱梁也对。1.0 版之前用的是 N/A + M·z/I（z、I 都关于原点），
-原点在翼缘与腹板交界、形心低 0.1 m 的 T 梁上多补了 20%（1200 MPa 给成 1227）。某个方向上
-没有刚度的截面（`rect` 取 `ny: 1`、所有纤维和束都在 y = 0 的平面模型）按对角缩放后的伪逆
-只解有刚度的那部分（1.0 版报 "Singular matrix"，更早是 NaN）。
+A tendon carries an **initial strain**: `prestress` is the tendon's stress with the section unstrained, divided by the tendon's modulus; or `jack` is the stress at the jack and `friction` the post-tensioning loss profile the solid embedded reinforcement has long used (`elements/truss.tendon_profile`: σ(s) = σ_con·exp(−(μθ + ks)), reflected for anchor set), evaluated element by element along the tendon's own polyline.
 
-锚固回缩的反射长度在单元**内部**插值求得，回缩量就是给定值；1.0 版之前停在第一个越过的
-单元中点，总是多缩：20 m、20 单元的束 6 mm 回缩实际缩了 6.66 mm，锚端应力 1161 MPa
-（收敛值约 1167，现 1168）。回缩量超过束能吸收的量时按名字拒绝，并给出从这一端最多能吸收
-多少（`jack: both` 时到束的中点为止；1.0 版之前这个数在两端张拉时是负的）。
+**Elastic shortening comes out of the relaxation**: a tendon with an initial strain pulls on the section, the concrete shortens at the tendon, and the tendon stress drops -- the physics of releasing a pretensioned beam. A post-tensioning jack reading already includes this shortening, and `elastic_shortening: compensate` adds back the linear elastic strain of the section (gross, uncracked, all the section's tendons) at the tendon, so that the stress given is what the tendon **finally** carries (8% on 0.3's case). The section strain is solved with the gross section's 3×3 stiffness about the **origin** (with the first moments and the product of inertia), so T and box girders whose origin is not at the centroid are right too. Before 1.0 it was N/A + M·z/I (z and I about the origin), which on a T beam with the origin at the flange-web junction, 0.1 m above the centroid, added 20% too much (1200 MPa given as 1227). A section with no stiffness in some direction (`rect` with `ny: 1`, a plane model with all fibres and tendons at y = 0) is solved for the part that has stiffness by a diagonally scaled pseudo-inverse (1.0 reported "Singular matrix", earlier NaN).
 
-**曲线束为什么对**：束的弯矩 P·e(x) 逐单元取值，相邻单元间的弯矩跳变落在节点上，就是
-"等效荷载"的集中形式。抛物束简支梁的上拱 5Pe_mL²/48EI：4/8/16/32 单元 −2.4% / −0.5% /
-−0.04% / +0.08%。直束：截面合力为零（预应力自平衡，无外力无反力），混凝土单独承受 −P·e，
-上拱 PeL²/8EI、端转角 PeL/2EI 到 2e-3，滚动端缩进 PL/EA 加弯曲轴线的弦缩 κ²L³/24（共旋
-单元看得见，本例 3%）。内核与参考路径在带束模型上 < 1e-10。
+The reflection length of anchor set is interpolated **within** an element, so the set is exactly the value given; before 1.0 it stopped at the midpoint of the first element passed and always set too much: a 20 m tendon in 20 elements with 6 mm set actually set 6.66 mm, with 1161 MPa at the anchorage (converged value about 1167, now 1168). A set larger than the tendon can absorb is refused by name, with the most that end can absorb (`jack: both` up to the tendon's midpoint; before 1.0 that number came out negative for jacking at both ends).
 
-**收敛判据的尺度**：无外荷载的预应力构件是自平衡的，外力为零，反力和截面合力在缩短后也
-为零，`f_int` 里剩下的只有残差本身——相对残差会是它除以自己。束力是这个分析承担的荷载，
-所以它进了尺度（`_tendon_force_scale`）；没有束时为零，其它模型逐位不变。这是松弛
-（`mode: relaxation`）路径的尺度；隐式静力（`mode: static`）的残差尺度另见 implicit.py。
+**Why curved tendons are right**: the tendon moment P·e(x) is taken element by element, and the jump in moment between neighbouring elements lands on the node -- the concentrated form of the "equivalent load". The camber of a simply supported beam with a parabolic tendon, 5Pe_mL²/48EI: −2.4% / −0.5% / −0.04% / +0.08% with 4/8/16/32 elements. A straight tendon: the section resultant is zero (the prestress is self-equilibrated, with no external force and no reaction), the concrete alone carries −P·e, the camber PeL²/8EI and end rotation PeL/2EI to 2e-3, and the roller end draws in by PL/EA plus the chord shortening of the bent axis κ²L³/24 (seen by the co-rotational element, 3% here). Kernel and reference path agree to < 1e-10 on models with tendons.
 
-**锚在构件中间的束**：`extent: [s0, s1]`（与 `profile` 同一 s 单位）——束只存在于
-中点落在两锚之间的单元里，其余单元里这一行面积为零：不受力、不计重、扫掠跳过。连续梁墩顶
-的顶板合拢束、三跨共用一个截面时每跨自己的腹板束都靠它。摩擦剖面在束自己的那段折线上算；
-短束（18 m 的合拢束）6 mm 回缩反射不完，`tendon_profile` 会拒绝，给 `prestress`
-（`cases/case_24_hzb_girder.yaml` 的注释里有算法）。
+**The scale of the convergence test**: a prestressed member with no external load is self-equilibrated -- the external force is zero, and after shortening so are the reactions and the section resultants; what is left in `f_int` is the residual itself, and a relative residual would be it divided by itself. The tendon force is the load this analysis carries, so it enters the scale (`_tendon_force_scale`); without tendons it is zero and other models are unchanged to the bit. This is the scale of the relaxation path (`mode: relaxation`); the residual scale of implicit statics (`mode: static`) is in implicit.py.
 
-**沿束给定的应力剖面**：`prestress: [[s, σ], ...]`——在 `s` 上线性插值、在单元中点
-取值，表不覆盖束所在的全部单元时拒绝（不外推）。两种用处：一是**一根后张束被拆成几段**
-（例如锈蚀区段用另一种钢材、另一个 bar 截面）——每段各写 `jack` + `friction` 会各自从两端
-张拉，是另一根束；把整根束的摩擦剖面算一次（`s.tendons[i]["sigma"]` 就是它），分段后按表
-给，就还是原来那根束（`tests/test_fiber_tendons.py`：分成两段，初应变逐位、跨中挠度 1e-6）。
-二是**实测的有效预应力**沿束分布。
+**A tendon anchored within a member**: `extent: [s0, s1]` (in the units of `profile`'s s) -- the tendon exists only in the elements whose midpoint falls between its anchorages; in the others its row has zero area: no force, no weight, skipped by the sweep. The top-slab closure tendons over the piers of a continuous girder, and each span's own web tendons when three spans share a section, rely on it. The friction profile is computed along the tendon's own polyline; a short tendon (an 18 m closure tendon) cannot absorb a 6 mm anchor set, which `tendon_profile` refuses -- give `prestress` (the calculation is in the comments of `cases/case_24_hzb_girder.yaml`).
 
-**多个纤维截面块时的 `s`**：`s` 是**每个截面块自己的**构件轴、从该块的起点量起。把一根梁
-按区段分给几个截面（`assign` 多个区域）时，后面那块的 `s = 0` 在它自己的起点，按全梁坐标
-写的束线形会错位；摩擦也只在该块的那段上算。要在区段上换材料，**保持一个截面、把受影响的
-束分段**（上一段），不要把梁分成几个截面块。
+**A stress profile given along the tendon**: `prestress: [[s, σ], ...]` -- interpolated linearly in `s` and taken at the element midpoints; a table that does not cover every element the tendon is in is refused (no extrapolation). Two uses: first, **one post-tensioned tendon split into segments** (a corroded stretch in another steel, another bar section, say) -- giving each segment `jack` + `friction` would jack each from both ends, a different tendon; compute the whole tendon's friction profile once (`s.tendons[i]["sigma"]` is it) and give it segment by segment as a table, and it stays the original tendon (`tests/test_fiber_tendons.py`: split in two, initial strains to the bit, midspan deflection to 1e-6). Second, a **measured effective prestress** along the tendon.
 
-**在 ParaView 里把钢筋画粗**：钢筋/束系列是 `.vtu`（非结构网格），Tube 滤镜只吃
-vtkPolyData，会报 "Input must be vtkPolyData"——在 Display 里勾 **Render Lines As Tubes**
-并调 Line Width，或者先加一个 Extract Surface 再加 Tube。
+**`s` with several fibre-section blocks**: `s` is along **each section block's own** member axis, from that block's start. When a beam is given several sections by stretch (`assign` to several regions), the later block's `s = 0` is at its own start, and a profile written in the whole beam's coordinates is misplaced; friction is also computed over that block's stretch alone. To change materials along a stretch, **keep one section and split the affected tendons** (the previous paragraph), rather than dividing the beam into section blocks.
 
-**一根管道一个条目**：把一组管道按股数合并成一根放在形心线上，竖弯逐位等价
-（横向坐标只进 I_z 和扭转），但图是错的——墩顶 22 根管道画成 4 条重合的线，腹板束跑到
-箱梁中间。杭州湾算例现在 110 根管道各有自己的 (y, z) 线形：腹板束在腹板中厚处，随高度
-外移（低点 |z|=3.03，锚点 3.52），**平面走向由此自动带进来**，摩擦按三维折线累计转角
-（比画成平面内直的多损失 1%）。代价：纤维列 243→324，算例慢 1.5 倍；恒载应变变化 < 0.2%。
+**Drawing bars thick in ParaView**: the bar and tendon series are `.vtu` (unstructured grids), and the Tube filter takes vtkPolyData only, reporting "Input must be vtkPolyData" -- tick **Render Lines As Tubes** in Display and set the Line Width, or add Extract Surface before Tube.
 
-**扫掠里束画成什么样**：钢筋/束系列每个单元一段。截面积分对束**每个单元只取一次
-样**（中点），但把这个值画在单元两端，曲线束就成了一级级的水平弦——210 m 的梁上一眼看去
-就是直线，这是用户在 ParaView 里看到的。现在每段画在**线形在该单元两端的值**之间：节点处
-连续，落在设计线形上，中间的积分点切片按弦插值（1 m 单元上离抛物线 < 3e-3 m）。画的是束的
-几何，算的仍是中点抽样的阶梯——加密网格两者收敛到一起。
+**One entry per duct**: merging a group of ducts by strand count into one on their centroid line is equivalent bit for bit in vertical bending (the transverse coordinates enter only I_z and torsion), but the picture is wrong -- 22 ducts over a pier drawn as 4 coincident lines, web tendons running down the middle of the box. The Hangzhou Bay case now has 110 ducts, each with its own (y, z) profile: web tendons at mid-thickness of the web, moving outwards with height (|z| = 3.03 at the low point, 3.52 at the anchorage); **the plan alignment comes in by itself**, and friction accumulates the angle along the three-dimensional polyline (1% more loss than drawn straight in plan). The cost: fibre columns 243 → 324, the case 1.5 times slower; dead-load strains change by < 0.2%.
 
-**读截面上一点**：`fiber` 监测量（`{kind: fiber, region: node, field: strain|stress,
-at: [y, z]}`）——离该节点最近的积分点（Lobatto 就在节点上；Gauss 在 0.21L 处）上，
-`strain` 是平截面应变 ε0 − y·κz + z·κy（混凝土的，不含束的初应变），`stress` 是离该点最近
-一根纤维的应力。桥面/底板应变片读的数，论文里的"上缘/下缘"。`FiberBeamSolver.section_strains()`
-给每个积分点的 [ε0, κy, κz]。
+**How the sweep draws a tendon**: the bar and tendon series has one segment per element. The section integration samples a tendon **once per element** (at the midpoint), but drawing that value at both ends of the element turned a curved tendon into level steps -- on a 210 m beam it looked straight at a glance, which is what a user saw in ParaView. Each segment is now drawn between **the profile's values at the element's two ends**: continuous at the nodes, on the design profile, with the integration-point slices in between interpolated along the chord (< 3e-3 m off the parabola on 1 m elements). What is drawn is the tendon's geometry; what is computed is still the midpoint-sampled staircase -- they converge together as the mesh is refined.
 
-**没有的**：无粘结/体外束（力沿全长均匀，需要一根非局部纤维）、束的应力场输出
-（随扫掠导出一起做）、先张的传递长度（可用 `prestress: [[s, σ], ...]` 表写出）。钢束松弛
-（钢材的 `relaxation`）与混凝土徐变收缩（`creep`/`shrinkage`）**已有**，
-见 `docs/creep.md`、`cases/case_29f`、`case_29g`；1.0 版之前这里写的是"没有"。纤维截面的
-徐变每个单元在**中点**取一次弹性应变：奇数点的 Lobatto 规则取中间那个积分点，偶数点的规则
-（默认的 `gauss2`、`lobatto4`）取跨着中点对称的两个积分点的平均。1.0 版之前 Lobatto 取的是
-端点（悬臂多徐变 20%），1.0 版的第一次修正让偶数点规则取两者中的第一个、离单元自己 0 号节点 0.21 L 处，
-同一根悬臂固定在左端多 6.7%、固定在右端少 5.9%。
+**Reading one point of a section**: the `fiber` monitor (`{kind: fiber, region: node, field: strain|stress, at: [y, z]}`) -- at the integration point nearest the node (Lobatto: on the node; Gauss: at 0.21L), `strain` is the plane-section strain ε0 − y·κz + z·κy (the concrete's, without the tendon's initial strain), `stress` the stress of the fibre nearest the point. What a strain gauge on the deck or the soffit reads, the top- and bottom-fibre values of a thesis. `FiberBeamSolver.section_strains()` gives [ε0, κy, κz] at every integration point.
 
-## 扫掠导出：把截面沿变形轴线扫成面
+**Not here**: unbonded and external tendons (a force uniform along the length, which needs a non-local fibre), a stress-field output for tendons (to come with the sweep export), and the transfer length of pretensioning (it can be written as a `prestress: [[s, σ], ...]` table). Tendon relaxation (a steel's `relaxation`) and concrete creep and shrinkage (`creep`/`shrinkage`) **are here**, see `docs/creep.md`, `cases/case_29f`, `case_29g`; before 1.0 this paragraph said they were not. A fibre section's creep takes each element's elastic strain **at its midpoint**: a Lobatto rule with an odd number of points takes the middle integration point, a rule with an even number (the default `gauss2`, `lobatto4`) the average of the two points symmetric about the midpoint. Before 1.0 Lobatto took an end point (a cantilever crept 20% more); the first fix in 1.0 had even rules take the first of the two, 0.21 L from the element's own node 0, and the same cantilever crept 6.7% more fixed at its left end and 5.9% less fixed at its right.
+
+## The sweep export: sweeping the section along the deformed axis
 
 ```
-vfife run   cases/case_21_vecchio_emara_frame.yaml      # output.fields 里加 fiber_stress
-vfife sweep cases/case_21_vecchio_emara_frame.yaml      # -> results/..._sweep.pvd + 每帧一个 .vtu
+vfife run   cases/case_21_vecchio_emara_frame.yaml      # with fiber_stress in output.fields
+vfife sweep cases/case_21_vecchio_emara_frame.yaml      # -> results/..._sweep.pvd + one .vtu per frame
 ```
 
-纤维梁的结果是点和线，画出来的倒塌是几根线掉下去。模型里其实什么都有：每根构件有截面
-轮廓（矩形、箱、圆管，纤维就是在它里面布的），每个粒子有精确取向。扫掠
-把每根纤维所代表的小格（矩形网格的格子、箱壁的格子、圆管的扇形）放到构件参考系的截面
-轴上，用两端粒子的三元组各自旋转——节点 n 处的截面点是 x_n + R_n(y·e_y + z·e_z)——两端
-之间连成六面体：**构件是实心的，每根混凝土纤维每个积分点一个六面体单元**——构件沿长度在
-积分点之间的中点切成片（gauss2 两片，lobatto3 三片：[0, 0.25, 0.75, 1]），每片带自己那个
-积分点的值，不做平均——ParaView 里可以切（Clip/Slice）看内部，切开的截面就是逐纤维的损伤
-图，塑性铰在单元内哪一头也看得出。`--surface` 只要外轮廓面。面会弯、
-会扭，构件劈开之后（`fracture.split`）各自带着自己的粒子落下：每帧写 `connectivity`
-（劈开后构件挂在备用粒子上，网格组里那份连接关系不再是它的）。
+A fibre beam's results are points and lines, and a collapse drawn from them is a few lines falling. The model has everything else: each member has a section outline (rectangle, box, tube -- the fibres are laid out in it), and each particle has an exact orientation. The sweep puts the cell each fibre stands for (a cell of the rectangular grid, of a box wall, a sector of a tube) on the section axes of the member frame and rotates it with each end particle's triad -- the section point at node n is x_n + R_n(y·e_y + z·e_z) -- joining the two ends into hexahedra: **the member is solid, one hexahedron per concrete fibre per integration point** -- the member is cut into slices at the midpoints between integration points (two slices for gauss2, three for lobatto3: [0, 0.25, 0.75, 1]), each slice carrying its own point's values without averaging. In ParaView it can be cut (Clip/Slice) to look inside; the cut face is the fibre-by-fibre damage map, and which end of the element the plastic hinge is at can be seen. `--surface` gives the outer surface alone. The surfaces bend and twist, and members that split (`fracture.split`) fall with their own particles: each frame writes `connectivity` (after a split the member hangs on spare particles, and the connectivity in the mesh groups is no longer its own).
 
-面上画的是截面知道的东西。`output.fields` 里给 `fiber_stress` 和 `fiber_damage`，每帧落盘
-(nel, 积分点, 纤维) 的纤维应力（两条路径都写，内核多一个输出数组）和**损伤类别**——每条本构
-自己回答 `damage_class(state)`：0 完好、1 开裂（混凝土拉过 f_t；concrete01 无抗拉，拉开即
-开裂）、2 压碎（压过峰值应变 ε_c0）、3 屈服（钢有塑性残余应变）、4 失效（`failure` 锁存的
-断裂）。轮廓的边按纤维网格细分（`ny`、`nz`、`nt`），每个面正对一根边界纤维，取它的应力和
-类别（两个积分点取较重的）——实心模式下每个六面体就是它自己的纤维，不用找最近的；钢筋
-和束另写一个线系列（`<stem>_sweep_bars.pvd`，每单元每根
-钢行一段，束沿自己的线形走），按各自的应力和类别着色，ParaView 里渲染成管。构件的内力、
-`fac`、`fractured` 一起作为面数据带过去。输出是 ParaView 的 `.pvd` 集合，每帧一个 `.vtu`
-（meshio）。case_11、case_21 的 `fields` 已带这两个场，`vfife sweep` 直接可用。
+What is drawn is what the section knows. With `fiber_stress` and `fiber_damage` in `output.fields`, each frame writes the fibre stresses (nel, integration points, fibres) (both paths write them; the kernel has one more output array) and a **damage class** -- each constitutive law answers `damage_class(state)` itself: 0 intact, 1 cracked (concrete pulled past f_t; concrete01 has no tensile strength and cracks on opening), 2 crushed (compressed past the peak strain ε_c0), 3 yielded (the steel has a plastic residual strain), 4 failed (the fracture latched by `failure`). The outline's edges are subdivided by the fibre grid (`ny`, `nz`, `nt`), each face facing one boundary fibre and taking its stress and class (the more severe of two integration points) -- in solid mode each hexahedron is its own fibre, with no nearest one to look for; bars and tendons are written as a separate line series (`<stem>_sweep_bars.pvd`, one segment per element per bar row, tendons along their own profiles), coloured by their own stress and class and rendered as tubes in ParaView. The member's internal forces, `fac` and `fractured` are carried along as cell data. The output is a ParaView `.pvd` collection with one `.vtu` per frame (meshio). The `fields` of case_11 and case_21 already include both fields, so `vfife sweep` works on them directly.
 
-**颜色的断层**：单元数据是每片一个数，沿构件是台阶。实心输出另带一个点数据
-`fiber_stress_nodal`——每根纤维各积分点的应力沿构件线性插值到每个切片、Gauss 点之外线性
-外推到端面——ParaView 里先 Clean to Grid（合并相邻构件端面重合的点），再按
-`fiber_stress_nodal` 着色，颜色沿构件连续。`fiber_damage` 是类别，本来就该分块。
+**Colour steps**: cell data is one number per slice, a staircase along the member. The solid output also carries point data, `fiber_stress_nodal` -- each fibre's stresses at its integration points interpolated linearly to each slice and extrapolated linearly beyond the Gauss points to the end faces; in ParaView apply Clean to Grid first (merging the coincident points of neighbouring members' end faces), then colour by `fiber_stress_nodal` for a colour continuous along the member. `fiber_damage` is a class and should be in blocks.
 
-做不到的：截面以下的碎块——混凝土崩落、块状飞溅是实体加碎块的事。
+What it cannot do: fragments below the section -- concrete spalling and fragments flying off are a matter for solids and debris.
 
-## 保护层与约束核心
+## Cover and confined core
 
-`fiber` 截面接受 `cover`（自各面量入的厚度）与 `core_material`（`materials` 里的名字）。质心落在核心矩形外的纤维用 `material`（无约束保护层，会剥落），其余用 `core_material`。参照路径把它们分成两个材料组；内核仍只内联一条混凝土律，参数按 `cpar[e, f]` 逐纤维取，两条路径逐纤维一致（`tests/test_fiber_beam_kernel.py`）。
+A `fiber` section takes `cover` (a thickness measured in from each face) and `core_material` (a name in `materials`). Fibres whose centroids fall outside the core rectangle use `material` (unconfined cover, which spalls); the rest use `core_material`. The reference path makes two material groups of them; the kernel still inlines one concrete law and takes its parameters fibre by fibre from `cpar[e, f]`, and the two paths agree fibre by fibre (`tests/test_fiber_beam_kernel.py`).
 
-`nz` 必须能分辨保护层。case_11（400×400、保护层 52 mm）在 `nz=2` 时保护层占 25%，`nz=8` 起收敛到 43.8%，真实值 45.2%——**每个纤维在 z 向跨半个截面高时，它既是保护层又是核心区，分不开**。
+`nz` must resolve the cover. In case_11 (400×400, 52 mm cover) the cover is 25% of the section with `nz=2` and converges to 43.8% from `nz=8`, against 45.2% exactly -- **a fibre spanning half the section depth is both cover and core and cannot be told apart**.
 
-**`patches` 截面用另一条规则：patch 自己写 `material`**。
+**A `patches` section uses another rule: a patch names its `material`**.
 
 ```yaml
 patches:
-  - {corners: [...], ny: 4, nz: 2, material: cover_conc}   # 翼缘顶层
-  - {corners: [...], ny: 4, nz: 8, material: core_conc}    # 箍筋约束的核心
-  - {corners: [...], ny: 12, nz: 4}                        # 不写就用截面的 `material`
+  - {corners: [...], ny: 4, nz: 2, material: cover_conc}   # the top layer of a flange
+  - {corners: [...], ny: 4, nz: 8, material: core_conc}    # the core the stirrups confine
+  - {corners: [...], ny: 12, nz: 4}                        # none: the section's `material`
 ```
 
-`cover` + `core_material` 是**矩形截面的**规则——"离任一自由面 `cover` 以内的是保护层"。
-它**不能推广到 patch**：两个 patch 之间的缝不是自由面，按距离判会把内部纤维判成保护层。
-所以 patch 截面**直说**：哪个 patch 用哪条律。名字在 `materials` 里解析，落到求解器时
-与 `core_material` 走同一条路（同名的多个 patch 合成一个材料组，不重复建律）。
+`cover` + `core_material` is **the rectangle's** rule -- "within `cover` of any free face is cover". It **does not carry over to patches**: the seam between two patches is not a free face, and judging by distance would make interior fibres cover. So a patch section **says it outright**: which patch uses which law. The names are resolved in `materials` and reach the solver by the same road as `core_material` (several patches of the same name form one material group, with no law built twice).
 
-**两条规则不许同时用在一个截面上**，撞上会报"two ways to say the same thing"。
-不写 `material` 的 patch 截面**逐位不变**（`tests/test_patch_material.py` 断言分组映射相同）。
-孔会把整格吃掉，所以每根纤维属于哪个 patch 是 `patch_fibers(..., owner=True)` 返回的，
-不是按 `ny*nz` 事后算的。
+**The two rules may not be used together on one section**; doing so reports "two ways to say the same thing". A patch section without `material` is **unchanged to the bit** (`tests/test_patch_material.py` asserts the same group map). Holes can swallow whole cells, so which patch each fibre belongs to is returned by `patch_fibers(..., owner=True)`, not computed afterwards from `ny*nz`.
 
-**一个必须知道的局限：`concrete02` 的初始模量被 `2·fpc/epsc0` 绑死。** Mander 给核心区高峰值应变（本例 0.0084），于是核心区 Ec = 1.0e10，而保护层是 2.56e10——软了 2.6 倍，且这占截面 56%。改用保持 Ec 的 `epsc0=0.0033` 重跑：峰值力 166.1 → 183.1 kN，反向点比值 0.97/1.05/1.13/1.06 → 1.12/1.07/1.11/1.02。**大变形端的改善两者都在（剥落是真的），峰值的近乎吻合则不然——这个模型峰值精度的诚实读数接近 1.10，而不是 1.00。**
+**A limit to know: `concrete02`'s initial modulus is tied to `2·fpc/epsc0`.** Mander gives the core a high peak strain (0.0084 here), so the core's Ec = 1.0e10 while the cover's is 2.56e10 -- 2.6 times softer, over 56% of the section. Run again with `epsc0=0.0033`, which keeps Ec: peak force 166.1 → 183.1 kN, ratios at the reversal points 0.97/1.05/1.13/1.06 → 1.12/1.07/1.11/1.02. **The improvement at large deformation holds either way (the spalling is real); the near match of the peak does not -- the honest reading of this model's peak accuracy is close to 1.10, not 1.00.**
 
-## 应变渗透（粘结滑移的一阶效应）
+## Strain penetration (the first-order effect of bond slip)
 
 ```yaml
 assign:
   - {region: all, section: rc, anchorage: {region: base, bar_diameter: 0.020}}
 ```
 
-与 `region` 相接的单元，其钢筋应变按 `Le/(Le + Lsp)` 折减，`Lsp = 0.022·fy·db`（Priestley）。case_11：Lsp = 209 mm，基座单元 400 mm，折减系数 0.657。**没有自由参数**——Lsp 由 fy 和 db 决定，两者都在 PEER 表上。
+In the elements that meet `region`, the bars' strain is reduced by `Le/(Le + Lsp)`, `Lsp = 0.022·fy·db` (Priestley). case_11: Lsp = 209 mm, base element 400 mm, factor 0.657. **No free parameter** -- Lsp follows from fy and db, both in the PEER table.
 
-它是 `steel02` 的一个**参数**而非独立材料：熔合内核只内联一条钢筋律，第二种律型会让整个模型退回 NumPy 路径。这也是逐单元参数（`spar[e, f]`）存在的直接理由。
+It is a **parameter** of `steel02`, not a material of its own: the fused kernel inlines one steel law, and a second law type sends the whole model back to the NumPy path. That is the direct reason per-element parameters (`spar[e, f]`) exist.
 
-实测行为符合预期：屈服前后基底弯矩降低 6~15%，而极限承载力不受影响（尖端 40 mm 处比值 0.997，钢筋已全塑性）。
+It behaves as expected: the base moment around yield drops 6-15%, while the ultimate capacity is unaffected (ratio 0.997 at a 40 mm tip displacement, with the bars fully plastic).
 
-## 三步的累计效果
+## The three steps together
 
-| | 峰值力 | 8mm 刚度 | 耗能 |
+| | peak force | stiffness at 8 mm | energy |
 |---|---|---|---|
-| 单一混凝土、完全粘结 | 1.15 | 1.37 | 1.30 |
-| ＋保护层剥落、Mander 核心 | 1.00 | 1.28 | 1.24 |
-| ＋基座应变渗透 | **0.89** | **1.15** | **1.10** |
+| one concrete, full bond | 1.15 | 1.37 | 1.30 |
+| + cover spalling, Mander core | 1.00 | 1.28 | 1.24 |
+| + strain penetration at the base | **0.89** | **1.15** | **1.10** |
 
-刚度与耗能单调趋近实测，是三步以来最好的；**峰值力则穿过 1.0 变成偏低 11%**。逐级反向点为 1.19 / 0.95 / 1.03 / 1.11 / 1.04——包络处处在 11% 以内、多数在 5% 以内，这比单一峰值比更能描述这个模型。
+Stiffness and energy approach the test monotonically, the best of the three steps; **the peak force passes through 1.0 to 11% low**. The ratios at the successive reversal points are 1.19 / 0.95 / 1.03 / 1.11 / 1.04 -- the envelope is within 11% everywhere and within 5% mostly, which describes this model better than a single peak ratio.
 
-**不要为了把峰值拉回 1.0 去调 Lsp。** 剩余误差与算例中既有建模选择的不确定度同量级——仅 `concrete02` 无法同时保持 Mander 的初始模量与峰值应变这一条就值 10%。用一个推导量去掩盖另一个推导量的不确定度，是这一路反复出现的那种错误。
+**Do not tune Lsp to bring the peak back to 1.0.** The remaining error is of the order of the uncertainty of the modelling choices already in the case -- that `concrete02` cannot keep both Mander's initial modulus and his peak strain is worth 10% on its own. Covering the uncertainty of one derived quantity with another is the mistake that kept recurring along this road.
 
-## 断裂
+## Fracture
 
 ```yaml
 sections:
@@ -337,45 +226,26 @@ sections:
     type: fiber
     material: concrete
     # ...
-    fracture: {threshold: 1.0, split: false}   # 占比达到多少算断；断了要不要掉下来
+    fracture: {threshold: 1.0, split: false}   # the fraction that counts as broken; whether to fall when broken
 ```
 
-判据本身**不在这里**：一根纤维什么时候算完了，由它自己的材料说
-（`rebar` 与 `steel02` 的 `rupture_strain`——同名但判据不同，见 `docs/steel02.md`；
-`steel_cyclic` 的退化 + ULCF；`concrete01/02` 目前没有断裂准则），
-截面怎么把纤维加起来是单元的事，不是选项（Cai et al. 2023 式 19/20：一根纤维在任一
-积分截面断了就整根不算，FAC = 断掉纤维数 / 总纤维数）。三层的划分见 `core/fracture.py`。
+The criterion itself **is not here**: when a fibre is finished is its own material's to say (`rupture_strain` of `rebar` and `steel02` -- one name, different criteria, see `docs/steel02.md`; the degradation + ULCF of `steel_cyclic`; `concrete01/02` have no fracture criterion yet). How a section adds its fibres up is the element's business, not an option (Cai et al. 2023, Eqs. 19/20: a fibre broken at any integration section no longer counts at all, FAC = broken fibres / total fibres). The three layers are in `core/fracture.py`.
 
-- 达到阈值的单元**失活**：不再贡献内力、纤维不再被驱动，**质量原样留在节点上**
-  （实体路径的侵蚀是删除，会丢质量）；
-- 失活**不是分离**：断开的构件两端仍是同两个粒子，构件不会掉出来。要它掉下来就写
-  `split: true`（需要 `solver.mode: dynamic`）：模型另外维护一张**键合图**
-  （粒子是顶点，"单元的一端系在某粒子上"是边，`core/topology.py`），断裂剪掉这根构件
-  的两条边，那一端所在粒子若还挂着别的构件就换到自己的粒子上，**构件那份质量跟着一起
-  搬**，连通分量随即告诉你什么脱离了。守恒的是总质量与总动量（搬走的质量带着原有速度
-  ——别的给法都是凭空的冲量），碎块质心以 9.806 m/s² 下落；
-- 分裂的粒子**开跑前就预留好**：每单元两个，停在它可能替换的那一端上，所以运行时不改
-  任何数组尺寸，也没有容量会耗尽（一端只能分离一次）。预留发生在**区域解析之后**，
-  否则停在固定支座上的备用粒子会被 `where: {x: 0}` 选进约束，碎块一出生就被焊回支座；
-- 分裂后**重新量时间步上界**：分裂把质量从粒子上拿走，把死单元从刚度里一并拿掉后轴向
-  比值精确恢复、转动比值只恢复到 0.56（共享节点上两根构件的弯曲耦合相消，见 0.1 版）。
-  dt 不会中途调整，界不成立时会打印警告；
-- **三档都是可选的，代价量过**（40 根构件、64 纤维 + 4 钢筋）：
+- An element that reaches the threshold is **deactivated**: it contributes no internal force and its fibres are no longer driven, **its mass stays on the nodes** (erosion on the solid path deletes, and loses mass);
+- deactivation **is not separation**: the broken member's ends are still the same two particles, and the member does not fall out. For it to fall, write `split: true` (requires `solver.mode: dynamic`): the model keeps a **bond graph** (particles are vertices, "an element's end is tied to a particle" is an edge, `core/topology.py`); fracture cuts the member's two edges, an end whose particle still holds other members moves to a particle of its own, **taking the member's share of the mass with it**, and the connected components then tell what has come away. What is conserved is the total mass and the total momentum (the mass moved keeps its velocity -- any other choice is an impulse from nowhere); a fragment's centre of mass falls at 9.806 m/s²;
+- the particles for splitting are **reserved before the run**: two per element, parked on the ends they may replace, so no array changes size at run time and no capacity runs out (an end can separate once). The reservation happens **after the regions are resolved**, or a spare particle parked on a fixed support would be caught by `where: {x: 0}` and a fragment would be welded back to the support the moment it is born;
+- after a split **the bound of the time step is measured again**: splitting takes mass off a particle; with the dead element also taken out of the stiffness the axial ratio is restored exactly and the rotational one to 0.56 (the bending coupling of two members at a shared node cancels, see 0.1). dt is not adjusted midway; when the bound does not hold a warning is printed;
+- **all three levels are optional, and their cost was measured** (40 members, 64 fibres + 4 bars):
 
-  | 每步 | 熔合内核（0.21 ms/步） | NumPy 路径（8.6 ms/步） |
+  | per step | fused kernel (0.21 ms/step) | NumPy path (8.6 ms/step) |
   |---|---|---|
-  | 不写 `fracture:` | 1.00× | 1.00× |
-  | 只写 `threshold` | 1.20× | 1.00×（噪声以下） |
-  | 再加 `split: true` | 1.30× | 1.12× |
+  | no `fracture:` | 1.00× | 1.00× |
+  | `threshold` alone | 1.20× | 1.00× (below the noise) |
+  | with `split: true` | 1.30× | 1.12× |
 
-  问断裂是**每步一个固定量**（这台机器上 0.03–0.04 ms），你的一步越快它越显眼；
-  分裂那一档的加价与断不断无关，是预留粒子让模型的点数变成三倍（取向更新、边界
-  掩码、ndof 向量），开了就一直在。一次分裂**事件**（重建 K、重算 dt 上界、重建
-  这一步的荷载）3.6–3.8 ms，不到 NumPy 模型的半步；
-- 还**没有接触**：碎块会从下面的楼板穿过去；
-- 输出多两个单元场：`fac`（0–1，部分断裂的过程量）与 `fractured`（闩锁的 0/1）；
-- 分级松弛只在**收敛提交点**闩锁（阶段内的试探态会被丢弃重算，而闩锁解不开），动态
-  路径逐步闩；
-- 整截面所有律都没有断裂准则时，`fracture:` 直接报错而不是跑到底报告一栋没塌的楼；
-- 熔合内核认得失活标志（同一份 `active` 数组），但它能内联的三种律都还没有断裂准则，
-  所以今天走内核路径的截面无法自行断裂。
+  Checking for fracture is **a fixed cost per step** (0.03-0.04 ms on this machine), so the faster your step, the more it shows; the extra for splitting does not depend on whether anything breaks: the reserved particles triple the model's point count (orientation updates, boundary masks, ndof vectors), and it is paid as long as it is on. A splitting **event** (rebuilding K, recomputing the bound of dt, rebuilding the step's loads) takes 3.6-3.8 ms, less than half a step of the NumPy model;
+- there is **no contact yet**: fragments pass through the floor below;
+- two more element fields are written: `fac` (0-1, the progress of partial fracture) and `fractured` (the latched 0/1);
+- staged relaxation latches only at **the converged commit** (trial states within a stage are discarded and recomputed, and a latch cannot be undone); the dynamic path latches step by step;
+- when no law in the whole section has a fracture criterion, `fracture:` is refused rather than running to the end and reporting a building that did not fall;
+- the fused kernel reads the deactivation flags (the same `active` array), but the three laws it can inline have no fracture criterion yet, so a section on the kernel path today cannot break by itself.

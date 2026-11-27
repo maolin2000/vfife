@@ -1,10 +1,10 @@
-"""Write the manuals' table of what the compiled step takes.
+"""Write the manual's table of what the compiled step takes.
 
-    python tools/capability_tables.py          # rewrite the tables in place
-    python tools/capability_tables.py --check  # exit 1 if one is stale
+    python tools/capability_tables.py          # rewrite the table in place
+    python tools/capability_tables.py --check  # exit 1 if it is stale
 
 The table is `vfife.core.capabilities.table()`, the same rows the compiled
-step and the compiled relaxation refuse with; each manual holds it between
+step and the compiled relaxation refuse with; the manual holds it between
 `capabilities.BEGIN` and `capabilities.END`.
 """
 import os
@@ -15,10 +15,10 @@ sys.path.insert(0, ROOT)
 
 from vfife.core import capabilities  # noqa: E402
 
-MANUALS = {"docs/user_manual.md": "en", "docs/用户手册.md": "zh"}
+MANUALS = ["docs/user_manual.md"]
 
 
-def rendered(text, lang):
+def rendered(text):
     """`text` with its table rewritten, or None when it has no markers."""
     i = text.find(capabilities.BEGIN)
     j = text.find(capabilities.END)
@@ -26,22 +26,22 @@ def rendered(text, lang):
         return None
     # the file's own line endings (a Windows checkout may have CRLF)
     nl = "\r\n" if "\r\n" in text else "\n"
-    block = nl + nl + capabilities.table(lang).replace("\n", nl) + nl + nl
+    block = nl + nl + capabilities.table().replace("\n", nl) + nl + nl
     return text[:i + len(capabilities.BEGIN)] + block + text[j:]
 
 
 def main(argv):
-    # the manuals' names are not ASCII, and a console may not be UTF-8
+    # a console may not be UTF-8
     try:
         sys.stdout.reconfigure(errors="backslashreplace")
     except (AttributeError, ValueError):
         pass
     stale = []
-    for rel, lang in MANUALS.items():
+    for rel in MANUALS:
         path = os.path.join(ROOT, rel)
         with open(path, encoding="utf-8", newline="") as f:
             text = f.read()
-        new = rendered(text, lang)
+        new = rendered(text)
         if new is None:
             stale.append(f"{rel}: no table markers")
             continue

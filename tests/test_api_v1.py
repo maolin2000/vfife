@@ -35,9 +35,9 @@ OUTCOME_FIELDS = ["status", "converged", "result_path", "sidecars", "preflight",
 
 
 def test_the_api_reference_on_disk_is_what_the_code_generates():
-    on_disk = (ROOT / "docs" / "API参考.md").read_text(encoding="utf-8")
+    on_disk = (ROOT / "docs" / "api_reference.md").read_text(encoding="utf-8")
     assert on_disk == reference.generate_api(), \
-        "docs/API参考.md is stale: run `python -m vfife reference --api`"
+        "docs/api_reference.md is stale: run `python -m vfife reference --api`"
 
 
 def test_nothing_frozen_at_version_1_has_gone():

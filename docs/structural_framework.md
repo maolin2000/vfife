@@ -1,6 +1,6 @@
 # Structural line-element framework
 
-> 写于旧输入模型（`element:` / `material:` / `members:`）时期，记录当时的状态；输入模型已改为 materials / sections / assign（见 README「The model」一节），本文中的算例片段不再是可运行的写法。
+> Written in the time of the old input model (`element:` / `material:` / `members:`) and a record of that state; the input model is now materials / sections / assign (see the user manual), and the case fragments on this page are no longer valid input.
 
 2026-08-26: added the first shared structural-element gateway,
 `vfife.core.structural.make_structural_solver`.  It selects `truss2`, `beam2`

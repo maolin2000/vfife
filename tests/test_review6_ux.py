@@ -73,9 +73,9 @@ def test_every_field_of_the_schema_carries_its_description():
     missing += [p for p, v in s["properties"].items() if not v.get("description")]
     assert not missing, missing[:10]
     d = s["$defs"]
-    # the field comments, Chinese line then English (the YAML reference's text)
+    # the field comments' English (the English YAML reference's text)
     orient = d["AssignSpec"]["properties"]["orientation"]["description"]
-    assert "局部 y" in orient and "local y axis" in orient
+    assert "local y axis" in orient and "局部" not in orient
     assert "relaxation" in d["SolverSpec"]["properties"]["mode"]["description"]
     assert set(d["SolverSpec"]["properties"]["mode"]["enum"]) == {"dynamic", "relaxation", "static"}
     assert d["SectionSpec"]["properties"]["height"]["description"]
@@ -94,7 +94,7 @@ def test_reference_check_covers_the_shipped_schema(tmp_path, monkeypatch):
     # --check fails on a stale copy and plain `reference` rewrites it
     stale = tmp_path / "docs"
     stale.mkdir()
-    (stale / "YAML参考.md").write_text(reference.generate(), encoding="utf-8")
+    (stale / "yaml_reference.md").write_text(reference.generate(), encoding="utf-8")
     (stale / "vfife.schema.json").write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(reference, "ROOT", tmp_path)
     assert main(["reference", "--check"]) == 1

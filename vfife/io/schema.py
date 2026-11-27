@@ -85,52 +85,36 @@ class ConnectorLawSpec(Strict):
     (Coulomb: sticks, then slides at mu times the compression another
     component of the same connector carries). elements/connector.py has the
     mechanics; one scalar of history per component, the slipped deformation."""
-    #: 律的种类：`gap` 间隙/限位，`bilinear` 双线性滞回（隔震支座、屈服耗能装置），`friction` 库仑摩擦滑动，`damper` 非线性粘滞阻尼器 F = c·sign(v)·|v|^α（1.10），`pendulum` 摩擦摆支座（1.10），`material` 材料表里的一维材料，F = area·σ(d/length)（1.21）
     #: `gap`, `bilinear`, `friction`, `damper` (a fluid viscous damper, F = c sign(v) |v|^alpha; 1.10), `pendulum` (a friction pendulum bearing; 1.10) or `material` (a one-dimensional law of the material table, F = area sigma(d / length); 1.21)
     type: Literal["gap", "bilinear", "friction", "damper", "pendulum", "material"]
-    #: gap：自由行程的下限（m 或 rad），不给即该侧无限位（friction 的粘着刚度是 `stiffness`，不读 `lo`）
     #: gap: lower bound of the free travel (None = no stop that side); friction does not read it (its stick stiffness is `stiffness`)
     lo: Optional[float] = None
-    #: gap：自由行程的上限；在局部 ux（伸长为正）上，`{lo: 0}` 是只受压的支承（压紧受力、拉开自由），`{hi: 0}` 是只受拉的
     #: gap: upper bound of the free travel; on the local ux (elongation positive) `{lo: 0}` is a compression-only seat and `{hi: 0}` a tension-only tie
     hi: Optional[float] = None
-    #: gap：碰到限位后的刚度（N/m 或 N·m/rad）；friction、pendulum：粘着刚度；damper：与阻尼器并联的弹簧（可不写）
     #: gap: the stop's stiffness once a bound is reached; friction, pendulum: the stick stiffness before sliding; damper: a spring beside the damper (optional)
     stiffness: Optional[float] = Field(None, gt=0.0)
-    #: bilinear：初始刚度
     #: bilinear: initial (elastic) stiffness
     k1: Optional[float] = Field(None, gt=0.0)
-    #: bilinear：屈服后刚度（0 = 理想塑性；须小于 k1）
     #: bilinear: post-yield stiffness (0 = perfectly plastic; must be below k1)
     k2: Optional[float] = Field(None, ge=0.0)
-    #: bilinear：屈服力（N 或 N·m）
     #: bilinear: yield force
     fy: Optional[float] = Field(None, gt=0.0)
-    #: friction、pendulum：摩擦系数
     #: friction, pendulum: coefficient of friction
     mu: Optional[float] = Field(None, gt=0.0)
-    #: pendulum：滑动球面的等效曲率半径（m）；恢复刚度是 N/radius，N 为支座当时的压力
     #: pendulum: effective radius of the sliding surface; the restoring stiffness is N / radius, N the compression the bearing carries at that instant
     radius: Optional[float] = Field(None, gt=0.0)
-    #: damper：阻尼系数 c（N·(s/m)^α），F = c·sign(v)·|v|^α
     #: damper: the coefficient c of F = c sign(v) |v|^alpha (force per velocity^alpha)
     c: Optional[float] = Field(None, gt=0.0)
-    #: damper：速度指数 α，0 < α ≤ 1（1 即线性阻尼器；桥梁常用 0.2–0.5）
     #: damper: the velocity exponent alpha, 0 < alpha <= 1 (1 is the linear dashpot; bridges use 0.2-0.5)
     exponent: Optional[float] = Field(None, gt=0.0, le=1.0)
-    #: damper：低于这个速度（m/s）时按线性 F = c·v0^(α-1)·v；α < 1 时必须写（v → 0 时幂律的斜率无穷大，显式积分会在零速附近抖动）。取设计速度的 1% 左右
     #: damper: below this velocity the law is linear, F = c v0^(alpha-1) v; required when alpha < 1 (the power law's slope is infinite at v = 0 and an explicit step chatters there). About 1% of the design velocity
     linear_below: Optional[float] = Field(None, gt=0.0)
-    #: friction：压紧力从哪来——`ux`（同一连接器局部 ux 线性弹簧当前的压力；只有它的正负与节点顺序无关），或一个常数（N）
     #: friction: where the compression comes from -- `ux` (the current compression of this connector's local ux spring, the one component whose sign does not depend on the node order) or a constant force
     normal: Optional[Union[str, float]] = None
-    #: material：`materials` 里一维材料的名字（可以是 parallel、series、gap）
     #: material: the name of a one-dimensional law in `materials` (parallel, series and gap included)
     material: Optional[Union[str, Dict[str, Any]]] = None
-    #: material：力 = area × 应力；不写为 1（材料表即力–变形关系）
     #: material: force = area x stress; 1 when left out (the table is then the force-deformation relation)
     area: Optional[float] = Field(None, gt=0.0)
-    #: material：应变 = 变形 / length；不写为 1
     #: material: strain = deformation / length; 1 when left out
     length: Optional[float] = Field(None, gt=0.0)
 
@@ -214,13 +198,10 @@ def _validate_connector(stiffness, damping, curves, owner, laws=None):
 
 class ArcSpec(Strict):
     """A line drawn as a curve between its two end points (1.1)."""
-    #: 矢高：弦中点处曲线离弦的距离，沿 `up` 量（负值向下）
     #: the rise: how far the curve is from the chord at its middle, along `up` (negative: below)
     rise: float
-    #: `parabola`（按弦等分，桥梁拱轴的常用形状）或 `circle`（按圆心角等分）
     #: `parabola` (nodes evenly along the chord, the usual arch axis) or `circle` (evenly by angle)
     shape: Literal["parabola", "circle"] = "parabola"
-    #: 矢高的方向（与弦不能平行；默认整体 +z）
     #: the direction of the rise (not along the chord; default global +z)
     up: List[float] = Field(default=[0.0, 0.0, 1.0], min_length=3, max_length=3)
 
@@ -229,17 +210,13 @@ class LineGroupSpec(Strict):
     """One named line of members, straight or an arc, generated (1.1). Its name is
     a region: the members' (for `assign`) and their nodes' (for constraints,
     loads, monitors), as a Gmsh physical line group's is."""
-    #: 依次经过的点：`points` 里的名字或坐标 [x, y, z]；每两个相邻点之间是一段
     #: the points the line passes through, in order: names from `points` or
     #: coordinates [x, y, z]; each pair of neighbours is one segment
     through: List[Union[str, List[float]]] = Field(..., min_length=2)
-    #: 每一段分成的单元数（与 `size` 二选一；都不写为 1）
     #: elements per segment (or `size`; neither: 1)
     divisions: Optional[int] = Field(None, ge=1)
-    #: 单元的目标长度：每一段分成 ceil(段长 / size) 个单元
     #: the target element length: each segment is divided into ceil(length / size)
     size: Optional[float] = Field(None, gt=0.0)
-    #: 画成曲线（只用于两点之间）：抛物线或圆弧，见 ArcSpec
     #: a curve instead of a straight line (two points only): see ArcSpec
     arc: Optional[ArcSpec] = None
 
@@ -256,19 +233,15 @@ class LineGroupSpec(Strict):
 
 
 class MeshSpec(Strict):
-    #: 网格来源：`box` 结构化盒子（dimensions/divisions/origin）、`gmsh` 读 .msh、`abaqus` 读 .inp、`lines` 在算例里写线单元网格（points/lines，1.1）
     #: `box` (dimensions/divisions/origin), `gmsh` (path to .msh), `abaqus` (path to .inp), or `lines`: a line-member mesh written in the case (points/lines, 1.1)
     type: Literal["box", "gmsh", "abaqus", "lines"] = "box"
-    #: lines：命名的点 {名字: [x, y, z]}；每个名字是一个只含该节点的区域；两个点不能重合（支座两侧要错开一点，用连接器相连）
     #: lines: named points {name: [x, y, z]}; each name is a region of that one
     #: node. No two at one place: a bearing's two sides are two points a little
     #: apart, joined by a connector
     points: Optional[Dict[str, List[float]]] = None
-    #: lines：命名的构件组 {名字: LineGroupSpec}；名字是这些单元和它们节点的区域
     #: lines: named groups of line members {name: LineGroupSpec}; the name is a
     #: region of those members and of their nodes
     lines: Optional[Dict[str, LineGroupSpec]] = None
-    #: lines：几条线合成的组 {名字: [线名, ...]}，与 Gmsh 物理组一样是**单元**区域（供 assign、removals）；`regions:` 里的 union 只是节点集。gmsh：几个物理组合成的组（顶层 `groups:` 降级到这里）
     #: lines: groups of lines {name: [line names]}, an ELEMENT region like a
     #: Gmsh physical group of several pieces (for `assign` and `removals`); a
     #: `regions:` union is a set of nodes only, and a member whose two nodes
@@ -276,19 +249,14 @@ class MeshSpec(Strict):
     #: file's physical groups, the same kind of region (the top-level `groups:`
     #: lowers to this)
     groups: Optional[Dict[str, List[str]]] = None
-    #: 盒子网格的三个边长 [Lx, Ly, Lz]（m）
     #: box only
     dimensions: Optional[List[float]] = Field(None, min_length=3, max_length=3)
-    #: 盒子网格沿 x、y、z 的单元数
     #: box only: elements along x, y, z
     divisions: Optional[List[int]] = Field(None, min_length=3, max_length=3)
-    #: 盒子网格 x、y、z 最小的那个角点
     #: box only: corner with the smallest x, y, z
     origin: List[float] = Field(default=[0.0, 0.0, 0.0], min_length=3, max_length=3)
-    #: 网格文件路径，相对算例文件
     #: gmsh only -- path to a .msh, relative to the case file
     path: Optional[str] = None
-    #: 坐标统一乘以它：网格按 mm 画、分析按 m 算时写 0.001
     #: multiplies every coordinate. Meshing in mm and analysing in m is the
     #: normal case, and a silent factor of 1000 in the geometry is not the kind
     #: of mistake that announces itself.
@@ -364,12 +332,10 @@ class FractureSpec(Strict):
     left for the analyst is how much of the section has to be gone before the
     member is treated as severed, and the honest default is all of it.
     """
-    #: 截面纤维（或实体的高斯点）失效的比例达到它即断；1.0 = 整个截面
     #: fraction of the section's fibres (or a solid's Gauss points) that must
     #: have failed. 1.0 = the whole section; lower cuts the member earlier,
     #: which is a modelling shortcut and should be said out loud in a report.
     threshold: float = Field(1.0, gt=0.0, le=1.0)
-    #: 断开时把构件从框架上分离出来：它的质量转到自己的粒子上、碎片下落（需要 mode: dynamic；没有接触）
     #: separate the member from the frame when it fractures, instead of only
     #: switching its forces off. The member's share of the mass moves onto
     #: particles of its own and the fragment falls. Off by
@@ -408,7 +374,6 @@ class ElementSpec(Strict):
     kappa_z: float = Field(1.0, gt=0.0)
     #: Fiber section for beam2_fiber (rect: width along local y, height along local z)
     fiber_section: Optional[Dict[str, Any]] = None
-    #: 单一纤维截面指派到的区域（内部键，由 `assign` 降解生成）；求解器核对它覆盖全部纤维构件
     #: the region a single fibre section is assigned to (internal, from `assign`); the solver checks it owns every fibre member
     fiber_region: Optional[str] = None
     #: SEVERAL fibre sections on one model: [{region,
@@ -448,7 +413,6 @@ class ElementSpec(Strict):
     #: so far; the validator below refuses it on anything else rather than
     #: accepting it and doing nothing.
     fracture: Optional[FractureSpec] = None
-    #: 弹脆性断裂判据：单一截面的 beam2/beam2_timoshenko 给 yield_strength + extreme_fibre，truss2 给 tensile_strength；纤维梁用 fracture
     #: elastic-brittle breaking of every member: beam2/beam2_timoshenko take yield_strength + extreme_fibre, truss2 tensile_strength; a fibre beam breaks through `fracture`
     failure: Optional[FailureSpec] = None
     #: A vector used to orient the local y axis; it must not be parallel to the bar.
@@ -459,7 +423,6 @@ class ElementSpec(Strict):
     #: End rotation releases, e.g. ``[i_rz, j_rz]``.  Translational releases are
     #: deliberately not accepted: they create an unconnected member.
     releases: List[str] = []
-    #: 梁端刚性偏移（1.21）：{i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}，构件弹性段的两端离节点的向量；节点到弹性段端点之间是刚体，随节点转动。梁端刚域沿构件给，截面偏心（形心不在节点连线上）横向给。`axial: full` 让框架梁的轴向和扭转刚度按节点间的长度算（刚域只在弯曲和剪切上是刚的，同 Midas、ETABS）；默认 `elastic` 按弹性段
     #: rigid end offsets (1.21): {i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}, the vectors from the nodes to the elastic part's two ends; the stretch between is rigid and turns with its node. A rigid end zone is an offset along the member, a section set off its nodes one across it. `axial: full` takes a frame beam's axial and torsional stiffness over the length between the nodes (a zone rigid in bending and shear only, as Midas and ETABS have it); `elastic`, the default, over the elastic part (core/end_offsets.py)
     end_offsets: Optional[Dict[str, Any]] = None
     #: connector2: six local/global stiffness and damping components, either a
@@ -620,22 +583,16 @@ class FailureSpec(Strict):
     never break first; a CAPACITY is what an elastic member can be checked
     against, and it needs only A, I and the depth of the section."""
 
-    #: 杆/索：拉应力达到它即断（Pa）
     #: bars and cables: the tension at which the member breaks, Pa
     tensile_strength: Optional[float] = Field(None, gt=0.0)
-    #: 梁：承载力判据 |N|/N_p + |M_y|/M_y,cap + |M_z|/M_z,cap ≥ 1 用的屈服强度（Pa）
     #: beams: the yield strength (Pa) behind N_p = f_y A and M_cap = shape_factor f_y I / c
     yield_strength: Optional[float] = Field(None, gt=0.0)
-    #: [c_y, c_z]：构件轴到局部 y、z 方向最外纤维的距离（m），M_cap = 形状系数·f_y·I/c
     #: beams: [c_y, c_z], the distances (m) from the member axis to the extreme fibres along the section's local y and z
     extreme_fibre: Optional[List[float]] = Field(None, min_length=2, max_length=2)
-    #: 塑性/弹性弯矩之比（1 = 首次屈服；箱形约 1.12）
     #: plastic over elastic moment (1 = first yield; a thin-walled box about 1.12)
     shape_factor: float = Field(1.0, ge=1.0)
-    #: 梁（mixed_line）：给了它，梁端就是塑性铰——端弯矩按 |N|/N_p + |M_y|/M_y,p + |M_z|/M_z,p ≤ 1 封顶，超出的转成塑性转角，累计塑性转角（rad）到它才在该端断开；不写就是弹脆性，到承载力立即断开
     #: beams (mixed_line): given, every end is a PLASTIC HINGE -- the end moments are capped on |N|/N_p + |M_y|/M_y,p + |M_z|/M_z,p <= 1, what would exceed it becomes plastic rotation, and the end breaks when its accumulated plastic rotation (rad) reaches this; left out, elastic-brittle: the end breaks the moment the capacity is reached
     rotation_capacity: Optional[float] = Field(None, gt=0.0)
-    #: 断了之后：true 质点分裂——构件两端移到自己的备用质点上、带着质量脱开、继续作为一段自由的弹性构件；false 只是不再传力、质量留在节点。不写：梁/mixed_line 分裂，独立桁架不分裂
     #: after the break: true splits the member off onto its own particles with its mass (a free elastic segment), false only deactivates it (mass stays on the nodes); left out, frames and mixed_line split, the standalone truss deactivates
     split: Optional[bool] = None
 
@@ -661,13 +618,10 @@ class RemovalSpec(Strict):
     a cut cable, a burnt hanger. Dynamic runs of any line model (mixed_line,
     beam2, beam2_timoshenko, truss2, beam2_fiber)."""
 
-    #: 要移除的构件（所有节点都在区域内的）
     #: the members (every node inside the region) to remove
     region: str
-    #: 移除后是否质点分裂（同 FailureSpec.split）
     #: whether the removed member splits off onto its own particles (as FailureSpec.split)
     split: Optional[bool] = None
-    #: 它们停止传力的时刻（s）
     #: the instant (s) they stop carrying load
     time: float = Field(ge=0.0)
 
@@ -696,7 +650,6 @@ class MemberGroupSpec(Strict):
     #: [width, height] of a rect/box beam section, for `vfife info`
     section_size: Optional[List[float]] = Field(None, min_length=2, max_length=2)
     releases: List[str] = []
-    #: 梁端刚性偏移（1.21）：{i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}，构件弹性段的两端离节点的向量；节点到弹性段端点之间是刚体，随节点转动。梁端刚域沿构件给，截面偏心（形心不在节点连线上）横向给。`axial: full` 让框架梁的轴向和扭转刚度按节点间的长度算（刚域只在弯曲和剪切上是刚的，同 Midas、ETABS）；默认 `elastic` 按弹性段
     #: rigid end offsets (1.21): {i: [x, y, z], j: [x, y, z], axes: local|global, per: line|member, axial: elastic|full}, the vectors from the nodes to the elastic part's two ends; the stretch between is rigid and turns with its node. A rigid end zone is an offset along the member, a section set off its nodes one across it. `axial: full` takes a frame beam's axial and torsional stiffness over the length between the nodes (a zone rigid in bending and shear only, as Midas and ETABS have it); `elastic`, the default, over the elastic part (core/end_offsets.py)
     end_offsets: Optional[Dict[str, Any]] = None
     stiffness: Optional[Any] = None
@@ -787,50 +740,36 @@ class RegionSpec(Strict):
     case works whether the mesh is in millimetres or metres.
     """
 
-    #: [xmin, xmax, ymin, ymax, zmin, zmax]：盒子内的节点（按轴成对给）
     #: [xmin, xmax, ymin, ymax, zmin, zmax]: nodes inside the box, the bounds in
     #: pairs per axis (it was documented as all minima, then all maxima, which
     #: selected something else)
     box: Optional[List[float]] = Field(default=None, min_length=6, max_length=6)
-    #: 逐轴给 {min, max}（可只给一个）或一个数（该轴取值在 `tol` 内）：{x: 0.1, z: 0} 是一条线，三个轴都给是一点
     #: per axis either {min, max} (either optional) or a bare number, which
     #: pins that axis within `tol`: {x: 0.1, z: 0} is a line, three axes a point
     where: Optional[Dict[str, Union[float, Dict[str, Optional[float]]]]] = None
-    #: `{point: [x,y,z], normal: [nx,ny,nz]}`：离平面 `tol` 内的节点
     #: `{point: [x,y,z], normal: [nx,ny,nz]}`: nodes within `tol` of the plane
     plane: Optional[Dict[str, Any]] = None
-    #: `{from: [x,y,z], to: [x,y,z]}`：离线段 `tol` 内的节点
     #: {from: [x,y,z], to: [x,y,z]}: nodes within `tol` of the segment
     line: Optional[Dict[str, Any]] = None
-    #: `{point, axis, radius, rmin?, length?}`：圆柱内的节点（`point` 在轴上，`length` 从它沿 `axis` 量）
     #: `{point, axis, radius, rmin?, length?}`: nodes inside the cylinder (`point`
     #: on the axis, `length` measured from it along `axis`)
     cylinder: Optional[Dict[str, Any]] = None
-    #: `{centre, radius, rmin?}`：球内的节点（`center` 也收）
     #: `{centre, radius, rmin?}`: nodes inside the sphere (`center` is taken too)
     sphere: Optional[Dict[str, Any]] = None
-    #: Gmsh 物理组名（该组单元的节点）
     #: a Gmsh physical group name (nodes of its elements)
     group: Optional[str] = None
-    #: 直接给节点编号（从 0 起）
     #: explicit 0-based node numbers
     node_ids: Optional[List[int]] = None
-    #: 离 [x, y, z] 最近的那一个节点
     #: the one node nearest [x, y, z]
     nearest: Optional[List[float]] = Field(default=None, min_length=3, max_length=3)
-    #: `true`：全部节点
     #: `true`: every node
     all: Optional[bool] = None
-    #: 并集：要合并的区域名
     #: names of regions to unite
     union: Optional[List[str]] = None
-    #: 交集：区域名
     #: names of regions to intersect
     intersect: Optional[List[str]] = None
-    #: [a, b, ...]：第一个区域减去其余
     #: [a, b, ...]: the first region minus the others
     difference: Optional[List[str]] = None
-    #: 几何选择器的绝对容差（默认网格对角线的 1e-6）
     #: absolute tolerance for the geometric selectors (default 1e-6 of the mesh diagonal)
     tol: Optional[float] = Field(default=None, gt=0.0)
 
@@ -877,13 +816,10 @@ class WaveSpec(Strict):
     """A travelling wave: each node of the region gets the record late by
     (x - origin) . direction / speed."""
 
-    #: 视波速（m/s）
     #: the apparent wave speed (m/s)
     speed: float = Field(gt=0.0)
-    #: 传播方向（整体坐标，自动归一化）
     #: the direction the wave travels in (global, normalised)
     direction: List[float] = Field(min_length=3, max_length=3)
-    #: 零时延的点
     #: the point the record arrives at first (zero delay)
     origin: List[float] = Field([0.0, 0.0, 0.0], min_length=3, max_length=3)
 
@@ -895,44 +831,32 @@ class RecordMotionSpec(Strict):
     support can move differently and the members between them are strained
     by the difference."""
 
-    #: 两列记录（时间 s、数值），相对算例文件
     #: a two-column record (time s, value), relative to the case file
     path: str
-    #: 记录的量：`displacement`（推荐：多点激励要的是位移，且已做基线校正）、`velocity` 或 `acceleration`
     #: what the record is: `displacement` (recommended -- a multiple-support run needs the displacement, baseline-corrected), `velocity` or `acceleration`
     quantity: Literal["displacement", "velocity", "acceleration"] = "displacement"
-    #: 乘在记录上的系数（记录以 g 给出时写 9.80665）
     #: multiplies the record (9.80665 for an acceleration in g)
     scale: float = 1.0
-    #: 这个支承收到记录的时延（s）
     #: how late this support receives the record (s)
     delay: float = Field(0.0, ge=0.0)
-    #: 行波：区域里每个节点按位置再加时延
     #: a travelling wave: each node of the region gets a further delay from its position
     wave: Optional[WaveSpec] = None
 
 
 class ConstraintSpec(Strict):
-    #: 约束作用的节点
     #: the nodes the constraint applies to
     region: str
-    #: 1 = 约束/强制，0 = 自由，顺序 [ux, uy, uz, rx, ry, rz]；只有平动的模型给三个
     #: 1 = held/prescribed, 0 = free, in the order [ux, uy, uz, rx, ry, rz]; three entries on a translation-only model
     dofs: List[int] = Field(..., min_length=3, max_length=6)
-    #: 强制位移；标量或三分量向量。不给 = 固定为零
     #: prescribed displacement; scalar or 3-vector. None = held at zero.
     value: Optional[Any] = None
-    #: 强制的运动量 `value × amplitude(progress)`：位移、速度或加速度；后两者只用于动力分析
     #: Kinematic quantity prescribed by ``value * amplitude(progress)``.
     #: Velocity and acceleration are dynamic-analysis conditions.
     motion: Literal["displacement", "velocity", "acceleration"] = "displacement"
-    #: 只用于步内约束（1.2）：以后各步继续保持（解除见步的 `release`）；不写则只在本步有效
     #: a step's constraint only (1.2): it holds in every later step, until a step's `release` frees its nodes; without it a step's constraint is that step's alone
     keep: bool = False
-    #: 幅值曲线名；默认：分级松弛的步里 `ramp`（一步内 0 到 1），连续松弛与动力分析里 `ramp_hold`（前段升到 1 后保持），后续步里的模型级荷载和带 `to_age` 的时间步里的一切 `hold`
     #: name of an amplitude curve; by default `ramp` (0 to 1 over the step) in a staged relaxation, `ramp_hold` (up to 1, then held) in a continuous relaxation or a dynamic run, and `hold` for a model-level load in a later step and for everything in a time step (`to_age`)
     amplitude: Optional[str] = None
-    #: 支承自己的地面运动记录（多点激励）：被标记的平动自由度按记录随时间运动
     #: the support's own ground-motion record (multiple-support excitation): the flagged translational dofs follow it in time
     record: Optional[RecordMotionSpec] = None
 
@@ -965,20 +889,15 @@ class MovingLoadSpec(Strict):
     axle whose station is off the path carries nothing, which is how a vehicle
     drives on at one end and off at the other.
     """
-    #: [[沿路径的偏移 (m), 轴重 (N)], ...]；偏移沿**行进方向**量，后轴为负
     #: [[offset along the path (m), force (N)], ...]
     axles: List[List[float]] = Field(..., min_length=1)
-    #: 步开始时参考点所在的里程
     #: station of the group's reference point at the start of the step
     start: float = 0.0
-    #: 沿路径的速度（m/s）：s = start + speed·t，动力过桥
     #: m/s along the path: s = start + speed * t. Dynamic crossings.
     speed: Optional[float] = None
-    #: 代替速度：在步的进度内从 `start` 扫到 `stop`——配 `load_steps: n` 就是 n 个静力位置，即影响线
     #: instead of a speed, sweep s from `start` to `stop` over the step's
     #: progress -- with `load_steps: n`, n static positions, an influence line.
     stop: Optional[float] = None
-    #: 力的方向（单位化）；默认 −z
     #: unit vector the force pushes along (it is normalised); default is -z
     direction: List[float] = Field([0.0, 0.0, -1.0], min_length=3, max_length=3)
 
@@ -997,25 +916,19 @@ class MovingLoadSpec(Strict):
 
 
 class SpringDashpotSpec(Strict):
-    #: 刚度（N/m）
     #: stiffness (N/m)
     stiffness: float = Field(gt=0.0)
-    #: 阻尼（N·s/m）
     #: damping (N s/m)
     damping: float = Field(0.0, ge=0.0)
 
 
 class VehicleAxleSpec(Strict):
-    #: 沿行进方向相对参考点的偏移（m），后轴为负
     #: offset along the direction of travel from the reference point (m); a trailing axle is negative
     offset: float
-    #: 簧下质量（kg）：车轮和车轴；有轮胎时必填，无轮胎的刚性轴不给
     #: unsprung mass (kg): the wheel and the axle; with a tyre only
     unsprung_mass: Optional[float] = Field(None, gt=0.0)
-    #: 悬挂
     #: the suspension, between the body and the axle
     suspension: SpringDashpotSpec
-    #: 轮胎，车轴与路面之间，只压不拉；不给则车轴刚性贴着路面（文献里的"移动簧上质量"）
     #: the tyre, between the axle and the road; it pushes and never pulls. Without one the axle rides the road rigidly (the literature's moving sprung mass)
     tyre: Optional[SpringDashpotSpec] = None
 
@@ -1028,13 +941,10 @@ class VehicleAxleSpec(Strict):
 
 
 class VehicleBodySpec(Strict):
-    #: 簧上质量（kg）
     #: sprung mass (kg)
     mass: float = Field(gt=0.0)
-    #: 俯仰转动惯量（kg·m²），两轴以上必填
     #: pitch inertia (kg m^2); needed with more than one axle
     pitch_inertia: Optional[float] = Field(None, gt=0.0)
-    #: 质心相对参考点的偏移（m，沿行进方向）
     #: offset of the centre of mass from the reference point (m, along travel)
     cg: float = 0.0
 
@@ -1044,25 +954,18 @@ class RoughnessPsdSpec(Strict):
     of `count` cosines with random phases. Its own block so
     a misspelt key is refused (v1.0: `sead` and `nmax` were read as
     nothing)."""
-    #: n0 处的功率谱密度（m³），必填；等级表不在库里
     #: the PSD at n0 (m^3); required. No class table lives here
     g0: float = Field(gt=0.0)
-    #: 参考空间频率（周/长度单位）（默认值按 SI 给出，声明了非 SI 的 `units` 时换算到声明的单位）
     #: reference spatial frequency (cycles per length unit) (the default is SI, converted to the declared `units` when they are not SI)
     n0: float = Field(0.1, gt=0.0)
-    #: 频率指数
     #: the frequency exponent
     w: float = 2.0
-    #: 最低空间频率（周/长度单位）（默认值按 SI 给出，声明了非 SI 的 `units` 时换算到声明的单位）
     #: lowest spatial frequency (cycles per length unit) (the default is SI, converted to the declared `units` when they are not SI)
     n_min: float = Field(0.01, gt=0.0)
-    #: 最高空间频率（周/长度单位）（默认值按 SI 给出，声明了非 SI 的 `units` 时换算到声明的单位）
     #: highest spatial frequency (cycles per length unit) (the default is SI, converted to the declared `units` when they are not SI)
     n_max: float = Field(3.0, gt=0.0)
-    #: 余弦项数
     #: number of cosines
     count: int = Field(400, ge=1)
-    #: 相位的随机种子
     #: seed of the random phases
     seed: int = 0
 
@@ -1074,13 +977,10 @@ class RoughnessPsdSpec(Strict):
 
 
 class RoughnessSpec(Strict):
-    #: 两列文件（里程 m，高程 m），线性插值，范围外为零
     #: a two-column file (station m, elevation m), linear, zero outside
     profile: Optional[str] = None
-    #: 高程的乘数（profile 或 psd 都乘）
     #: multiplies the elevation (of a profile or a psd)
     scale: float = 1.0
-    #: 位移功率谱 G_d(n) = g0 (n/n0)^-w（见 RoughnessPsdSpec）
     #: a displacement PSD G_d(n) = g0 (n/n0)^-w (see RoughnessPsdSpec)
     psd: Optional[RoughnessPsdSpec] = None
 
@@ -1097,28 +997,20 @@ class VehicleSpec(Strict):
     axle) on per-axle suspensions, unsprung masses and tyres that touch the
     deck plus a roughness profile. Dynamic only; the same carriageway rules
     as `moving_load`."""
-    #: 名字（监测器用 `of` 引用它）；不写则每一步里依次为 vehicle、vehicle_2……，同一步里不得重名
     #: its name (a monitor's `of`); unnamed ones are vehicle, vehicle_2, ... in each step, and two in one step may not share one
     name: Optional[str] = None
-    #: 车身
     #: the body
     body: VehicleBodySpec
-    #: 车轴
     #: the axles
     axles: List[VehicleAxleSpec] = Field(..., min_length=1)
-    #: 沿路径的速度（m/s）
     #: speed along the path (m/s)
     speed: float
-    #: 步开始时参考点的里程（负值在桥外的引道上）
     #: station of the reference point at the start of the step (negative: on the approach)
     start: float = 0.0
-    #: 重力方向（车辆向下压的方向）
     #: the direction gravity pulls (the way the vehicle presses)
     direction: List[float] = Field([0.0, 0.0, -1.0], min_length=3, max_length=3)
-    #: 重力加速度：默认 9.80665 m/s²，声明了非 SI 的 `units` 时换算（mm 下为 9806.65；1.0 版前一律 9.80665）
     #: gravitational acceleration: 9.80665 m/s^2 by default, converted to the declared `units` when they are not SI (9806.65 in mm; it was 9.80665 whatever the units before v1.0)
     gravity: float = Field(9.80665, gt=0.0)
-    #: 路面不平度
     #: road roughness
     roughness: Optional[RoughnessSpec] = None
 
@@ -1161,19 +1053,15 @@ class TemperatureSpec(Strict):
     bottom", because a `general` beam section states area and second moments
     and has no depth to divide by.
     """
-    #: 整体温差（K），正 = 比无应力状态热
     #: K, the whole section (positive = warmer than the stress-free state)
     uniform: float = 0.0
-    #: [dT/dy, dT/dz]（K/m），沿截面自身坐标；给标量即沿 `axis`（默认 y）的梯度
     #: [dT/dy, dT/dz] in K/m along the section's own axes; a scalar is the
     #: gradient along `axis` (y by default: [g, 0]; `axis: z` gives [0, g]).
     gradient: Optional[Any] = None
-    #: [[s, T], ...] 沿截面高度的温度分布（m，K），点间线性、两端外常数——规范的设计温度分布
     #: [[s, T], ...] through the section (m, K), linear between the points and
     #: constant beyond the ends -- a code's design profile written literally.
     #: Mutually exclusive with uniform/gradient.
     profile: Optional[List[List[float]]] = None
-    #: profile 或标量 gradient 沿截面哪个轴：`rect`/`box` 的高度在 z，`patches` 在角点坐标所放的那个轴
     #: which of the section's own axes the profile, or a scalar gradient, runs
     #: along. A `rect`/`box` has its depth on z (width along y); a `patches`
     #: section on whichever axis its corners put it -- so a deck's vertical
@@ -1217,42 +1105,32 @@ class TemperatureSpec(Strict):
 
 
 class LoadSpec(Strict):
-    #: 荷载作用的节点、面（traction/pressure）、体（body_force/gravity）或构件（line_load/moving_load）
     #: the nodes, faces (traction/pressure), volume (body_force/gravity) or members (line_load/moving_load) the load acts on
     region: str = "all"
-    #: 只用于步内荷载（1.2）：以后各步继续作用，取本步结束时的值；不写则只在本步有效
     #: a step's load only (1.2): it stays on in every later step at the value it ended this one with; without it a step's load is that step's alone
     keep: bool = False
-    #: 默认是区域上的**总**力，分摊到各节点；`per_node` 时是每个节点上的力
     #: by default the TOTAL force on the region, spread over its nodes; with
     #: per_node it is the force applied at each node instead
     vector: Optional[List[float]] = Field(None, min_length=3, max_length=3)
-    #: 总力矩（N·m）：梁节点上的力偶，或实体表面上按 Mz/I 分布的弯曲面力（可随动）
     #: Total moment (N m): a couple on the nodes of a beam2 model, or on a solid
     #: FACE a couple about M's axis with a potential -- in the reference
     #: configuration the linear bending traction M z / I (and, for the
     #: component along the normal, Saint-Venant's torsion shear) as nodal
     #: forces; see core/mesh.FaceMoment.
     moment: Optional[List[float]] = Field(None, min_length=3, max_length=3)
-    #: 沿构件单位长度的均布力（N/m），一致地化为梁端力和力矩；默认全局分量，`coordinate_system: local` 时为局部
     #: Uniform force per unit member length (N/m), consistently converted to
     #: beam end forces and moments. Components are global unless
     #: ``coordinate_system: local`` is selected.
     line_load: Optional[List[float]] = Field(None, min_length=3, max_length=3)
-    #: line_load：`local` 用构件自身坐标（x 沿构件）给分量
     #: line_load: `local` gives the components in the member's own axes (x along it)
     coordinate_system: Literal["global", "local"] = "global"
-    #: line_load：这个荷载是某样东西的重量（二期恒载、铺装、栏杆），也带上它的质量 |q|/g，按构件长度分到两端节点、三个平动方向；这份质量不再称重（重量就是这个荷载本身），地震、模态和反应谱里有惯性。g 为 9.80665 m/s²，按声明的单位换算。只能写在模型级的 `loads` 里（1.1）
     #: line_load: this load is the weight of something (superimposed dead load, surfacing, parapets), so carry its mass |q|/g too, lumped to the members' end nodes in all three translations. The mass weighs nothing (the load IS its weight), so `gravity` does not count it twice; it gives the load inertia in a dynamic run, a modal analysis and a response spectrum. g is 9.80665 m/s² in the declared units. Model-level `loads` only (1.1)
     with_mass: bool = False
-    #: 常面力（N/m²），在区域的外表面上积分；与 `vector` 不同，不随表面节点密度变
     #: constant traction (N/m²) integrated over exterior faces in ``region``.
     #: Unlike ``vector``, this is independent of surface-node density.
     traction: Optional[List[float]] = Field(None, min_length=3, max_length=3)
-    #: 正标量压力（Pa），沿外法线向内作用
     #: positive scalar pressure (Pa), acting inward along the exterior normal.
     pressure: Optional[float] = Field(None, gt=0.0)
-    #: 压力：每步在当前位置的面上重新积分，始终垂直于表面；面力矩：力偶随面转动并保持大小。默认按参考构形
     #: pressure: re-integrate it over the faces at their CURRENT positions
     #: every step, so it stays normal to the surface it acts on. Face
     #: moment: the couple turns with the face and keeps its magnitude
@@ -1261,32 +1139,24 @@ class LoadSpec(Strict):
     #: load whose couple decays with the cosine of the rotation. The
     #: default keeps the reference geometry. Solid elements, numpy/numba.
     follower: bool = False
-    #: 常体力密度（N/m³），在体上积分
     #: constant force density (N/m³), consistently integrated over volume.
     body_force: Optional[List[float]] = Field(None, min_length=3, max_length=3)
-    #: 重力加速度（m/s²），在所选体上化为 ρg
     #: acceleration (m/s²); converted to rho * gravity in the selected volume.
     gravity: Optional[List[float]] = Field(None, min_length=3, max_length=3)
-    #: 截面上的温度变化（见 TemperatureSpec）
     #: A temperature change over the section (see TemperatureSpec).
     temperature: Optional[TemperatureSpec] = None
-    #: 沿区域构件行驶的轴重组（见 MovingLoadSpec）
     #: Axles travelling along the members of `region` (see MovingLoadSpec).
     moving_load: Optional[MovingLoadSpec] = None
-    #: 有质量、悬挂和轮胎的车辆（见 VehicleSpec）
     #: a vehicle with mass, suspension and tyres (see VehicleSpec)
     vehicle: Optional[VehicleSpec] = None
-    #: 整个模型的一致地面加速度（动力；框架、纤维梁、桁架、壳、实体）：`path` 两列（秒，加速度），`scale` 换算到算例的加速度单位（SI 下记录以 g 给出写 9.80665），`direction` 给激振方向；只收这三个键
     #: Uniform base acceleration of the whole model in a dynamic run (frames,
     #: fibre beams, trusses, shells, solids): ``path`` holds two columns
     #: (seconds, acceleration), ``scale`` brings it to the case's acceleration
     #: unit (9.80665 for a record in g in an SI case) and ``direction`` gives
     #: the excitation axis. Only these three keys; no amplitude, region ``all``.
     ground_motion: Optional[Dict[str, Any]] = None
-    #: `vector`/`moment` 作为**每个**节点上的力，而不是区域上的总和
     #: `vector`/`moment` as the force at EACH node rather than the total over the region
     per_node: bool = False
-    #: `amplitudes` 里的名字，或 `hold`（从第一步起全量）；默认：分级松弛 `ramp`（一步内 0 到 1），连续松弛与动力 `ramp_hold`，后续步里的模型级荷载和带 `to_age` 的时间步里的荷载 `hold`
     #: name in `amplitudes`, or `hold` (full from the first step); by default `ramp` (0 to 1 over the step) in a staged relaxation, `ramp_hold` in a continuous relaxation or a dynamic run, and `hold` for a model-level load in a later step and for a load in a time step (`to_age`)
     amplitude: Optional[str] = None
 
@@ -1344,22 +1214,16 @@ class NodalMassSpec(Strict):
     makes it directional (added mass: a fluid's, or a deck's along one axis),
     `weight: false` keeps it out of `gravity`, `inertia` adds a rotary
     inertia about the global axes on the six-dof families."""
-    #: 带质量的节点
     #: the nodes carrying the mass
     region: str = "all"
-    #: 区域上的总质量（kg），`per_node` 时为每个节点的质量
     #: kg total over the region, or kg at every node with ``per_node``.
     mass: float = Field(0.0, ge=0.0)
-    #: `mass` 是每个节点的，而不是区域总量分摊
     #: `mass` at each node rather than the total spread over the region
     per_node: bool = False
-    #: 质量作用在哪些平动分量上 [x, y, z]；默认三向
     #: which translations carry the mass, [x, y, z]; all three by default
     components: List[int] = Field([1, 1, 1], min_length=3, max_length=3)
-    #: 重力是否看见它；默认三向质量有重量、定向质量（附加质量）没有
     #: whether gravity sees it; by default a mass on all three translations weighs and a directional (added) one does not
     weight: Optional[bool] = None
-    #: 绕整体轴的转动惯量（kg·m²，区域总量或 `per_node` 每节点），只用于六自由度的梁、壳
     #: rotary inertia about the global axes (kg m^2, over the region or per node with per_node); six-dof families only
     inertia: Optional[List[float]] = Field(None, min_length=3, max_length=3)
 
@@ -1385,25 +1249,18 @@ class HydrodynamicMassSpec(Strict):
     not along it, weighing nothing. For piers and piles: the members must lie
     within 5 degrees of a global axis (a lumped mass is diagonal)."""
 
-    #: 构件区域（两端都在区域内的构件）
     #: the members (both ends in the region)
     region: str
-    #: 圆截面外径（m）；或给 `area`
     #: outer diameter of a round section (m); or give `area`
     diameter: Optional[float] = Field(None, gt=0.0)
-    #: 排开水的截面积（m²），非圆截面用
     #: the displaced cross-section (m^2), for a section that is not round
     area: Optional[float] = Field(None, gt=0.0)
-    #: 附加质量系数 C_a = C_M − 1；圆柱 1.0
     #: added-mass coefficient C_a = C_M - 1; 1.0 for a circular cylinder
     coefficient: float = Field(1.0, gt=0.0)
-    #: 水的密度：默认 1025 kg/m³，声明了非 SI 的 `units` 时换算（mm/N/s 下为 1.025e-9 t/mm³）
     #: water density: 1025 kg/m^3 by default, converted to the declared `units` when they are not SI (1.025e-9 t/mm^3 in mm/N/s)
     density: float = Field(1025.0, gt=0.0)
-    #: 水面高程：竖向坐标低于它的构件部分计入
     #: the free surface: the part of a member below it counts
     water_level: float = 0.0
-    #: 竖直轴
     #: the vertical axis
     vertical: Literal["x", "y", "z"] = "z"
 
@@ -1416,10 +1273,8 @@ class HydrodynamicMassSpec(Strict):
 
 class PYCurveSpec(Strict):
     """One p-y curve, at one depth (1.2)."""
-    #: 深度：地面以下的距离，沿 `vertical` 向下量
     #: depth below the ground surface, measured down along `vertical`
     depth: float = Field(..., ge=0.0)
-    #: [[y, p], ...]：桩的水平位移 y 与单位桩长的土抗力 p（按算例的单位，SI 下 m 与 N/m）；从 [0, 0] 起，y 递增，第二点 p > 0；最后一点之后 p 不再增加
     #: [[y, p], ...]: the pile's horizontal displacement y and the soil's resistance per unit length of pile p (in the case's units: m and N/m in SI); from [0, 0], y increasing, p > 0 at the second point; past the last point p stays at its last value
     p_y: List[List[float]] = Field(..., min_length=2)
 
@@ -1450,19 +1305,14 @@ class SoilSpringSpec(Strict):
     """Soil springs on a pile: p-y curves by depth, nonlinear elastic (1.2).
     Each node of the region below the ground gets a horizontal spring of the
     curve at its depth times the pile length it stands for."""
-    #: 桩的构件区域（两端都在区域内的构件）
     #: the pile's members (both ends in the region)
     region: str
-    #: 地面高程：沿 `vertical` 的坐标，其下的桩段受土弹簧
     #: the ground surface, as a coordinate on `vertical`: the pile below it carries springs
     ground: float = 0.0
-    #: 竖直轴
     #: the vertical axis
     vertical: Literal["x", "y", "z"] = "z"
-    #: `horizontal`：水平面内径向（按两个水平位移的合量取抗力）；`x`、`y`（或 `z`）：只沿一个轴，平面模型用
     #: `horizontal`: radial in the horizontal plane (the resistance follows the resultant of the two horizontal displacements); `x`, `y` (or `z`): one axis only, for a plane model
     direction: Literal["horizontal", "x", "y", "z"] = "horizontal"
-    #: 各深度的 p–y 曲线；深度之间按同一 y 线性插值，浅于第一条取第一条，深于最后一条取最后一条
     #: the p-y curves by depth: between two depths interpolated at the same y; above the first the first, below the last the last
     curves: List[PYCurveSpec] = Field(..., min_length=1)
 
@@ -1488,10 +1338,8 @@ class DiaphragmSpec(Strict):
     It is how a building's floor slab is written down when the slab itself is
     not meshed, and it is what an OpenSees model means by `rigidDiaphragm`.
     """
-    #: 绑在一起的节点
     #: the nodes tied together
     region: str
-    #: 平面法向：节点在垂直于它的平面内作刚体运动
     #: the plane's normal: the nodes move as a rigid body within the plane normal to it
     normal: Literal["x", "y", "z"] = "z"
 
@@ -1502,19 +1350,14 @@ class RigidLinkSpec(Strict):
     """A master-slave rigid link (1.21): the slaves' tied components follow
     the master as a rigid body does, in large rotation (core/constraints).
     Midas' *RIGIDLINK, OpenSees' rigidLink and (with `arm: false`) equalDOF."""
-    #: 主节点：恰好一个节点的区域
     #: the master: a region of exactly one node
     master: str
-    #: 从节点：一个或多个节点的区域
     #: the slaves: a region of one or more nodes
     slaves: str
-    #: 跟着主节点的分量，整体轴的 ux uy uz rx ry rz，1 为跟随（Midas 的 6 位标记）
     #: the components that follow the master, in the global axes ux uy uz rx ry rz, 1 = tied (Midas' six flags)
     dofs: List[int] = Field(default_factory=lambda: [1, 1, 1, 1, 1, 1], min_length=6, max_length=6)
-    #: true：平动按主从之间的力臂随主节点转动（rigidLink）；false：从节点平动等于主节点平动（equalDOF）
     #: true: the translations carry the arm between master and slave, turning with the master (rigidLink); false: the slave's translation is the master's (equalDOF)
     arm: bool = True
-    #: 名字（报错和输出里用）
     #: a name (for messages)
     name: Optional[str] = None
 
@@ -1533,66 +1376,47 @@ class StepSpec(Strict):
     the step wins.
     """
 
-    #: 显示在运行日志里，并随该步结果保存
     #: shown in the run log and stored with the step's results
     name: Optional[str] = None
-    #: 本步的约束，叠加在模型级约束上（冲突时本步优先）
     #: this step's constraints, added to the model-level ones (the step wins on a conflict)
     constraints: List[ConstraintSpec] = []
-    #: 本步的荷载，叠加在模型级荷载上
     #: this step's loads, added to the model-level ones
     loads: List[LoadSpec] = []
-    #: 逐步覆盖求解器里「做多少」的设置；mode、mass、backend、damping 属于模型，不能逐步改
     #: per-step overrides of the solver settings that describe HOW MUCH to do;
     #: mode, mass, backend and damping are properties of the model, not the step
     n_steps: Optional[int] = None
-    #: 松弛：本步内分这么多荷载级，逐级保持到平衡
     #: relaxation: hold this many load levels to equilibrium within the step
     load_steps: Optional[int] = Field(None, ge=1)
-    #: 松弛：每级的迭代预算
     #: relaxation: iteration budget per load level
     max_steps_per_load: Optional[int] = None
-    #: 每个新荷载级渐入所用的迭代数（默认 max_steps_per_load/5）
     #: iterations over which each new load level is blended in (default max_steps_per_load / 5)
     stage_ramp_iterations: Optional[int] = None
-    #: 本步的残差容差
     #: residual tolerance for this step
     tolerance: Optional[float] = None
-    #: 本步起点的混凝土龄期（天）；默认接上一步结束处
     #: The step's time window in days of concrete age:
     #: `age` defaults to where the last step left off, and `to_age` makes the
     #: step a stretch of TIME whose `load_steps` are its time stations --
     #: log-spaced, because that is the axis creep happens on.
     age: Optional[float] = Field(None, gt=0.0)
-    #: 本步终点的混凝土龄期（天）：给了本步就是一段时间，`load_steps` 是时间站
     #: concrete age in days at the end of the step: makes it a stretch of time
     to_age: Optional[float] = Field(None, gt=0.0)
-    #: 时间站的分布：`log`（默认，徐变的轴）或 `linear`
     #: `log` (default, the creep axis) or `linear` spacing of the time stations
     time_spacing: Literal["log", "linear"] = "log"
     # --- analysis steps (1.2): each step its own procedure, and model change ---
-    #: 本步的分析类型（1.2）：relaxation、dynamic 或 static；不写则用 solver.mode。线单元模型（beam、fiber、mixed_line）
     #: this step's procedure (1.2): relaxation, dynamic or static; left out, solver.mode's. Line models (beam, fibre, mixed_line)
     procedure: Optional[Literal["relaxation", "dynamic", "static"]] = None
-    #: 动力步的时长（s）；不写则用 solver.total_time
     #: a dynamic step's duration (s); left out, solver.total_time
     total_time: Optional[float] = Field(None, gt=0.0)
-    #: 本步出生的构件（所有节点都在区域内的）：在当时的变形位置无应力出生，自重与线荷载在本步内加上
     #: members born in this step (every node inside the region): stress-free where the structure has moved to, their weight and line loads coming on over the step
     activate: List[str] = []
-    #: 只连着出生构件的节点放在哪里：tangent（默认，随相邻已有节点做刚体平移与转动——悬臂施工的切线安装）或 design（留在设计坐标）
     #: where the nodes that only the born members reach are put: tangent (default: carried rigidly by the neighbouring node that already stands -- a cantilever's tangential installation) or design (left at their design coordinates)
     birth: Literal["tangent", "design"] = "tangent"
-    #: 出生构件的混凝土龄期（天）；不写则用 solver.age
     #: the concrete age (days) of the members born in this step; left out, solver.age
     activate_age: Optional[float] = Field(None, gt=0.0)
-    #: 本步移除的构件：它们对其余结构的作用力（含自重）在本步内卸到零
     #: members removed in this step: what they did to the rest of the structure (their weight included) is taken off over the step
     deactivate: List[str] = []
-    #: 解除这些区域节点上继承下来的约束（模型级与 keep 的）：支反力在本步内卸到零；本步自己的约束照常施加。也可以写主从刚性连接的 `name`（1.21）：连接拆除，它的约束力在本步内卸到零
     #: frees the inherited constraints (model-level and kept ones) on these regions' nodes: the reaction is taken off over the step; the step's own constraints still apply. A rigid link's `name` frees that link (1.21): the force it carried is taken off over the step
     release: List[str] = []
-    #: 本步开始时建立的主从刚性连接（1.21），按这时节点所在的位置和转角建立，建立时不受力；写法同模型级的 `rigid_links`
     #: master-slave rigid links made at this step's start (1.21), where their nodes then stand and free of force; written as the model's `rigid_links`
     rigid_links: List[RigidLinkSpec] = []
 
@@ -1689,7 +1513,6 @@ def solver_setting(sol: dict | None, key: str):
 
 
 class DampingSpec(Strict):
-    #: 阻尼类型：viscous、kinetic、rayleigh、none。不给时按模式定——松弛 kinetic，动力 none（动力分析不要用 kinetic，它会抹掉动力响应）
     #: NO DEFAULT HERE, DELIBERATELY, AND IT IS THE ONE FIELD THAT NEEDS NONE.
     #:   The right default depends on the analysis mode -- kinetic for
     #:   relaxation, undamped for dynamic -- which this file cannot see. It
@@ -1703,10 +1526,8 @@ class DampingSpec(Strict):
     #:   default, which a present-but-None key walks straight past. See
     #:   `solver_setting` above for the general rule.
     type: Optional[Literal["viscous", "kinetic", "rayleigh", "none"]] = None
-    #: viscous：单位质量的阻尼系数（1/s）
     #: viscous: damping ratio-like coefficient per unit mass (1/s)
     coeff: float = 0.0
-    #: 质量比例阻尼（1/s）。用于 `type: rayleigh`，以及松弛里与 `kinetic` 叠加（0.1 版为软化问题设计的组合）；`viscous`、`none` 下写了会被拒绝。软化问题上它会选择解的分支
     #: Mass-proportional damping, 1/s. Applied under `type: rayleigh`, and
     #: ALONGSIDE `type: kinetic` in a relaxation -- refused under `viscous`
     #: and `none`, where the frame solvers ignored it.
@@ -1716,17 +1537,13 @@ class DampingSpec(Strict):
     #: whatever the energy is doing. It is not free: on a softening problem
     #: it selects a solution branch (v0.1 has the measurements).
     alpha: float = Field(0.0, ge=0.0)
-    #: 刚度比例阻尼（s）；只用于动力分析的 `type: rayleigh`，会缩小稳定步长
     #: stiffness-proportional damping, s; `type: rayleigh` in a dynamic analysis only; makes the stable step smaller
     beta: float = Field(0.0, ge=0.0)
-    #: Rayleigh 的另一种写法：在 `frequencies` 的两个频率上各给阻尼比——一个数（两处相同）或 [ζ1, ζ2]；alpha、beta 由此算出
     #: Rayleigh stated by its damping ratio at the two `frequencies` (one number, or [zeta_1, zeta_2]); alpha and beta are computed from it
     ratio: Optional[Any] = None
-    #: 给 `ratio` 的两个频率（Hz）：通常取第一阶和参与显著的最高阶
     #: the two frequencies (Hz) `ratio` is stated at: usually the first mode and the highest one that matters
     frequencies: Optional[List[float]] = Field(None, min_length=2, max_length=2)
 
-    #: 分区 Rayleigh 阻尼（1.22）：[{regions: [区域名], alpha/beta 或 ratio(/frequencies)}]。列出的区域里的构件（连同它们的刚域质量）用这一项的系数，其余构件和集中质量用上面的；两项重叠时后写的算；不写 frequencies 时用上面那两个频率。只用于动力分析的 `type: rayleigh`，线模型（beam2、beam2_timoshenko、beam2_fiber、mixed_line）
     #: Rayleigh damping by region (1.22): [{regions: [names], alpha/beta or ratio(/frequencies)}]. The members of the listed regions (with their rigid zones' mass) take this entry's coefficients; the other members and the concentrated masses take the ones above; where two entries overlap the later one holds; an entry's `ratio` without `frequencies` is stated at the two above. `type: rayleigh` in a dynamic run, line models only (core/damping.py)
     regions: Optional[List["RayleighRegionSpec"]] = None
 
@@ -1780,19 +1597,14 @@ class RayleighRegionSpec(Strict):
     """One entry of `damping.regions`: the Rayleigh coefficients of the
     members of some regions (1.22, core/damping.py)."""
 
-    #: 区域名：与单元监测量的 regions 一样解析（物理组或线组记下的单元，否则两个节点都在节点集里的构件）
     #: region names, read as an element monitor's `regions` are (the members a group records, else those with both nodes in the node set)
     regions: List[str] = Field(..., min_length=1)
-    #: 这些构件的质量比例阻尼（1/s）
     #: these members' mass-proportional damping, 1/s
     alpha: float = Field(0.0, ge=0.0)
-    #: 这些构件的刚度比例阻尼（s）
     #: these members' stiffness-proportional damping, s
     beta: float = Field(0.0, ge=0.0)
-    #: 阻尼比：一个数或 [ζ1, ζ2]，在 frequencies（不写时用上一级的两个频率）上；与 alpha/beta 二选一
     #: damping ratio, one number or [zeta_1, zeta_2], at `frequencies` (absent: the two above); alpha/beta or this
     ratio: Optional[Any] = None
-    #: 给 ratio 的两个频率（Hz）
     #: the two frequencies (Hz) of `ratio`
     frequencies: Optional[List[float]] = Field(None, min_length=2, max_length=2)
 
@@ -1906,7 +1718,6 @@ class BondSpec(Strict):
         re-rate every model that already names a bond block.
     """
     model_config = ConfigDict(extra="allow")     # the law's own parameters
-    #: 粘结–滑移律：`bond_ceb`（MC2010 单调）或 `bond_cyclic`（往复退化）；其余键是该材料的参数
     #: the bond-slip law: `bond_ceb` (MC2010 monotonic) or `bond_cyclic`; every other key is that material's parameter
     type: str = "bond_ceb"
 
@@ -1919,16 +1730,12 @@ class TendonFrictionSpec(Strict):
     the whole tendon carries. That is the one place the meaning of a field
     depends on another, and preflight says which reading is in force.
     """
-    #: 曲率摩擦系数（每弧度角度变化）
     #: curvature coefficient, per radian of accumulated angle change
     mu: float = Field(..., ge=0.0)
-    #: 摆动摩擦系数（每米束长）
     #: wobble coefficient, per metre of tendon
     k: float = Field(0.0, ge=0.0)
-    #: 张拉端在哪头；`both` 两端张拉，每点取较小的损失
     #: which end the jack is at; `both` takes the smaller loss at each point
     jack: Literal["start", "end", "both"] = "start"
-    #: 锚固回缩量，**米**（6 mm 写 0.006）
     #: draw-in as the wedges seat, in METRES (6 mm is 0.006)
     anchor_set: Optional[float] = Field(None, ge=0.0)
 
@@ -2007,12 +1814,10 @@ class ErosionSpec(Strict):
     to resist it.  Both commercial codes answer by removing the element.
     """
 
-    #: 损伤达到或超过它时积分点算失效（Abaqus 保留单元时 MAX DEGRADATION 为 0.99）
     #: damage at or above which the point counts as failed (Abaqus MAX
     #: DEGRADATION is 0.99 when elements are kept, 1.0 when they are deleted;
     #: MAT_CSCM erodes at d > 0.99)
     damage: float = Field(0.99, gt=0.0, le=1.0)
-    #: 读哪个损伤变量：`d`（应力用的刚度退化）、`dt` 受拉、`dc` 受压
     #: which damage variable `damage` is read from: `d`, the stiffness
     #: degradation the stress carries (capped at the material's damage_max,
     #: so a threshold above the cap never fires); or `dt` / `dc`, the tensile
@@ -2021,38 +1826,31 @@ class ErosionSpec(Strict):
     #: concrete stays and keeps holding its bars -- on the Alberta beam a
     #: rule on `d` removed the cracked tension zone first.
     measure: Literal["d", "dt", "dc"] = "d"
-    #: 同时必须超过的最大主 Green–Lagrange 应变，取单元中心
     #: max principal Green-Lagrange strain that must ALSO be exceeded, measured
     #: at the element centre. MAT_CSCM spells this as ERODE - 1 and FHWA's own
     #: deck uses 0.05. It is a KINEMATIC measure on purpose -- a plastic strain
     #: is rescaled by the crack band, so a threshold set for one element size
     #: would not carry to another (see continuum.strain_measures).
     strain: float = Field(0.05, ge=0.0)
-    #: 单元内要有多少个积分点达到 `damage`——LS-DYNA 的 NUMFIP，默认 1
     #: how many of the element's integration points must reach `damage`
     #: -- LS-DYNA NUMFIP,
     #: whose default of 1 means one failed point out of eight deletes a fully
     #: integrated hexahedron. Defaults here to half the points, rounded up.
     points: Optional[int] = Field(None, ge=1)
-    #: 无关判据的保险：体积塌缩或翻转到低于这个比例的单元无论材料怎么说都删
     #: the criterion-free safety net: an element whose volume has collapsed or
     #: inverted goes whatever the material says (LS-DYNA *CONTROL_TIMESTEP ERODE
     #: with a non-zero DTMIN; Abaqus distortion control exists for this too)
     min_volume_ratio: float = Field(0.2, gt=0.0)
-    #: 体积膨胀超过这个倍数的单元删除（纠缠）
     #: an element whose volume has grown by more than this factor is deleted (tangling)
     max_volume_ratio: float = Field(5.0, gt=1.0)
-    #: 每隔多少次迭代检查一次
     #: iterations between checks -- LS-DYNA checks DR convergence every
     #: NRCYCK = 250 cycles for the same reason
     every: int = Field(250, ge=1)
 
 
 class PlaneSpec(Strict):
-    #: 平面上一点 [x, y, z]
     #: a point on the plane
     point: List[float] = Field(min_length=3, max_length=3)
-    #: 法向 [nx, ny, nz]，指向结构所在的一侧（允许的一侧）；自动单位化
     #: the normal, pointing to the side the structure lives on (the allowed side); normalised
     normal: List[float] = Field(min_length=3, max_length=3)
 
@@ -2068,22 +1866,16 @@ class RigidSurfaceSpec(Strict):
     a penalty spring on the penetration along the normal,
     and Coulomb friction against the tangential velocity in a dynamic run.
     core/rigid_contact.py has the mechanics and the sizing of `auto`."""
-    #: 平面：一点加法向；法向指向允许的一侧
     #: the plane, a point and the normal; the normal points to the allowed side
     plane: PlaneSpec
-    #: 哪些节点受它约束（默认全部）
     #: the nodes it holds back (default: all)
     region: str = "all"
-    #: 罚刚度（N/m）：`auto` 按节点质量和步长取，不缩小稳定步长（core/rigid_contact.py）
     #: penalty stiffness (N/m): `auto` sizes it per node from its mass and the step so the step never shrinks for it
     stiffness: Union[Literal["auto"], float] = "auto"
-    #: 库仑摩擦系数（只用于动力计算；松弛拒绝）
     #: Coulomb friction coefficient (dynamic runs only; refused in relaxation)
     friction: float = Field(0.0, ge=0.0)
-    #: 接触阻尼比 ζ（只用于动力计算）：节点在面内时并联一个阻尼器 2ζ√(km)，碰撞不再完全弹性，碎片会停下来；0.5 时恢复系数约 0.16
     #: contact damping ratio zeta (dynamic only): a dashpot 2 zeta sqrt(k m) while the node is inside, so an impact loses energy and debris settles; restitution about 0.16 at 0.5
     damping: float = Field(0.0, ge=0.0, le=1.0)
-    #: 名字，用于报错和摘要
     #: a name for messages and the summary
     name: Optional[str] = None
 
@@ -2097,10 +1889,8 @@ class RigidSurfaceSpec(Strict):
 class ContactBodySpec(Strict):
     """A set of line members that take part in the contact between members,
     and the radius of the capsule each of them is (1.11)."""
-    #: 参与接触的构件所在的区域（两端节点都在区域内的构件；连接器不参与）
     #: the region whose members take part (a member is in when both its points are; connectors take no part)
     region: str = "all"
-    #: 胶囊体半径（m）：构件表面到轴线的距离。`auto` 只用于杆和索（取与截面等面积的圆）；梁必须写
     #: the capsule's radius, the distance of the member's surface from its axis. `auto` is for bars and cables alone (the circle of their area); a beam must say
     radius: Union[Literal["auto"], float] = "auto"
 
@@ -2117,19 +1907,14 @@ class MemberContactSpec(Strict):
     dashpot and Coulomb friction in a dynamic step. Pairs that overlap in
     the reference configuration keep that overlap as an allowance until
     they have separated. core/member_contact.py has the mechanics."""
-    #: 参与接触的构件组，每组一个区域和一个半径；各组之间、组内（不共节点的构件）都检查
     #: the bodies, a region and a radius each; every member is tested against every other, its own body's too (not the ones it shares a point with)
     bodies: List[ContactBodySpec] = Field(min_length=1)
-    #: 罚刚度（N/m）：`auto` 按两构件的折算质量和步长取，不缩小稳定步长；写数时以它为上限
     #: penalty stiffness: `auto` sizes it from the pair's reduced mass and the step so the step never shrinks for it; a number is capped there
     stiffness: Union[Literal["auto"], float] = "auto"
-    #: 库仑摩擦系数（只在动力步里起作用）
     #: Coulomb friction coefficient (acts in dynamic steps only)
     friction: float = Field(0.0, ge=0.0)
-    #: 接触阻尼比 ζ（只在动力步里起作用）：碰撞不再完全弹性
     #: contact damping ratio zeta (dynamic steps only): an impact loses energy
     damping: float = Field(0.0, ge=0.0, le=1.0)
-    #: 初始就重叠的构件对（支座上下的梁与盖梁、节点处的相邻构件）在接触起作用之前还能再靠近多少：较小半径的倍数（默认 5%）
     #: how much closer a pair that overlaps at the start (a girder and the cap under its bearing, neighbours at a joint) may come before the contact acts, as a fraction of the smaller of the two radii (default 5%)
     slack: float = Field(0.05, ge=0.0, le=1.0)
 
@@ -2141,10 +1926,8 @@ class MemberContactSpec(Strict):
 
 
 class ContactSpec(Strict):
-    #: 刚性面列表（地面、海底、承台顶面……）
     #: the rigid surfaces (ground, sea floor, a pile cap ...)
     rigid: List[RigidSurfaceSpec] = []
-    #: 线单元构件之间的接触（1.11）：落梁、梁体碰撞、倒塌堆积
     #: contact between line members (1.11): a falling span, pounding girders, the pile a collapse leaves
     members: Optional[MemberContactSpec] = None
 
@@ -2153,16 +1936,12 @@ class SpectrumSpec(Strict):
     """One design spectrum and the direction it acts in.
     The table is the user's: the library holds no code's spectrum."""
 
-    #: 地震作用的方向（整体坐标，自动归一化）
     #: the direction the ground acceleration acts in (global, normalised)
     direction: List[float] = Field(min_length=3, max_length=3)
-    #: 谱表 [[周期 s, 加速度], ...]，周期递增；与 `path` 二选一
     #: the spectrum as [[period s, pseudo-acceleration], ...], periods increasing; or `path`
     table: Optional[List[List[float]]] = None
-    #: 文本文件，前两列为周期、加速度（空格、制表符或逗号分隔，其余列不读），相对算例文件；与 `table` 二选一
     #: a text file with period and acceleration in its first two columns (spaces, tabs or commas; further columns are not read), relative to the case file; or `table`
     path: Optional[str] = None
-    #: 谱值乘的系数（谱以 g 给出时写 9.80665）
     #: multiplies the spectral values (9.80665 when the table is in g)
     scale: float = 1.0
 
@@ -2192,25 +1971,18 @@ class ResponseSpectrumSpec(Strict):
     member end actions and support reactions are combined component by
     component; the peaks go to the result's `response_spectrum` group."""
 
-    #: 谱与方向（每个方向一张谱；多个方向的结果按 SRSS 组合）
     #: the spectra and their directions (one per direction; directions combine by SRSS)
     spectra: List[SpectrumSpec] = Field(min_length=1)
-    #: 振型组合：`cqc`（默认）或 `srss`
     #: how the modes combine: `cqc` (default) or `srss`
     combination: Literal["cqc", "srss"] = "cqc"
-    #: CQC 用的振型阻尼比（谱本身应是按同一阻尼比给的）
     #: the modal damping ratio CQC's correlation uses (the spectrum should be for the same ratio)
     damping: float = Field(0.05, ge=0.0, lt=1.0)
-    #: 取多少阶；不写：取到每个受激方向的有效质量累计达到 `mass_fraction`
     #: how many modes, lowest first; left out, as many as bring every excited direction to `mass_fraction`
     modes: Optional[int] = Field(None, ge=1)
-    #: 不写 `modes` 时要达到的有效质量比
     #: the effective-mass fraction `modes` left out has to reach
     mass_fraction: float = Field(0.9, gt=0.0, le=1.0)
-    #: 周期超出谱表时：`refuse`（默认，报出是哪几阶）或 `hold`（取端值）
     #: a period outside the table: `refuse` (default, naming the modes) or `hold` (the end value)
     beyond_table: Literal["refuse", "hold"] = "refuse"
-    #: 有限差分切线的自由度上限（2n 次内力计算）
     #: refuse above this many dofs (the finite-difference tangent costs 2n force evaluations)
     max_dofs: int = Field(6000, ge=1)
 
@@ -2233,10 +2005,8 @@ class MassScalingSpec(Strict):
     ground motion see it -- and more than `max_added_fraction` of the model's
     translational mass is refused. See vfife/core/mass_scaling.py."""
 
-    #: 要达到的显式步长（s）
     #: the explicit step to reach (s)
     target_dt: float = Field(gt=0.0)
-    #: 补的平动质量超过全模型的这个比例时拒绝
     #: refuse when the added translational mass exceeds this fraction of the model's
     max_added_fraction: float = Field(0.01, gt=0.0, le=1.0)
 
@@ -2244,13 +2014,10 @@ class MassScalingSpec(Strict):
 class ArcStopSpec(Strict):
     """Where an arc-length step ends when the load factor never reaches 1:
     the mean displacement of a region along a direction reaching `value`."""
-    #: 节点区域
     #: the nodes
     region: str
-    #: 方向
     #: the direction
     dof: Literal["x", "y", "z"] = "z"
-    #: 到这个位移（带符号）就停
     #: stop when it reaches this displacement (signed)
     value: float
 
@@ -2262,10 +2029,8 @@ class ArcControlSpec(Strict):
     integrator -- so the pushed point moves on at every increment and the
     path cannot turn back down an unloading branch; it cannot follow a
     snap-back of that displacement."""
-    #: 一个节点的区域
     #: a region of ONE node
     region: str
-    #: 方向
     #: the direction
     dof: Literal["x", "y", "z"] = "z"
 
@@ -2274,128 +2039,93 @@ class ArcLengthSpec(Strict):
     """Crisfield's cylindrical arc length: the load factor
     becomes an unknown, so the path can pass a limit point -- a pushover's
     peak, a snap-through, a snap-back."""
-    #: 第一个增量的荷载因子（据此定弧长）
     #: the first increment's load factor (which sets the arc length)
     initial: float = Field(0.1, gt=0.0, le=1.0)
-    #: 每步增量数上限
     #: increments per step, at most
     max_increments: int = Field(200, ge=1)
-    #: 每个增量期望的迭代次数：弧长按 sqrt(期望/实际) 伸缩
     #: iterations an increment should take: the arc scales by sqrt(desired / taken)
     target_iterations: int = Field(5, ge=1)
-    #: 荷载因子到不了 1 时的停止条件
     #: where to stop when the load factor does not reach 1
     stop: Optional[ArcStopSpec] = None
-    #: 用弧长法的分析步名；不给则所有步都用（其余步用荷载控制的 Newton）
     #: the steps that use it, by name; all of them when left out (the others take load-controlled Newton)
     steps: Optional[List[str]] = None
-    #: 弧长只量这一个位移（1.3）：位移控制，荷载因子是未知量；被控位移不会往回走，跟不了它自己的回跳；不给则量整个状态
     #: measure the arc on this one displacement (1.3): displacement control with the load factor unknown; the controlled displacement never goes back, and cannot follow its own snap-back; the whole state's norm when left out
     control: Optional[ArcControlSpec] = None
 
 
 class StaticSpec(Strict):
     """The implicit static solver's settings."""
-    #: 弧长法：荷载因子成为未知量，能越过极限点
     #: arc length: the load factor becomes an unknown and the path passes limit points
     arc_length: Optional[ArcLengthSpec] = None
-    #: 每个增量的 Newton 迭代上限
     #: Newton iterations per increment
     max_iterations: int = Field(30, ge=1)
-    #: 不收敛时增量减半的次数上限
     #: how many times an increment may be halved when it does not converge
     cutbacks: int = Field(10, ge=0)
-    #: 回溯线搜索（只用于荷载控制的增量；弧长法的校正步没有线搜索）
     #: backtracking line search on the residual norm (load-controlled increments only; the arc-length corrector has none)
     line_search: bool = True
-    #: `full`：每次迭代重算切线；`modified`：每个增量开头算一次，收敛变慢（残差没减半）时重算
     #: `full`: a new tangent every iteration; `modified`: once per increment, renewed when an iteration fails to halve the residual
     tangent: Literal["full", "modified"] = "full"
-    #: 有限差分切线的步长：平动为它乘单元长度的中位数，转动为它乘 10（弧度）
     #: the finite-difference step of the tangent: this times the median element length for a translation, ten times it (radians) for a rotation
     perturbation: float = Field(1.0e-7, gt=0.0)
-    #: Newton 用尽减半次数仍不收敛时怎么办（1.7）：`none`（默认）报极限点停下；`relaxation` 从上一个收敛状态起，这一级和本步余下的各级都改用动力松弛（虚拟质量、动能阻尼，与 `mode: relaxation` 同一算法；下一步再从 Newton 开始）——越过跳跃之后落在哪一支由这段虚拟的动力过程决定，软化截面上未必是 `mode: relaxation` 走的那支
     #: what happens when Newton has used up its cutbacks (1.7): `none` (the default) stops at the limit point; `relaxation` takes this level and the rest of the step by dynamic relaxation from the last converged state (fictitious mass, kinetic damping, the algorithm of `mode: relaxation`; the next step starts with Newton again) -- which branch it lands on past a jump is the fictitious transient's choice, and on a softening section not necessarily the one `mode: relaxation` follows
     fallback: Literal["relaxation", "none"] = "none"
-    #: 回落松弛每级的迭代上限（默认 solver.max_steps_per_load）
     #: the iteration budget of each relaxed level (default solver.max_steps_per_load)
     fallback_iterations: Optional[int] = Field(None, ge=1)
-    #: 稳定化 Newton（1.23，伪时间延拓）：一个增量的 Newton 不收敛时，先从增量起点再算一次，每个自由度挂一根弹簧（μ 乘切线对角）拉回本轮的起点；每轮收敛后弹簧锚点移到新位置、μ 除以 4，直到不计弹簧的残差也在容差内——最终是真正的平衡，弹簧只是到达它的路。针对切线准确但病态的模型，例如桥面端部几乎不能抗扭的悬索桥。然后才减半。只用于荷载控制的增量（弧长法不用）。默认关闭：它会越过极限点（荷载控制下的跳跃），那是静力分析应当报出来的；Midas 转换器给它写出的桥梁打开
     #: the stabilised Newton (1.23, pseudo-transient continuation): an increment Newton cannot take is tried again from its start with a spring of mu times the tangent's diagonal on every dof, anchored where the round began; each round solved, the anchors move up and mu is quartered, until the residual without the springs is within the tolerance -- the plain equilibrium, the springs only the way to it. For a tangent that is right and ill-conditioned (a suspension bridge's deck whose end bays barely resist twisting); before the increment is halved; load-controlled increments only (not arc length). Off by default: it crosses limit points (a snap-through under load control, which a static analysis must report, not take); the Midas converter turns it on for the bridges it writes
     stabilise: bool = False
-    #: 稳定化 Newton 的初始 μ（相对于切线的对角）
     #: the stabilised Newton's starting mu (relative to the tangent's diagonal)
     stabilise_mu: float = Field(1.0e-6, gt=0.0)
-    #: 稳定化 Newton 的轮数上限
     #: the stabilised Newton's rounds at most
     stabilise_rounds: int = Field(40, ge=1)
 
 
 class SolverSpec(Strict):
-    #: `relaxation` 动力松弛求静力解，`static` 隐式静力（Newton），或 `dynamic` 显式时程
     #: `relaxation` (dynamic relaxation to a static state), `static` (implicit, Newton) or `dynamic` (explicit time history)
     mode: Literal["dynamic", "relaxation", "static"] = "relaxation"
-    #: 隐式静力的设置（见 StaticSpec）
     #: the implicit static solver's settings (see StaticSpec)
     static: StaticSpec = StaticSpec()
-    #: 松弛：`underwood`（参考刚度的 Gershgorin 行和，默认）或 `eigenvalue`（各单元最大特征值，大转动下仍成立）；动力：`physical`
     #: relaxation: `underwood` (Gershgorin row sums of the reference
     #: stiffness, the default) or `eigenvalue` (each element's largest
     #: eigenvalue, a bound that survives large rotations -- see
     #: elements/continuum.stiffness_max_eigenvalues); dynamic: `physical`
     mass: Optional[Literal["physical", "underwood", "eigenvalue"]] = None
-    #: 见 DampingSpec；松弛默认 kinetic，动力默认无阻尼
     #: see DampingSpec; kinetic by default under relaxation, none under dynamic
     damping: DampingSpec = DampingSpec()
 
     # dynamic mode
-    #: 动力：模拟时长（s），必填
     #: dynamic: simulated duration (s); required
     total_time: Optional[float] = None
-    #: 实际步长占稳定步长的比例
     #: fraction of the stable explicit step actually used
     dt_safety: float = 0.6
-    #: 动力、连续体：均匀放大质量把步长抬到这个值（选择性的见 `mass_scaling`）
     #: dynamic, continuum: raise the step to this by uniformly scaling the mass (see `mass_scaling` for the selective form)
     target_dt: Optional[float] = None
 
     # relaxation mode
-    #: 松弛：迭代预算；每个分析步都自带预算时可省
     #: relaxation: iteration budget; may be left out when every step carries its own
     n_steps: Optional[int] = None
-    #: 松弛：残差与荷载之比低于它即收敛
     #: relaxation: converged when the residual-to-load ratio falls below this
     tolerance: float = 1e-4
-    #: 松弛：同时动能比要低于它
     #: relaxation: and the kinetic-energy ratio below this
     kinetic_tolerance: float = Field(1e-10, gt=0.0)
-    #: 松弛：稳定步长的比例，同动力的 `dt_safety`
     #: relaxation: fraction of the stable step, as `dt_safety` for dynamic
     relaxation_safety: float = 0.6
-    #: 单元删除；不写即不删
     #: omit entirely to disable element deletion
     erosion: Optional[ErosionSpec] = None
-    #: 分级：每一级保持到平衡，每个输出帧都是荷载–位移曲线上的真实点
     #: hold each load level until equilibrium; every output frame is then
     #: a genuine point on the load-displacement curve
     load_steps: Optional[int] = Field(None, ge=1)
-    #: 带 `load_steps` 的松弛：每级迭代预算
     #: relaxation with `load_steps`: iteration budget per level
     max_steps_per_load: int = 5000
-    #: 每级荷载渐入所用的迭代数（默认 max_steps_per_load/5）
     #: iterations over which each load level is blended in (default max_steps_per_load / 5)
     stage_ramp_iterations: Optional[int] = None
 
-    #: 开始时的混凝土龄期（天）；只有材料声明了 creep/shrinkage/ageing 才读
     #: concrete age in days at the start of the run. Only a
     #: model whose material declares `creep`, `shrinkage` or `ageing` reads it.
     age: Optional[float] = Field(None, gt=0.0)
 
-    #: 选择性质量缩放：只在 beam2、beam2_timoshenko、beam2_fiber、mixed_line 上；其他拒绝
     #: selective mass scaling: beam2, beam2_timoshenko,
     #: beam2_fiber and mixed_line only; refused elsewhere
     mass_scaling: Optional[MassScalingSpec] = None
-    #: 从本模型早先一次结果的终态起步——位置、转角、材料状态，静止、t = 0。典型用法：先松弛得恒载状态，再从它做动力。相对算例文件；结果的网格必须是本算例的网格
     #: start from the final state of an earlier result of THIS model -- its
     #: positions, rotations and material state, at rest, at t = 0 -- instead
     #: of from the mesh. The typical pair: a relaxation run
@@ -2403,21 +2133,16 @@ class SolverSpec(Strict):
     #: file; the result's mesh must be this case's mesh.
     initial_state: Optional[str] = None
 
-    #: 实体单元：每步从变形梯度提取转动的极分解迭代次数；梁、壳、桁架不读它
     #: solid elements: polar-decomposition iterations that extract the
     #: rotation from the deformation gradient each step. Line, shell and truss
     #: models do not read it (it was documented as a beam2 setting)
     rotation_iterations: int = 2
-    #: `numpy`（参考实现）、`numba`（编译内核，同样答案）或 `warp`（GPU）
     #: 'numpy' (reference) or 'numba' (fused scalar kernel, same answer)
     backend: Literal["numpy", "numba", "warp"] = "numpy"
-    #: numba 纤维梁与框架内核的线程数：1 串行（默认），0 用全部核，n 用 n 个；结果与串行逐位相同
     #: threads for the numba fibre-beam and frame kernels: 1 serial (the default), 0 all cores, n that many; the answer is the serial one to the bit
     threads: int = Field(1, ge=0)
-    #: 只对 warp："cuda"、"cuda:0"、"cpu" 等
     #: warp only: "cuda", "cuda:0", "cpu" ...
     device: str = "cuda"
-    #: 只对 warp：`mixed`（单元 fp32、节点 fp64）或 `fp64`（验证用）
     #: warp only: "mixed" (fp32 elements, fp64 nodal) or "fp64" (verification)
     precision: Literal["mixed", "fp64"] = "mixed"
 
@@ -2473,49 +2198,37 @@ class MonitorSpec(Strict):
     limits are recorded in that case's contract; both are now expressible.
     """
 
-    #: reaction / displacement（区域的节点）、element（区域的单元）、bar（钢筋组的段）、fiber（截面上一点）、vehicle（车辆，`of` 为车名）
     #: reaction / displacement (nodes of a region), element (elements of a region), bar (segments of a reinforcement set), fiber (one section point), vehicle (a vehicle named by `of`)
     kind: Literal["reaction", "displacement", "element", "bar", "fiber", "vehicle"]
-    #: 读的区域（节点类必填；element/bar 是缩小范围）
     #: the region read (nodal kinds: required; element/bar: narrows to it)
     region: Optional[str] = None
-    #: 节点类：几个区域一起读
     #: nodal kinds: several regions read together
     regions: Optional[List[str]] = None
-    #: reaction/displacement：哪个分量
     #: reaction/displacement: the component
     dof: Literal["x", "y", "z"] = "z"
-    #: element：实体是材料的任一单元输出（`dt`、`dc`、`d`……）加 `stress`、`von_mises`；线单元模型是任一构件场（`axial_force`、`bending_y`、`*_max_abs`、`*_i/_j`、`capacity_ratio`……）；bar：`axial_stress`、`axial_force`、`plastic_strain`
     #: element: on solids any per-element output of the material (`dt`, `dc`,
     #: `d`, ...) plus `stress` and `von_mises`; on line models any member field
     #: (`axial_force`, `bending_y`, `*_max_abs`, `*_i/_j`, `capacity_ratio`, ...,
     #: v1.0). bar: `axial_stress`, `axial_force`, `plastic_strain`.
     field: Optional[str] = None
-    #: 张量场取哪个分量（本库统一的 Voigt 顺序 xx, yy, zz, xy, yz, zx；`xz` 作 `zx` 读）
     #: which component of a tensor field, in this package's one Voigt order xx, yy, zz, xy, yz, zx (`xz` is read as `zx`)
     component: Optional[Literal["xx", "yy", "zz", "xy", "yz", "zx", "xz"]] = None
-    #: bar：钢筋组的名字，即其 assign 上的 `name`
     #: bar: the reinforcement set's name, i.e. the `name` on its assignment
     of: Optional[str] = None
-    #: vehicle：第几根轴（contact_force、wheel、station），从 0 起
     #: vehicle: which axle (contact_force, wheel, station), from 0
     axle: int = Field(0, ge=0)
-    #: element 监测量（实体与线单元模型）和实体的 bar 监测量：单元或钢筋段上的值怎么归约（max 默认、min、mean、absmax=绝对值最大者带符号）；其余监测量不接受 reduce
     #: element monitors (solids and line models) and bar monitors on solids: how the values over the elements/segments are reduced (max by default; absmax is the signed value of largest magnitude); the other kinds refuse it
     reduce: Optional[Literal["max", "min", "mean", "absmax"]] = None
-    #: displacement：相对这个区域的平均位移报告——一个部件相对另一个的运动
     #: displacement: report it relative to the mean displacement of this
     #: region -- the motion of one part of a body seen from another
     relative_to: Optional[str] = None
-    #: fiber（只对 beam2_fiber）：离区域节点最近的积分站的截面，读 [y, z] 处：`field: strain` 是该点的平截面应变，`field: stress` 是最近纤维的应力——桥面或底缘应变片读到的量
     #: fiber (beam2_fiber only): the section at the station
     #: nearest the region's node, read at the point [y, z] of the section:
     #: `field: strain` is the plane-section strain eps0 - y kz + z ky there
     #: (the concrete's, no tendon prestrain), `field: stress` the stress of
     #: the fibre closest to the point. What a strain gauge on the deck or the
-    #: soffit reads, and what a thesis reports as 上缘/下缘.
+    #: soffit reads, and what a thesis reports as top- and bottom-fibre stress.
     at: Optional[List[float]] = Field(None, min_length=2, max_length=2)
-    #: fiber、`field: stress`：只在混凝土纤维（`concrete`）或钢筋/预应力束（`steel`）里找最近的纤维；不给则在全部纤维里找。读的是哪根纤维（坐标、材料、种类）记在结果的监测量属性里
     #: fiber, `field: stress`: look for the nearest fibre among the concrete
     #: fibres only (`concrete`) or the bars and tendons only (`steel`); left
     #: out, among all of them. Which fibre was read (coordinates, material,
@@ -2591,19 +2304,14 @@ RESERVED_MONITOR_NAMES = ("time", "residual", "kinetic_energy", "age")
 
 
 class OutputSpec(Strict):
-    #: HDF5 结果文件；相对路径按当前工作目录（运行命令的目录）解析，不是算例文件所在目录；旁边生成 .xdmf 供 ParaView
     #: the HDF5 result file; a relative path is relative to the working directory (where the command is run), not to the case file; an .xdmf beside it for ParaView
     path: str = "results.h5"
-    #: 每隔多少步写一帧；动力与松弛分析的监测量在同样的帧上记录，静力（mode: static）分析的监测量在每个增量都记录、只有帧被稀疏（`time` 总与每条监测量一样长）；静力分析不写 `every` 时每个增量一帧
     #: write a frame every this many steps; in dynamic and relaxation runs the monitors are recorded at the same frames, in static runs (mode: static) at every increment and only the frames are thinned (`time` is always as long as each monitor); a static run that does not write `every` writes a frame at every increment
     every: int = 200
-    #: 要写的节点/单元场；`vfife describe <单元>` 列出模型能给的；写出来的名字模型给不了即拒绝（UNKNOWN_OUTPUT_FIELD）。不写时按模型取默认（1.1）：位移、转角、反力、实体与杆的 von_mises、壳的 von_mises_top/bottom、构件的带符号内力，有塑性铰、连接器、可断构件时另加它们的场；模型给不了的不写、也不报
     #: nodal/element fields to write; `vfife describe <element>` lists what the model can produce, and a name written here that the model cannot produce is refused (UNKNOWN_OUTPUT_FIELD). Left out, the default is the model's (1.1): displacement, rotation, reactions, von_mises on solids and bars, von_mises_top/bottom on shells, the members' signed forces, and the fields of its plastic hinges, connectors and breakable members where it has them; a default name the model does not produce is skipped without a word
     fields: List[str] = ["displacement", "von_mises"]
-    #: 每隔多少步写一个重启检查点到结果旁的 `<结果>.ckpt.h5`（在帧或进度检查处取，0 = 只在结束时）
     #: write a restart checkpoint to `<result>.ckpt.h5` beside the result every this many steps (taken at a frame or progress check; 0 = only at the end)
     checkpoint_every: int = 0
-    #: 命名的标量时程，见 MonitorSpec；`time`、`residual`、`kinetic_energy`、`age` 是保留名
     #: named scalar time histories, see MonitorSpec; `time`, `residual`, `kinetic_energy` and `age` are reserved
     monitors: Dict[str, MonitorSpec] = {}
 
@@ -2645,7 +2353,6 @@ CASE_FORMAT = 1
 
 
 class Case(Strict):
-    #: 算例格式版本：1（1.0 版起）。不写时与 1 按同样的规则读（旧拼写带 DEPRECATED_FIELD 警告照读）；写了比 1 大的数则拒绝（那是更新的 vfife 写的）
     #: the case-file format: 1 (since v1.0). Absent, the case is read by the same rules as 1 (old spellings read with a DEPRECATED_FIELD warning); a larger number is refused (a newer vfife wrote it)
     version: Optional[int] = None
     name: str = "case"
@@ -2680,15 +2387,12 @@ class Case(Strict):
     constraints: List[ConstraintSpec] = []
     loads: List[LoadSpec] = []
     nodal_masses: List[NodalMassSpec] = []
-    #: 水下构件的 Morison 附加质量
     #: the Morison added mass of members under water
     hydrodynamic_mass: List[HydrodynamicMassSpec] = []
-    #: 桩的土弹簧：按深度给的 p–y 曲线，非线性弹性（1.2，见 SoilSpringSpec）
     #: soil springs on piles: p-y curves by depth, nonlinear elastic (1.2, see SoilSpringSpec)
     soil_springs: List[SoilSpringSpec] = []
     #: floors that are rigid in their own plane
     diaphragms: List[DiaphragmSpec] = []
-    #: 主从刚性连接：从节点的指定分量按刚体跟随主节点，大转动（1.21；框架、纤维梁、壳和壳线模型；部分约束转动时相对转角要小）
     #: master-slave rigid links: the slaves' tied components follow the master as a rigid body, in large rotation (1.21; frame, fibre-beam, shell and shell-line models)
     rigid_links: List[RigidLinkSpec] = []
     #: named amplitude curves; see core/amplitude.py. `ramp` and `hold` exist
@@ -2699,10 +2403,8 @@ class Case(Strict):
     members: List[MemberGroupSpec] = []
     #: members taken out at given times
     removals: List[RemovalSpec] = []
-    #: 刚性面接触：节点碰到地面/海底/承台即受罚力
     #: rigid-surface contact: a node meeting the ground, the sea floor, a pile cap
     contact: Optional[ContactSpec] = None
-    #: 反应谱分析：在计算结束时的状态上做模态、按谱组合
     #: response-spectrum analysis at the state the run ends in
     response_spectrum: Optional[ResponseSpectrumSpec] = None
     solver: SolverSpec

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vfife"
-version = "1.23.0"
+version = "1.23.1"
 description = "Explicit structural solver (VFIFE) for bridges, from construction stages to earthquake and collapse"
 readme = "README.md"
 license = "MIT"
@@ -76,9 +76,11 @@ filterwarnings = ["ignore::RuntimeWarning"]
 # their monitors -- runs every time, because that is what actually rots.
 #     pytest -m slow          just the full-solve verification
 #     pytest -m ""            everything
-# 分层的判据不是"慢"，而是"夜间已经覆盖了同一件事，且快速层仍有更便宜的
-# 测试守着同一个子系统"。一个安静停跑的检查等于没有检查，所以哨兵型测试
-# （松弛收敛、跨后端一致、侵蚀端到端）即使不便宜也留在默认层。
+# A test is moved out of the default layer not because it is slow but because
+# the nightly run covers the same thing and a cheaper fast-tier test guards the
+# same subsystem. A check that quietly stops running is no check, so sentinel
+# tests (relaxation convergence, backend parity, erosion end to end) stay in
+# the default layer even when they are not cheap.
 markers = ["slow: solves to convergence; deselected by default, run by `pytest -m slow` and nightly CI",
            "heavy: over 3 s (tests/heavy_tests.txt); in the default layer, left out of the GitHub fast tier"]
 addopts = "-m 'not slow'"

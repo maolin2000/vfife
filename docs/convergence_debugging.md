@@ -1,23 +1,23 @@
-# 收敛调试
+# Debugging convergence
 
-算例不收敛时的排查顺序、两个求解器判据的差异，以及几个会让正确模型报错的归一化陷阱。状态码与失败结果的写出规则见 `diagnostics.md`；本文只讲怎么用它们定位。适用于 `mode: relaxation` 的分级加载。
+The order to look at a case that does not converge, how the criteria of the two solvers differ, and a few normalisation traps that make a correct model report failure. Status codes and what a failed run writes are in `diagnostics.md`; this page is about using them to find the cause. It applies to staged loading with `mode: relaxation`.
 
-## 排查顺序
+## The order
 
-前三步不改任何参数。
+The first three steps change no parameter.
 
-**1. 读完整的失败信息。** 纤维梁要求残差 **和** 动能比同时达标，两者都会打印并各带容差：
+**1. Read the whole failure message.** A fibre beam needs the residual **and** the kinetic-energy ratio to pass together; both are printed with their tolerances:
 
 ```
 MAX_STEPS: fiber beam load stage 1/24 did not converge in 3000 iterations:
   residual=4.253e-03 (tol 5.0e-04), kinetic_ratio=0.000e+00 (tol 1.0e-10)
 ```
 
-先看清是哪一个没过——两者的原因和处理完全不同。残差远小于容差却仍报不收敛的，见下方陷阱 B。
+See which one failed first -- their causes and remedies are entirely different. A residual far below its tolerance that is still reported as not converged is trap B below.
 
-**2. 看 `resets` 列，区分「慢」和「停滞」。** 它是动能重置的累计次数，比残差更早说明结局。每级几十到几百次正常；每 2~3 次迭代就重置一次是原地震荡，**加预算无效**。分辨方法只有一个：把 `max_steps_per_load` 提高 5 倍再跑一级看残差降不降。实测过一次 600 次迭代 1.8e-02、3000 次 1.5e-02，属停滞。
+**2. Read the `resets` column to tell "slow" from "stalled".** It counts the kinetic-energy resets and tells the outcome earlier than the residual does. Tens to hundreds per stage is normal; a reset every 2-3 iterations is oscillation in place, and **a larger budget does not help**. There is one way to tell: raise `max_steps_per_load` five times and run one stage to see whether the residual falls. One measured case: 1.8e-02 at 600 iterations, 1.5e-02 at 3000 -- stalled.
 
-**3. 取失败结果里的位置。**
+**3. Take the location from the failed result.**
 
 ```python
 import h5py
@@ -26,160 +26,122 @@ print(dict(f['diagnostics'].attrs)['location_json'])
 # {"array":"residual","index":[26],"node":4,"dof":2,"value":9740.6}
 ```
 
-`dof` 按 `ux uy uz rx ry rz` 编号 0–5。上例是中部节点的横向自由度差 9.7 kN，即内部横向平衡问题，与轴力和材料无关。
+`dof` numbers `ux uy uz rx ry rz` from 0 to 5. Here a transverse degree of freedom of a middle node is out by 9.7 kN: a problem of internal transverse equilibrium, unrelated to the axial force or the material.
 
-**4. 到这一步才动参数**，且先动网格与载荷级，最后才动容差。
+**4. Only now change parameters**, the mesh and the load stages first, the tolerances last.
 
-## 两个求解器的判据不同
+## The two solvers' criteria differ
 
-同一个 `tolerance` 在两边不等价。
+The same `tolerance` does not mean the same on both.
 
-| | 连续介质 `solver.py` | 纤维梁 `fiber_beam_solver.py` |
+| | continuum `solver.py` | fibre beam `fiber_beam_solver.py` |
 |---|---|---|
-| 残差归一化 | `max(‖f_int‖, ‖f_ext‖)` | `max(‖F_ext‖, 1.0)` |
-| 动能判据 | 无 | `KE/(‖F‖·‖q‖) ≤ kinetic_tolerance`，与残差**同时**满足 |
-| 收敛前置 | `stage_ramp_iterations`，默认 `max_steps_per_load/5` | 无 |
-| 默认 | `tolerance 1e-4` | `tolerance 1e-4`、`kinetic_tolerance 1e-10` |
+| residual normalised by | `max(‖f_int‖, ‖f_ext‖)` | `max(‖F_ext‖, 1.0)` |
+| kinetic criterion | none | `KE/(‖F‖·‖q‖) ≤ kinetic_tolerance`, **together** with the residual |
+| before convergence may be declared | `stage_ramp_iterations`, `max_steps_per_load/5` by default | none |
+| defaults | `tolerance 1e-4` | `tolerance 1e-4`, `kinetic_tolerance 1e-10` |
 
-纤维梁只按外力归一化，在两种情况下会放大成数量级：
+The fibre beam normalises by the external force alone, which grows into orders of magnitude in two cases:
 
-**陷阱 A — 纯位移控制时容差变成绝对牛顿。** 无外荷载时 `‖F_ext‖≈0`，分母退化为兜底的 `1.0`，`tolerance: 5e-4` 的实际含义是残差小于 0.0005 N。症状是每级要几千次迭代才勉强收敛；实测一个 1.5 m 悬臂纤维梁循环算例约 16 s/级、512 级共 2.3 小时。识别：算例只有带 `value` 的 `constraints`、没有 `loads:`。处理：按绝对力量级重设 `tolerance`，或加入物理上本就存在的荷载（自重、轴压）让分母恢复意义。
+**Trap A -- under pure displacement control the tolerance becomes absolute newtons.** With no external load `‖F_ext‖≈0` and the denominator falls back to `1.0`: `tolerance: 5e-4` means a residual below 0.0005 N. The symptom is thousands of iterations per stage to converge at all; a measured 1.5 m cantilever fibre-beam cyclic case took about 16 s a stage, 2.3 hours for 512 stages. To recognise it: the case has only `constraints` with a `value` and no `loads:`. Remedy: set `tolerance` for the size of the force in absolute terms, or add the load that physically exists anyway (self-weight, axial compression) to give the denominator a meaning again.
 
-**陷阱 B — 大荷载小位移时动能判据不可达。** `‖q‖` 近乎为零时分母塌陷。实测：819 kN 轴压、柱顶缩短 0.30 mm，残差 2.06e-05（容差 5e-4，富余 20 倍）而动能比 7.77e-07。处理：给该算例设 `kinetic_tolerance`（如 `1e-6`）并注明理由，主判据仍在把关。
+**Trap B -- under a large load with small displacements the kinetic criterion cannot be reached.** With `‖q‖` near zero the denominator collapses. Measured: 819 kN axial compression, the column top shortened 0.30 mm, residual 2.06e-05 (tolerance 5e-4, 20 times inside) and kinetic ratio 7.77e-07. Remedy: set `kinetic_tolerance` for that case (e.g. `1e-6`) and write down why; the main criterion still guards it.
 
-## 参数写在哪里生效
+## Where a parameter takes effect
 
-写错位置不报错，只静默用默认值，表现得就像不收敛。
+A parameter written in the wrong place is not refused; its default is used silently, and it looks like non-convergence.
 
-| 参数 | `solver:` | `steps:` 条目内 | 默认 |
+| parameter | `solver:` | in a `steps:` entry | default |
 |---|---|---|---|
-| `load_steps` | 生效 | 生效（按步优先） | 20 |
-| `max_steps_per_load` | 生效 | 生效（按步优先） | 5000 |
-| `tolerance` | 生效 | 连续介质生效 | 1e-4 |
-| `kinetic_tolerance` | 生效 | — | 1e-10 |
-| `relaxation_safety` | 生效 | — | 0.6 |
+| `load_steps` | yes | yes (the step's wins) | 20 |
+| `max_steps_per_load` | yes | yes (the step's wins) | 5000 |
+| `tolerance` | yes | continuum | 1e-4 |
+| `kinetic_tolerance` | yes | — | 1e-10 |
+| `relaxation_safety` | yes | — | 0.6 |
 
-把便宜的步与贵的步分开设：轴压步只是加一个恒定荷载，12 级足够；循环步需要几百级。共用一个 `load_steps` 会让轴压步付出几十倍无谓代价。
+Set cheap and expensive steps apart: an axial-load step only applies a constant load, and 12 stages are plenty; a cyclic step needs hundreds. Sharing one `load_steps` makes the axial step cost tens of times more for nothing.
 
-## 常见原因
+## Common causes
 
-**单元太短、截面太刚。** 虚拟质量按 `row_sum(K)/relaxation_safety²` 取，截面越刚、单元越短行和上升越快，横向模态变重而停止推进；症状是首级即停滞、诊断指向内部节点的横向自由度。实测（400×400 截面、1.6 m 柱）：8×200 mm 停滞，6×267 mm 收敛但约 9 s/级，4×400 mm 收敛且约 3 s/级。先试加长单元，代价是塑性铰扩展的分辨率。
+**Elements too short, sections too stiff.** The fictitious mass is `row_sum(K)/relaxation_safety²`; the stiffer the section and the shorter the element, the faster the row sums grow, the transverse modes get heavy and stop advancing. The symptom is stalling at the first stage, with the diagnostics pointing at a transverse degree of freedom of an interior node. Measured (400×400 section, 1.6 m column): 8×200 mm stalls, 6×267 mm converges at about 9 s a stage, 4×400 mm converges at about 3 s a stage. Try longer elements first; the cost is the resolution of the spreading plastic hinge.
 
-**载荷级跨度太大。** 路径总长除以 `load_steps`，单级增量接近开裂或屈服特征位移就该加密。
+**Load stages too large.** The path's length divided by `load_steps`: when one stage's increment approaches the characteristic displacement of cracking or yield, refine.
 
-**`max_steps_per_load` 调大反而更慢——最容易上当的一条。** 分级松弛的渐入长度默认是
-`max_steps_per_load // 5`，而**一级在渐入结束之前不允许判收敛**。所以把迭代预算从
-60 000 调到 200 000，同时把最短收敛时间从 12 000 步抬到了 40 000 步：算例会坐在一个
-远低于容差的残差上空转，看起来像"收敛很慢"，其实早就收敛了。`case_24e`
-在残差 1e-9、容差 1e-5 的状态下空转了四万步，就是这一条。
+**A larger `max_steps_per_load` makes it slower -- the easiest one to fall for.** The ramp of staged relaxation is `max_steps_per_load // 5` by default, and **a stage may not be declared converged before its ramp ends**. Raising the budget from 60 000 to 200 000 therefore also raised the shortest time to convergence from 12 000 to 40 000 steps: the case sits idling on a residual far below its tolerance, looking "slow to converge" while it converged long ago. `case_24e` idled for forty thousand steps at a residual of 1e-9 against a tolerance of 1e-5 for this reason.
 
-* 症状：残差远低于容差却不停，`resets` 持续增长，级号不前进。
-* 处置：显式写 `stage_ramp_iterations`。渐入存在的理由是不要冲击显式积分器和路径相关
-  的材料；一个**线弹性**模型（或任何没有路径相关状态的模型）几百步就够。
-* 反过来也成立：**预算不该随手调大**。它同时是渐入长度。
+* Symptom: the residual is far below the tolerance and it does not stop; `resets` keeps rising, the stage number does not advance.
+* Remedy: write `stage_ramp_iterations` explicitly. The ramp exists so as not to shock the explicit integrator and path-dependent materials; a **linear elastic** model (or any without path-dependent state) needs a few hundred steps.
+* The converse holds too: **do not raise the budget casually**. It is also the length of the ramp.
 
-## GPU 上跑得慢，先分清是哪一种慢
+## Slow on a GPU: find out which kind of slow first
 
-`benchmarks/warp_loop_cost.py --n 16 32 64 128 --per-kernel` 把一次迭代的四种成本
-分开量：每步同步、measures 内核、Python 端 launch、以及各个 kernel 自己。
-判读在脚本末尾打出来。经验是**每次量出来的都不是猜的那个**，所以别猜。
+`benchmarks/warp_loop_cost.py --n 16 32 64 128 --per-kernel` measures four costs of one iteration separately: the per-step synchronisation, the measures kernel, the Python-side launches and each kernel itself. How to read them is printed at the end. Experience says **the measured cause is never the guessed one**, so do not guess.
 
-一条与收敛有关的：`A/E` 那个比值是"改完循环管道能快多少"，和迭代次数无关。**如果你
-的算例是迭代次数太多（几十万次），那再快 7 倍的迭代也救不了**，该看的是
-docs 里 `relaxation_safety`、荷载级密度和 `vfife probe` 报的最刚模态，而不是 GPU。
+One that concerns convergence: the `A/E` ratio is how much faster changing the loop plumbing would make it, independent of the iteration count. **If your case takes too many iterations (hundreds of thousands), iterations seven times faster will not save it**: look at `relaxation_safety`, the density of load stages and the stiffest mode `vfife probe` reports, not at the GPU.
 
-## 先跑 `vfife probe`
+## Run `vfife probe` first
 
-0.1 版起，怀疑"求解器有问题"之前先问模型四个不依赖单元类型的问题：
+Since 0.1, before suspecting the solver, ask the model four questions that do not depend on the element type:
 
 ```powershell
-python -m vfife probe 算例.yaml                     # 参考构形 + 0.8 rad 圆弧态
-python -m vfife probe 算例.yaml --result 结果.h5    # 停滞时所处的那个状态
+python -m vfife probe case.yaml                       # reference configuration + a 0.8 rad arc state
+python -m vfife probe case.yaml --result result.h5    # the state it stalled in
 ```
 
-它报告：
+It reports:
 
-| 问题 | 不通过意味着 |
+| question | failing means |
 |---|---|
-| 内力是势的梯度吗（切线对称性） | **平衡态附近**不对称就是力场不保守，动能阻尼是下降法，加多少预算都没用。远离平衡时共旋转切线本来就不对称（与不平衡力成正比），报告会标 SKIP 并写明 |
-| 荷载是势的梯度吗 | 随动荷载最常见的坑，0.1 版的面弯矩就是这个。荷载只依赖状态，不存在"远离平衡"的借口，任何状态下都是判决 |
-| 刚体平动/转动是否免费 | 共旋转框架、极分解、取向状态出错的唯一直接症状 |
-| 虚拟质量是否还兜得住最刚模态 | ω² 对极限 4s² 的比值。接近或超过 1 就是步长问题（首级停滞的最常见原因）；远小于 1 就别再动 `relaxation_safety` |
-| 这个状态本身稳定吗 | 最软模态的特征值与它的 x/y/z 方向占比。负值且方向在面外，说明不是求解器找不到平衡，而是这个状态没有稳定平衡可找（0.1 版无对称面的卷圆就是这样） |
+| is the internal force a gradient (tangent symmetry) | asymmetric **near equilibrium**: the force field is not conservative, kinetic damping is a descent method, and no budget will help. Far from equilibrium the co-rotational tangent is asymmetric anyway (in proportion to the out-of-balance force); the report marks it SKIP and says so |
+| is the load a gradient | the commonest trap of follower loads -- 0.1's face moment was one. A load depends on the state alone, there is no "far from equilibrium" excuse: it is a verdict in any state |
+| are rigid translation and rotation free | the one direct symptom of a wrong co-rotational frame, polar decomposition or orientation state |
+| does the fictitious mass still cover the stiffest mode | the ratio of ω² to its limit 4s². Near or above 1 is a step-size problem (the commonest cause of stalling at the first stage); well below 1, leave `relaxation_safety` alone |
+| is this state itself stable | the eigenvalue of the softest mode and its x/y/z content. Negative, and out of plane: the solver is not failing to find an equilibrium, the state has no stable equilibrium to find (as with 0.1's rolling-up without a symmetry plane) |
 
-只适合几千自由度以内的模型：切线是对每个自由度做有限差分，`--max-dofs`
-以上会跳过并说明。库自己的 17 种单元每次提交都被同一套检查问一遍
-（`tests/test_invariants.py`）。
+For models up to a few thousand degrees of freedom: the tangent is a finite difference over every degree of freedom, and above `--max-dofs` it is skipped with a note. The library's own 17 elements are asked the same questions at every commit (`tests/test_invariants.py`).
 
-**荷载不是势的梯度。** 动能阻尼是下降法：它假定力场有势。一个不保守的力
-（切线矩阵有反对称部分）会给系统持续泵入能量，症状是**重置次数暴涨**（正常
-每级几次到几十次，出问题时每一两百步一次）、残差在 1e-4 到 1e-3 之间打摆不下
-去、越加载越糟。0.1 版的实体悬臂卷圆就是这样：面弯矩最初写成"在当前面上重新
-积分教科书应力"，那个力不是任何势的梯度，切线几乎纯反对称——只有单元刚度的千分
-之一，却是卷起来的梁最软模态的一千倍。判据是有限差分切线：
-`python -m vfife probe 算例.yaml [--result 结果.h5]` 分别报告单元部分和荷载部分的
-|K−Kᵀ|/|K|、对当前虚拟质量的广义特征值（最大值须小于 4s²，负值是不稳定状态）和
-最软几个模态的 x/y/z 方向占比。只适合小模型（几千个自由度以内）。同一个探针也能
-分清"求解器停滞"和"这个状态本身不稳定"：无对称面的卷圆在 306° 处两个负特征值都在
-面外，是离散模型的侧扭失稳，不是求解器的错。
+**A load that is not a gradient.** Kinetic damping is a descent method: it assumes the force field has a potential. A non-conservative force (a tangent with an antisymmetric part) keeps pumping energy into the system; the symptom is **a surge of resets** (normally a few to a few tens a stage, here one every one or two hundred steps), a residual swinging between 1e-4 and 1e-3 without coming down, and worse the further it is loaded. 0.1's solid cantilever rolling up was this: the face moment was first written as "integrate the textbook stress again over the current face", a force that is no potential's gradient, with an almost purely antisymmetric tangent -- a thousandth of the element stiffness, but a thousand times the softest mode of the rolled beam. The test is the finite-difference tangent: `python -m vfife probe case.yaml [--result result.h5]` reports |K−Kᵀ|/|K| of the element part and the load part separately, the generalised eigenvalues against the current fictitious mass (the largest must be below 4s², a negative one is an unstable state) and the x/y/z content of the softest modes. For small models (up to a few thousand degrees of freedom). The same probe tells "the solver stalls" from "this state is unstable": the rolling-up without a symmetry plane has, at 306°, two negative eigenvalues both out of plane -- lateral-torsional instability of the discrete model, not a fault of the solver.
 
-**质量不随转动**（`mass: eigenvalue`）。Underwood 行和是参考构形的量；大转动后
-行和变了而质量没变，理论上可能失稳。`mass: eigenvalue` 用每个单元刚度的最大特
-征值（Hughes 单元特征值不等式）作界，任何构形下都成立，代价是步长小 1.5–2 倍。
-它是为卷圆问题写的，结果那里并不是它的问题（最刚模态只到极限的一半）；留作一
-个有保证的选项，**先用探针量过再换**。
+**Mass that does not follow rotation** (`mass: eigenvalue`). Underwood's row sum is a quantity of the reference configuration; after large rotations the row sums change and the mass does not, which may in principle become unstable. `mass: eigenvalue` bounds it by each element's largest stiffness eigenvalue (Hughes' element eigenvalue inequality), valid in any configuration, at the cost of a step 1.5-2 times smaller. It was written for the rolling-up problem, which turned out not to be its problem (the stiffest mode reached only half the limit); it stays as an option with a guarantee -- **measure with the probe before switching**.
 
-**不要想当然调 `relaxation_safety`。两个方向都可能更差。**
+**Do not tune `relaxation_safety` on a hunch. Either direction may be worse.**
 
-- **调轻**（数值调大）：实测 0.6 跑完 12 个轴压级时，1.2 才到第 3 级、1.6 到第 5 级，重置次数由 136 涨到 228。质量轻了震荡更剧烈，每次重置都把速度清零。
-- **调重**（数值调小）：在**软化**问题上同样更差。实测一根往复加载的实体 RC 柱，0.3 失败于第 37/40 荷载级，0.15（质量 ×4）提前到第 20 级，0.075（质量 ×16）提前到第 8 级。加质量对付不了负切线刚度，只是让每一步推进更少、更早撞上每级预算。
+- **Lighter** (a larger value): measured, 0.6 ran through 12 axial stages where 1.2 reached stage 3 and 1.6 stage 5, with resets rising from 136 to 228. A lighter mass oscillates more, and every reset sets the velocity to zero.
+- **Heavier** (a smaller value): worse as well on **softening** problems. Measured on a solid RC column under cycles: 0.3 failed at load stage 37 of 40, 0.15 (mass ×4) earlier at stage 20, 0.075 (mass ×16) at stage 8. More mass cannot handle a negative tangent stiffness; it only makes each step advance less and run into the stage budget sooner.
 
-这条参数没有"更安全的方向"。**改它之前先量。**
+This parameter has no safer direction. **Measure before changing it.**
 
-**首次运行慢不是收敛问题。** numba 与 warp 首次要编译内核。实测某次 3693 s 的运行中约 94% 是一次性编译，缓存热后同样运行只需 207 s。未进入迭代就「卡住」时先确认是否在编译。
+**A slow first run is not a convergence problem.** numba and warp compile their kernels the first time. In one measured run of 3693 s about 94% was one-off compilation; with a warm cache the same run took 207 s. If it "hangs" before iterating, check whether it is compiling.
 
-## 会让旧算例表现不同的两处变更
+## Two changes that make old cases behave differently
 
-不是使用错误。原来能跑的算例遇到下面两种情况时，先对照这里再从模型上找原因。
+Not misuse. A case that used to run and meets one of these: compare with this first, before looking for a cause in the model.
 
-**梁 / 壳 / 纤维梁的迭代预算变大了。** 这几条路径原本缺少中心差分的**半步起步**：
-重启时用了 `v = a·dt` 而不是 `v = a·dt/2`。实体和桁架路径一直是对的，其注释记着代价——
-每次重启注入一点能量，而动能阻尼每几步就重启一次。那点能量让模型推进得更快，
-而它是错的。修好之后**更正确、更慢**：
+**The iteration budgets of beams, shells and fibre beams grew.** These paths lacked the central difference's **half-step start**: a restart used `v = a·dt` instead of `v = a·dt/2`. The solid and truss paths were always right, and their comments record the cost -- each restart injects a little energy, and kinetic damping restarts every few steps. That energy made the model advance faster, and it was wrong. Fixed, it is **more correct and slower**:
 
-| | 原预算 | 停在 | 需要 |
+| | old budget | stopped at | needs |
 |---|---|---|---|
-| `case_03_mixed_frame` | 8000 | 残差 6.6e-6 对 1e-6 | 16000（已设 20000） |
-| 一个纤维梁悬臂算例 | 600 | 残差 9.5e-4 对 1e-4 | 3000 |
+| `case_03_mixed_frame` | 8000 | residual 6.6e-6 against 1e-6 | 16000 (set to 20000) |
+| a fibre-beam cantilever case | 600 | residual 9.5e-4 against 1e-4 | 3000 |
 
-识别：只发生在 `beam2` / `beam2_timoshenko` / `beam2_fiber` / `shell3` / `shell4` /
-`mixed_line` / `coupled`；残差是**缓慢下降**而不是卡住。处理：加 `n_steps`
-或 `max_steps_per_load`。**收敛后的答案没有变**——两处都用契约核对过。
+To recognise it: only `beam2` / `beam2_timoshenko` / `beam2_fiber` / `shell3` / `shell4` / `mixed_line` / `coupled`; the residual **falls slowly** rather than sticking. Remedy: more `n_steps` or `max_steps_per_load`. **The converged answer did not change** -- both were checked against their contracts.
 
-**`mode: dynamic` 的默认阻尼变了。** 六个求解器里一直写着"松弛用 kinetic、动力学用 viscous"，
-但 schema 的默认值把 `damping.type` 填成了 `kinetic`，那句意图从来没执行过。
-于是每个没写 `damping` 的动力学算例拿到的都是**动能阻尼**——它在动能每次回落时把速度清零，
-那是求**静力解**的装置，等于把动力学抹掉。现在默认解析成 viscous（`coeff` 为 0，即无阻尼）。
+**The default damping of `mode: dynamic` changed.** All six solvers said "kinetic for relaxation, viscous for dynamics", but the schema's default set `damping.type` to `kinetic`, and the intention was never carried out. Every dynamic case without `damping` therefore got **kinetic damping**, which sets the velocity to zero whenever the kinetic energy turns down -- a device for finding the **static solution**, which wipes out the dynamics. The default now resolves to viscous (`coeff` 0, i.e. undamped).
 
-**动力学算例请显式写明阻尼**：`damping: {type: none}`，或给一个 Rayleigh `alpha`。
-`alpha` 现在**在任意 `type` 下都生效**（以前只在 `type: rayleigh` 下），
-`{type: kinetic, alpha: 0.002}` 是它存在的理由——动能阻尼只在动能**见顶**时复位，
-一个动能单调上升的模态（软化单元就是）永远碰不到它，而 `alpha·M·v` 不管能量在做什么都对抗速度。
-它不是免费的：在一个不加任何东西也能收敛的路径上，`alpha=0.002` 让基底剪力均方根移动 1.18%，
-`alpha=0.005` 移动 6.57%——**在不适定的软化问题里，这是在选解分支**。用能跑通的最小值，并报出来。
+**Write the damping of a dynamic case explicitly**: `damping: {type: none}`, or a Rayleigh `alpha`. `alpha` now **acts under any `type`** (before, only under `type: rayleigh`); `{type: kinetic, alpha: 0.002}` is why: kinetic damping resets only at a **peak** of the kinetic energy, a mode whose kinetic energy rises monotonically (a softening element's) never reaches one, while `alpha·M·v` opposes velocity whatever the energy is doing. It is not free: on a path that converges with nothing added, `alpha=0.002` moved the RMS base shear by 1.18%, `alpha=0.005` by 6.57% -- **in an ill-posed softening problem this chooses the branch of the solution**. Use the smallest value that runs, and report it.
 
-## 放宽容差的界线
+## Where relaxing a tolerance stops
 
-**可以**：某判据在该步已失去物理意义时（如陷阱 B 的轴压步），放宽并在算例注释里写明理由，主判据仍在把关。
+**Acceptable**: when a criterion has lost its physical meaning in a step (such as the axial step of trap B), relax it and write the reason in the case's comments; the main criterion still guards it.
 
-**不可以**：为了让曲线好看、契约变绿、算例交差。这类放宽会把待查问题变成永远查不到的问题。若必须暂时放宽以免夜间跑常红，就在契约里明写「这不代表该比值可接受」并记为未决项。
+**Not acceptable**: to make a curve look right, turn a contract green or close a task. That turns a problem waiting to be found into one that never will be. If it must be relaxed for the time being to stop a nightly run from being permanently red, say in the contract that "this does not mean the ratio is acceptable" and record it as open.
 
-本文的数字全部来自一次「模型看起来不对」的排查。当时先给出的是一个听起来合理的本构解释——某材料卸载偏陡——它写进了文档，也让真正的原因（求解器把路径相关的材料状态逐迭代提交）晚发现整整一轮。**路径相关材料 + 迭代求解器，先怀疑状态提交与判据归一化，再怀疑本构。**
+Every number on this page comes from one investigation of "the model looks wrong". The first explanation offered sounded reasonable -- a material unloading too steeply -- and went into the documentation, delaying the real cause (the solver committing path-dependent material state at every iteration) by a whole round. **Path-dependent materials with an iterative solver: suspect the state commit and the normalisation of the criteria before the constitutive law.**
 
-## 已知的不一致
+## Known inconsistencies
 
-不是使用错误，是当前实现状态，遇到时不要从模型上找解释。
+Not misuse, but the current state of the implementation; do not look for an explanation in the model.
 
-- 两个求解器的残差归一化不同，跨求解器比较收敛难度时须记住。
-- 单元内力字段 `axial_force` / `bending_y` / `bending_z` 等自 1.0 版起**带符号**（拉为正，局部轴右手定则，取两端中绝对值大者并保留符号）；原来的无符号包络是 `*_max_abs`。符号约定见 docs/result_format.md。
-- 这些字段取的是**积分点上的峰值幅值**，不是某个截面的值；与基底剪力做静力校核时注意。
+- The two solvers normalise the residual differently; remember it when comparing how hard convergence is across them.
+- The element fields `axial_force` / `bending_y` / `bending_z` and so on are **signed** since 1.0 (tension positive, local axes right-handed, the larger magnitude of the two ends with its sign); the old unsigned envelopes are `*_max_abs`. The sign convention is in docs/result_format.md.
+- These fields are **peak magnitudes over the integration points**, not the value at one section; mind that in a static check against the base shear.
