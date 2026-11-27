@@ -342,3 +342,46 @@ def test_a_no_tension_fibre_column_is_told_to_ask_from_its_loaded_state(tmp_path
     assert "no-tension" not in r2.note
     # lambda is on the load ADDED to the state: total = (1 + lambda) P
     assert (1.0 + r2.factors[0]) == pytest.approx(euler, rel=0.03)
+
+
+# A SECTION SET OFF ITS NODES ACROSS THE MEMBER (end_offsets, 1.21) under a
+# thrust at the nodes: the thrust is eccentric by e, and the column is a
+# beam-column under the uniform moment P e. Its lever's own term in K_G,
+# (d theta x r) x N, is what the explicit end moments do not have (1.23:
+# the reference solution the review of 1.21 asked for)
+E_OFF = 0.3
+
+
+def _set_off(d):
+    d["assign"][0]["end_offsets"] = {"i": [0, 0, E_OFF], "j": [0, 0, E_OFF]}
+
+
+def test_a_column_set_off_its_nodes_on_forks_is_the_beam_column_of_its_eccentricity(tmp_path):
+    P = 1.0e3
+    rp2, pe, pt = (IY + IZ) / A, np.pi ** 2 * E * IZ / L ** 2, G * J * A / (IY + IZ)
+    Me = P * E_OFF / KIRCHHOFF
+    a, b, c = Me ** 2 - rp2 * P ** 2, rp2 * P * (pe + pt), -rp2 * pe * pt
+    lam = (-b + np.sqrt(b * b - 4 * a * c)) / (2 * a)
+    s = _case(tmp_path, "off_fork", [{"region": "B", "vector": [-P, 0, 0]}], FORK, extra=_set_off)
+    assert _first(s)[0] / lam == pytest.approx(1.0, abs=5e-4)
+
+
+def test_a_column_set_off_its_nodes_buckles_where_the_nonlinear_model_does(tmp_path):
+    """One end free to twist: the lever turns with the node, and the factor
+    is no longer the fixed end moments' (0.8% below it here). The model's own
+    co-rotational tangent at its static equilibrium turns singular within
+    +-0.5% of the factor."""
+    P = 1.0e3
+    free = [{"region": "A", "dofs": [1, 1, 1, 1, 0, 0]}, {"region": "B", "dofs": [0, 1, 1, 0, 0, 0]}]
+    box = {}
+
+    def grab(d):
+        _set_off(d)
+        box["d"] = yaml.safe_load(yaml.safe_dump(d))
+    lam = _first(_case(tmp_path, "off_free", [{"region": "B", "vector": [-P, 0, 0]}], free, extra=grab))[0]
+    moments = [{"region": "A", "moment": [0, -P * E_OFF, 0]}, {"region": "B", "moment": [0, P * E_OFF, 0]},
+               {"region": "B", "vector": [-P, 0, 0]}]
+    fixed = _first(_case(tmp_path, "mom_free", moments, free))[0]
+    assert lam / fixed - 1.0 > 5e-3
+    assert _tangent_min_at(tmp_path, box["d"], 0.995 * lam) > 0.0
+    assert _tangent_min_at(tmp_path, box["d"], 1.005 * lam) < 0.0

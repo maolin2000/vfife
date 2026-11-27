@@ -1,4 +1,4 @@
-# vfife YAML 参考（自动生成，1.22.0）
+# vfife YAML 参考（自动生成，1.23.0）
 
 > 由 `python -m vfife reference` 从 `vfife/io/model.py`、`vfife/io/schema.py` 和材料/单元目录生成；`tests/test_reference.py` 保证它与代码一致。**不要手改**——改字段的 `#:` 注释，再重新生成。
 > 说明列是字段上方 `#:` 注释的中文第一行，英文原注是其余行。概念、建模方法和完整例子见 `docs/用户手册.md`；每个字段最后一列是
@@ -765,6 +765,9 @@ The implicit static solver's settings.
 | `perturbation` | float | `1e-07` | 有限差分切线的步长：平动为它乘单元长度的中位数，转动为它乘 10（弧度） | the finite-difference step of the tangent: this times the median element length for a translation, ten times it (radians) for a rotation | — |
 | `fallback` | `relaxation` \| `none` | `none` | Newton 用尽减半次数仍不收敛时怎么办（1.7）：`none`（默认）报极限点停下；`relaxation` 从上一个收敛状态起，这一级和本步余下的各级都改用动力松弛（虚拟质量、动能阻尼，与 `mode: relaxation` 同一算法；下一步再从 Newton 开始）——越过跳跃之后落在哪一支由这段虚拟的动力过程决定，软化截面上未必是 `mode: relaxation` 走的那支 | what happens when Newton has used up its cutbacks (1.7): `none` (the default) stops at the limit point; `relaxation` takes this level and the rest of the step by dynamic relaxation from the last converged state (fictitious mass, kinetic damping, the algorithm of `mode: relaxation`; the next step starts with Newton again) -- which branch it lands on past a jump is the fictitious transient's choice, and on a softening section not necessarily the one `mode: relaxation` follows | — |
 | `fallback_iterations` | int | — | 回落松弛每级的迭代上限（默认 solver.max_steps_per_load） | the iteration budget of each relaxed level (default solver.max_steps_per_load) | — |
+| `stabilise` | bool | `False` | 稳定化 Newton（1.23，伪时间延拓）：一个增量的 Newton 不收敛时，先从增量起点再算一次，每个自由度挂一根弹簧（μ 乘切线对角）拉回本轮的起点；每轮收敛后弹簧锚点移到新位置、μ 除以 4，直到不计弹簧的残差也在容差内——最终是真正的平衡，弹簧只是到达它的路。针对切线准确但病态的模型，例如桥面端部几乎不能抗扭的悬索桥。然后才减半。只用于荷载控制的增量（弧长法不用）。默认关闭：它会越过极限点（荷载控制下的跳跃），那是静力分析应当报出来的；Midas 转换器给它写出的桥梁打开 | the stabilised Newton (1.23, pseudo-transient continuation): an increment Newton cannot take is tried again from its start with a spring of mu times the tangent's diagonal on every dof, anchored where the round began; each round solved, the anchors move up and mu is quartered, until the residual without the springs is within the tolerance -- the plain equilibrium, the springs only the way to it. For a tangent that is right and ill-conditioned (a suspension bridge's deck whose end bays barely resist twisting); before the increment is halved; load-controlled increments only (not arc length). Off by default: it crosses limit points (a snap-through under load control, which a static analysis must report, not take); the Midas converter turns it on for the bridges it writes | — |
+| `stabilise_mu` | float | `1e-06` | 稳定化 Newton 的初始 μ（相对于切线的对角） | the stabilised Newton's starting mu (relative to the tangent's diagonal) | — |
+| `stabilise_rounds` | int | `40` | 稳定化 Newton 的轮数上限 | the stabilised Newton's rounds at most | — |
 
 ### `solver.static.arc_length` — ArcLengthSpec
 
@@ -1259,6 +1262,9 @@ One scalar time history, written to `monitors/<name>` in the result.  Four kinds
 * `solver.static.perturbation`
 * `solver.static.fallback`
 * `solver.static.fallback_iterations`
+* `solver.static.stabilise`
+* `solver.static.stabilise_mu`
+* `solver.static.stabilise_rounds`
 * `solver.static.arc_length.control`
 * `solver.static.arc_length.control.region`
 * `solver.static.arc_length.control.dof`

@@ -187,6 +187,8 @@ class Newton:
         self.evaluations = 0
         self.tangents = 0
         self.iterations = 0
+        #: increments the stabilised Newton took (`solve_stabilised`)
+        self.stabilised = 0
         # rows of each node's neighbourhood, for reading a column apart
         self._rows = [self.node_dofs[sorted(self.nbr[a])].ravel() for a in range(self.nn)]
         #: the model's size, for telling a round-off correction from a real one
@@ -472,11 +474,12 @@ class Newton:
         s.q[:] = q0; s.orient[...] = o0
 
     # --------------------------------------------------------- predictor
-    def factor(self, K, free):
+    def factor(self, K, free, mu=0.0, D=None):
         """The factored tangent on the free dofs (`_Factor`); on the master
-        dofs, T^T K T, when there are diaphragms. Raises RuntimeError when
-        singular, as `splu` does."""
-        return _Factor(self, K, free)
+        dofs, T^T K T, when there are diaphragms. `mu` > 0 adds the springs
+        mu diag(D) (the stabilised Newton, `solve_stabilised`), through T.
+        Raises RuntimeError when singular, as `splu` does."""
+        return _Factor(self, K, free, mu, D)
 
     def predict(self, apply_bc, F_now, F_next, fixed):
         """The tangent predictor for the next load level: with K at the
@@ -608,6 +611,98 @@ class Newton:
                 return False, res, it + 1
         return False, res, int(max_iterations)
 
+    def solve_stabilised(self, F_of, fixed: np.ndarray, tol: float, max_rounds=None):
+        """Newton by pseudo-time (1.23): a spring of mu times the tangent's
+        own diagonal ties every dof to where the round began,
+
+            K + mu D,    r = F - f(q) - mu D (q - q0),
+
+        and the round is solved by Newton to the tolerance; the next round
+        starts from there with the spring's anchor moved up to it and mu
+        quartered. The springs carry less and less each round and the rounds
+        stop when the residual WITHOUT them is within the tolerance: the
+        answer is the plain equilibrium, the springs only the way to it
+        (pseudo-transient continuation; Abaqus' viscous `stabilize` is the
+        same idea with the spring on the increment's velocity).
+
+        FOR A TANGENT THAT IS RIGHT AND ILL-CONDITIONED. A suspension
+        bridge's deck whose end bays twist with next to no torsional
+        stiffness (a steel box given J = 1e-4 m4, between the tower and the
+        first hanger) has a tangent accurate to four digits whose softest
+        directions turn a residual into a correction of a hundred metres; the
+        spring holds them while the stiff ones settle, and gives them up as
+        mu falls. Taken by the static step only after the plain Newton has
+        failed an increment, before it is halved: a model that converged
+        before converges as before.
+
+        OFF BY DEFAULT, BECAUSE IT CROSSES LIMIT POINTS: a shallow arch whose
+        snap-through Newton refuses under load control is carried by the
+        rounds onto the far branch, which is the jump a load-controlled
+        static analysis must report, not take. It is for a model whose
+        stiffness is there but tiny in some direction; the Midas converter
+        turns it on for the bridges it writes. Returns (converged, residual,
+        iterations), as `solve_level`."""
+        spec = self.spec
+        if max_rounds is None:
+            max_rounds = int(spec.get("stabilise_rounds", 40))
+        free = ~fixed
+        mu = float(spec.get("stabilise_mu", 1.0e-6))
+        D = K = None
+        res, its = np.inf, 0
+        for _round in range(max_rounds):
+            base = self.get()
+            q0 = self.s.q.copy()
+            if D is None:
+                # the springs' stiffness: the start's tangent diagonal, frozen
+                # (that tangent is the first iteration's too)
+                K = self.tangent(free)
+                D = np.abs(K.diagonal())
+            ok = False
+            first = None
+            # a round's own budget: the springs make it a well-posed problem,
+            # and `max_iterations` is the plain Newton's
+            for _it in range(30):
+                F = F_of(); f = self.force()
+                spring = mu * D * (self.s.q - q0)
+                r = F - f - spring; r[fixed] = 0.0
+                plain = F - f; plain[fixed] = 0.0
+                res = self.measure(F, f, free, plain)
+                if _round and _it == 0 and res <= tol:
+                    return True, res, its                # the springs are slack: equilibrium
+                if not np.isfinite(res):
+                    break
+                sres = self.measure(F, f + spring, free, r)
+                if sres <= tol:
+                    ok = True
+                    break
+                first = sres if first is None else first
+                if _it >= 8 and sres > 0.5 * first:
+                    break                                # this round is not converging: a stiffer spring
+                try:
+                    # the factor's spring is the residual's, mu D, through the
+                    # floors' and links' map when there is one
+                    lu = self.factor(K if K is not None else self.tangent(free), free, mu, D)
+                except RuntimeError:
+                    break
+                K = None
+                dx = lu.solve(r)
+                if not np.all(np.isfinite(dx)):
+                    break
+                self.move(dx)
+                self.iterations += 1
+                its += 1
+            if _DEBUG:
+                print(f"      stabilised round {_round}: mu {mu:.1e}, residual without the springs {res:.3e}")
+            if not ok:
+                # the round itself did not converge: back to its start, a stiffer spring
+                self.put(base)
+                mu *= 10.0
+                if mu > 1.0:
+                    return False, res, its
+                continue
+            mu = max(mu / 4.0, 1.0e-12)
+        return False, res, its
+
     def commit(self):
         s = self.s
         # the last measure was of the converged state: its force joins the
@@ -633,9 +728,17 @@ class _Factor:
     and stays where it is. With diaphragms the system is the master one,
     T^T K T on the free masters, and the correction is T times its own."""
 
-    def __init__(self, newton, K, free):
+    def __init__(self, newton, K, free, mu=0.0, D=None):
         T = newton.T
         self.T = T
+        if mu and D is not None:
+            # the springs of the stabilised Newton, mu diag(D), on the full
+            # dofs: the same springs its residual carries, so that with
+            # floors or links they reach the masters as T^T mu D T (review:
+            # mu on the master's own diagonal missed what cancels inside a
+            # floor, 44 times weaker, and the rounds diverged)
+            K = (K + mu * sp.diags(np.asarray(D, float))).tocsc()
+            mu = 0.0
         if T is None:
             Km, fm = K, free
         else:
@@ -661,6 +764,9 @@ class _Factor:
         self.scale = 1.0 / np.sqrt(d[live])
         S = sp.diags(self.scale)
         A = (S @ Km[self.idx][:, self.idx] @ S).tocsc()
+        if mu:
+            # K + mu diag|K|: on the unit diagonal, A + mu I
+            A = (A + mu * sp.identity(A.shape[0], format="csc")).tocsc()
         self.lu = spla.splu(A, permc_spec="MMD_AT_PLUS_A", diag_pivot_thresh=0.1,
                             options={"SymmetricMode": True})
 
@@ -1377,6 +1483,7 @@ def _static_step(s, newton, k, r, ctx):
         def report(resid, ke):
             # where the step is (the stated levels done), as Newton reports
             return on_progress(int(round(lam * n_inc)), n_inc, resid, ke, inc)
+    stab_tried = set()
     while lam < 1.0 - 1e-12:
         # never step over a stated level: after a cutback the increments
         # climb back to the grid, so the frames are the levels asked for
@@ -1416,6 +1523,23 @@ def _static_step(s, newton, k, r, ctx):
                                 F_now, F_next, fixed)
             s._apply_bc(fixed, moving, prescribed, target)
             ok, res, its = newton.solve_level(lambda: s._force(groups, ground, target), fixed, tol_k, K0)
+            if not ok and not newton.stalled and spec.get("stabilise", False) and level not in stab_tried:
+                # (once per stated level: at a real limit point the rounds
+                # would otherwise run before every cutback -- review)
+                stab_tried.add(level)
+                # an ill-conditioned tangent before a limit point: the
+                # increment again, from where it started, by pseudo-time
+                # (1.23, `Newton.solve_stabilised`)
+                newton.put(saved)
+                if newton.trial:
+                    s._trial_mode = True
+                s._apply_bc(fixed, moving, prescribed, target)
+                ok, res, its2 = newton.solve_stabilised(lambda: s._force(groups, ground, target), fixed, tol_k)
+                its += its2
+                if ok:
+                    newton.stabilised += 1
+                else:
+                    newton.put(saved)
         if not ok:
             newton.put(saved)
             if newton.trial:
@@ -1601,7 +1725,8 @@ def run(solver, on_output=None, output_every=1, on_progress=None, progress_every
     check_resumed(s, resume)
     s.wall_time = time.perf_counter() - started
     s.log(f"  static        {count} increments, {newton.iterations} Newton iterations, "
-          f"{newton.tangents} tangents, {newton.evaluations} force evaluations")
+          f"{newton.tangents} tangents, {newton.evaluations} force evaluations"
+          + (f"; {newton.stabilised} increment(s) by the stabilised Newton" if newton.stabilised else ""))
     finish_diagnostics(s.diagnostics, "CONVERGED", step=s.step,
                        residual=s.residuals[-1] if s.residuals else None, kinetic=0.0,
                        load_step=len(s.steps))

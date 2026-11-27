@@ -22,8 +22,8 @@ fly-ash adjustment (FLYASH) is not followed; a material with it is counted.
 Every other code, and every other modulus law, is counted and left out.
 
 Whether the stages take time-dependent effects at all is the stage
-control's (`*STAGE-CTRL` line 4: bINC-TDE, TYPE -- CREEP, SHRINKAGE or BOTH -- and
-bVAR); a
+control's (`*STAGE-CTRL` line 4: bINC-TDE; bCNS, the "Creep & Shrinkage" box, with
+its TYPE -- CREEP, SHRINKAGE or BOTH; and bVAR); a
 model without a stage control takes none, and says so.
 """
 from __future__ import annotations
@@ -32,9 +32,12 @@ from typing import Dict, Optional, Tuple
 
 #: the codes read as MC90, and how many fields they have after CODE
 CODES = {"JTG": 5, "CHINA(JTG3362-2018)": 6}
-#: CEB-FIP 2010's s by Midas' cement class (iCTYPE 0, 1, 2: RS, N R, SL --
-#: MC2010 5.1.9.1); the order is Midas' list, read from its dialog
-CEB2010_S = {0: 0.20, 1: 0.25, 2: 0.38}
+#: CEB-FIP 2010's s by Midas' cement type iCTYPE (MC2010 5.1.9.1). Midas' MCT
+#: quick reference numbers them from 1: "1: Rapid hardening high strength
+#: cement" (RS, s 0.20), 2 normal or rapid hardening (N R, 0.25), 3 slowly
+#: hardening (SL, 0.38), 4 with fly ash (not read). It was read from 0 until
+#: the reference was found (1.23), every type one step too slow.
+CEB2010_S = {1: 0.20, 2: 0.25, 3: 0.38}
 
 
 def _f(x) -> Optional[float]:
@@ -60,6 +63,9 @@ def specs(model, f: float, length: float, leave, notes) -> Dict[int, dict]:
     creep_on = which in ("CREEP", "BOTH", "")
     shrink_on = which in ("SHRINKAGE", "BOTH", "")
     stress = f / length ** 2
+    if not (creep_on or shrink_on or growing):
+        notes.append("the stage control takes no creep and shrinkage (bCNS off) and no growth of the modulus")
+        return {}
     out: Dict[int, dict] = {}
     for mid, (tname, ename) in sorted(model.time_links.items()):
         if mid not in model.materials or not tname:

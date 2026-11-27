@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 _LENGTH = {"MM": 1e-3, "CM": 1e-2, "M": 1.0, "IN": 0.0254, "FT": 0.3048}
 _FORCE = {"N": 1.0, "KN": 1e3, "KGF": 9.80665, "TONF": 9806.65, "LBF": 4.4482216152605, "KIPS": 4448.2216152605}
@@ -196,6 +196,12 @@ class Stage:
     deactivate_boundaries: List[str] = field(default_factory=list)
     activate_loads: List[Tuple[str, str]] = field(default_factory=list)          # (group, FIRST | LAST | day)
     deactivate_loads: List[Tuple[str, str]] = field(default_factory=list)
+    #: displacements a stage imposes on supports (a case's `*SPDISP`, a
+    #: settlement group): (nodes, flags "001000", Dx..Rz), the file's units
+    displacements: List[Tuple[List[int], str, Tuple[float, ...]]] = field(default_factory=list)
+    #: a load case's temperatures (`cases`): ("system", None, rise), ("element",
+    #: elements, T) or ("section", elements, (DIR, REF, layers))
+    temperatures: List[Tuple[str, Optional[List[int]], Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -262,9 +268,22 @@ class MidasModel:
     #: `*ELEM-DEPMATL`: element -> notional size h (the file's length unit), its TYPE NSM
     notional_sizes: Dict[int, float] = field(default_factory=dict)
     #: `*STAGE-CTRL` line 4: whether the stages take time-dependent effects
-    #: (bINC-TDE), which ("CREEP", "SHRINKAGE" or "BOTH"), and whether the
+    #: (bINC-TDE), which ("CREEP", "SHRINKAGE" or "BOTH"; "NONE" when the
+    #: creep and shrinkage box, bCNS, is off), and whether the
     #: strength grows with age (bVAR); None: the file has no stage control
     time_effects: Optional[Tuple[bool, str, bool]] = None
+    #: `*SPDISP` (specified displacements of supports): (case, nodes, flags
+    #: "101000", Dx..Rz in the file's units, group)
+    displacements: List[Tuple[str, List[int], str, Tuple[float, ...], str]] = field(default_factory=list)
+    #: `*ELTEMPER`: (case, elements, temperature change, group)
+    element_temperatures: List[Tuple[str, List[int], float, str]] = field(default_factory=list)
+    #: `*BSTEMPER`: [case, elements, DIR, REF, [(TYPE, B, H1, T1, H2, T2), ...], group, not read]: the
+    #: temperature over a section's depth, layer by layer, linear in each, the
+    #: depths H from the REF face, in the file's length unit
+    section_temperatures: List[Tuple[str, List[int], str, str, List[Tuple[float, ...]], str]] = \
+        field(default_factory=list)
+    #: `*SM-GROUP`: settlement group -> (displacement, nodes), the file's length unit
+    settlements: Dict[str, Tuple[float, List[int]]] = field(default_factory=dict)
     other: Dict[str, int] = field(default_factory=dict)      # blocks not read: keyword -> data lines
 
     def si(self) -> Tuple[float, float]:
@@ -599,6 +618,40 @@ def read(path: str) -> MidasModel:
                 p = _fields(r)
                 for e in expand(p[0]):
                     m.pretension.append((case, e, float(p[1]), p[2] if len(p) > 2 else ""))
+        elif key == "ELTEMPER":
+            for r in rows:
+                p = _fields(r)
+                if len(p) > 1 and p[0].strip():
+                    m.element_temperatures.append((case, expand(p[0]), _num(p[1]), p[2].strip() if len(p) > 2 else ""))
+        elif key == "BSTEMPER":
+            cur = None
+            for r in rows:
+                p = _fields(r)
+                if not p or not p[0].strip():
+                    continue
+                if p[0].strip().upper() in ("ELEMENT", "MATERIAL", "INPUT", "SECTION"):
+                    # a layer: TYPE, ELAST, THERMAL, B, H1, T1, H2, T2 (the PSC form is counted)
+                    if cur is not None and len(p) >= 8 and not cur[6]:
+                        cur[4].append((p[0].strip().upper(),) + tuple(_num(x) for x in p[3:8]))
+                    elif cur is not None:
+                        cur[6] = True                  # a layer not read: the whole profile is not followed
+                    continue
+                psc = len(p) > 5 and p[5].strip().upper() == "YES"
+                cur = [case, expand(p[0]), p[1].strip().upper(), p[2].strip().upper(), [],
+                       p[4].strip() if len(p) > 4 else "", psc]
+                m.section_temperatures.append(cur)
+        elif key == "SPDISP":
+            for r in rows:
+                p = _fields(r)
+                if len(p) < 8 or not p[0].strip():
+                    continue
+                m.displacements.append((case, expand(p[0]), p[1].strip(), tuple(_num(x) for x in p[2:8]),
+                                        p[8].strip() if len(p) > 8 else ""))
+        elif key == "SM-GROUP":
+            for r in rows:
+                p = _fields(r)
+                if len(p) > 2 and p[0].strip():
+                    m.settlements[p[0].strip()] = (_num(p[1]), expand(" ".join(p[2:])))
         elif key == "CONLOAD":
             for r in rows:
                 p = _fields(r)
@@ -705,7 +758,10 @@ def read(path: str) -> MidasModel:
                     m.time_effects = (False, "", False)
                     if len(rows) > 3:
                         f4 = [x.strip().upper() for x in rows[3].split(",")] + [""] * 8
-                        m.time_effects = (f4[0] == "YES", f4[2], f4[7] == "YES")
+                        # bINC-TDE, bCNS, TYPE, ..., bVAR: bCNS is the dialog's
+                        # "Creep & Shrinkage" box -- off, TYPE says nothing
+                        # (and the strength may still grow with age)
+                        m.time_effects = (f4[0] == "YES", f4[2] if f4[1] != "NO" else "NONE", f4[7] == "YES")
                     # ..., bITD, iITD, GROUP, ...: "YES, GROUP, <name>" or "YES, ALL"
                     p = [x.strip() for x in ",".join(rows).split(",")]
                     for i in range(len(p) - 1):

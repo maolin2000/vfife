@@ -126,22 +126,51 @@ def prepare(model, leave, notes, f, length, link_rigid, cases):
         nl, bl, st = list(model.nodal_loads), list(model.beam_loads), list(model.stages)
         in_stage = {g for t in model.stages for g, _d in t.activate_loads}
         for c in cases:
+            # A SETTLEMENT GROUP (`*SM-GROUP`) is a case of its own here: its
+            # nodes go down by its displacement (Midas' settlement load cases
+            # are envelopes over combinations of groups, which this does not
+            # do; one group at a time is what a step can be)
+            if c in model.settlements and c not in model.load_cases:
+                dz, nodes_ = model.settlements[c]
+                st.append(midas.Stage(name=c, displacements=[(nodes_, "001000", (0.0, 0.0, dz, 0.0, 0.0, 0.0))]))
+                continue
             if c not in model.load_cases:
-                raise ValueError(f"cases: the file has no load case {c!r} (it has {', '.join(model.load_cases)})")
+                raise ValueError(f"cases: the file has no load case {c!r} (it has {', '.join(model.load_cases)}"
+                                 + (f"; settlement groups: {', '.join(model.settlements)}" if model.settlements else "")
+                                 + ")")
+            disp = [(nodes_, fl, vals) for cc, nodes_, fl, vals, _g in model.displacements if cc == c]
+            # its temperatures (1.23): the whole model's (`*SYSTEMPER`), the
+            # elements' (`*ELTEMPER`) and over the sections' depth (`*BSTEMPER`)
+            temps = ([("system", None, rise) for cc, rise, _g in model.temperatures if cc == c]
+                     + [("element", els, t_) for cc, els, t_, _g in model.element_temperatures if cc == c]
+                     + [("section", row[1], (row[2], row[3], row[4], row[6]))
+                        for row in model.section_temperatures if row[0] == c])
             mine = [q[3] for q in nl if q[0] == c] + [q[5] for q in bl if q[0] == c]
-            if not mine:
-                raise ValueError(f"cases: the load case {c!r} has no nodal or member load this translation reads")
-            used = sorted({g_ for g_ in mine if g_ in in_stage})
+            heat = [g_ for cc, _r, g_ in model.temperatures if cc == c] \
+                + [q[3] for q in model.element_temperatures if q[0] == c] \
+                + [row[5] for row in model.section_temperatures if row[0] == c]
+            used = sorted({g_ for g_ in mine + heat + [q[4] for q in model.displacements if q[0] == c]
+                           if g_ in in_stage})
             if used:
                 raise ValueError(f"cases: the load case {c!r} is already applied by a stage (load group {used[0]})")
+            if not mine and (disp or temps):
+                # a case of imposed support displacements or temperatures alone
+                st.append(midas.Stage(name=c, displacements=disp, temperatures=temps))
+                continue
+            if not mine:
+                raise ValueError(f"cases: the load case {c!r} has no nodal or member load this translation reads")
             g = f"(case {c})"
             nl = [(q[0], q[1], q[2], g) if q[0] == c else q for q in nl]
             bl = [q[:5] + (g,) + q[6:] if q[0] == c else q for q in bl]
-            if any(t[0] == c for t in model.temperatures) or any(w[0] == c for w in model.self_weight):
-                leave(f"temperature or self weight of the load case {c} (its step has the case's other loads)")
-            st.append(midas.Stage(name=c, activate_loads=[(g, "FIRST")]))
+            if any(w[0] == c for w in model.self_weight):
+                leave(f"self weight of the load case {c} (its step has the case's other loads)")
+            st.append(midas.Stage(name=c, activate_loads=[(g, "FIRST")], displacements=disp, temperatures=temps))
         model = dataclasses.replace(model, nodal_loads=nl, beam_loads=bl, stages=st,
                                     load_groups=list(model.load_groups) + [f"(case {c})" for c in cases])
+
+    if model.settlements and not any(c in model.settlements for c in (cases or ())):
+        notes.append(f"settlement groups ({', '.join(model.settlements)}) not taken: Midas' settlement cases are "
+                     "envelopes over combinations of them; one at a time is convert(..., cases=(group,))")
 
     # A MASTER AND ITS SLAVES (`*RIGIDLINK`) ARE THE SOLVER'S RIGID LINKS
     # (1.21), the flags as Midas writes them -- a saddle that slides on its

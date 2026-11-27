@@ -139,7 +139,10 @@ def test_the_modulus_grows_where_the_stage_control_says(tmp_path):
     text = MCT.replace("*TDM-LINK\n   1, c50,", "*TDM-ELAST\n   NAME=fc, CODE, CEB-FIP(2010), 50000, 1, 0\n*TDM-LINK\n   1, c50, fc")
     _m, _r, case = _convert(text, tmp_path, "g")
     m = case["materials"]["m1"]
-    assert m["ageing"] == {"s": 0.25, "of": "strength"} and "E28" not in m["creep"]
+    # iCTYPE 1 is the rapid hardening high strength cement (Midas' MCT quick reference)
+    assert m["ageing"] == {"s": 0.20, "of": "strength"} and "E28" not in m["creep"]
+    _m, _r, case = _convert(text.replace("50000, 1, 0", "50000, 3, 0"), tmp_path, "g3")
+    assert case["materials"]["m1"]["ageing"]["s"] == 0.38
     # bVAR off: the 28-day modulus throughout
     _m, _r, case = _convert(text.replace("0.01, YES, NO, YES", "0.01, YES, NO, NO"), tmp_path, "g2")
     assert "ageing" not in case["materials"]["m1"]
@@ -157,3 +160,11 @@ def test_concrete_of_another_age_is_built_just_after_the_stage(tmp_path):
     extra = case["steps"][1]
     assert extra["activate_age"] == 28.0 and "to_age" not in extra
     assert case["solver"]["age"] == 7.0
+
+
+def test_the_creep_and_shrinkage_box_off_takes_neither(tmp_path):
+    """bCNS, line 4's second field, is the stage control's "Creep &
+    Shrinkage" box: off, its TYPE says nothing."""
+    m, _r, case = _convert(MCT.replace("YES, YES, BOTH, 5", "YES, NO, BOTH, 5"), tmp_path, name="off")
+    assert m.time_effects == (True, "NONE", True)
+    assert not any("creep" in v or "shrinkage" in v for v in case["materials"].values())

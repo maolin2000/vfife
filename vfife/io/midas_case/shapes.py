@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 
 from .. import midas
@@ -148,6 +148,21 @@ def _weight(mat: midas.Material, force: float, length: float) -> Tuple[float, st
                 w = 78.5e3
             return w, f"weight density {w / 1e3:g} kN/m3 assumed for grade {mat.standard.split()[-1]}"
     return 76.98e3, "weight density of steel assumed (the file gives none)"
+
+
+def _expansion(mat: midas.Material) -> Tuple[Optional[float], str]:
+    """(thermal coefficient 1/K, note) of a material: the file's, or for a
+    grade the file names without its values the codes' (JTG 3362 / D62:
+    concrete 1.0e-5; JTG D64 and GB 50017: steel, strand and wire 1.2e-5),
+    with a note; None for anything else."""
+    if mat.alpha:
+        return mat.alpha, ""
+    if not mat.standard:
+        return None, ""
+    a = 1.0e-5 if mat.kind == "CONC" else 1.2e-5 if mat.kind == "STEEL" else None
+    if a is None:
+        return None, ""
+    return a, f"thermal coefficient {a:g}/K assumed for grade {mat.standard.split()[-1]}"
 
 
 def _poisson(mat: midas.Material) -> float:

@@ -263,7 +263,7 @@ def test_the_relaxation_fallback_takes_a_rigid_floor(tmp_path):
     o1, s1 = _run(_storey(tmp_path))
     d = _storey(tmp_path)
     d["solver"].update({"max_steps_per_load": 200000,
-                        "static": {"fallback": "relaxation", "max_iterations": 1, "cutbacks": 0}})
+                        "static": {"fallback": "relaxation", "max_iterations": 1, "cutbacks": 0, "stabilise": False}})
     d["output"]["path"] = str(tmp_path / "fb.h5")
     o2, s2 = _run(d)
     assert o2.status == "CONVERGED"
@@ -320,3 +320,29 @@ def test_a_stop_in_the_middle_of_a_fallback_resumes_from_the_last_increment(tmp_
     assert rest.status == "CONVERGED"
     assert np.array_equal(box["s"].q, sw.q)
     assert np.array_equal(box["s"].mass, sw.mass)
+
+
+@pytest.mark.parametrize("floor", [False, True])
+def test_the_stabilised_newton_lands_on_the_plain_equilibrium(tmp_path, floor):
+    """An increment the plain Newton is not given room to take (one
+    iteration, no cutback) is taken by pseudo-time instead -- springs to the
+    round's start, slackened round by round -- and the state it lands on is
+    the plain Newton's equilibrium, not one the springs hold (1.23)."""
+    d = _storey(tmp_path / "plain", diaphragm=floor)
+    out, s = _run(d)
+    assert out.status == "CONVERGED"
+    q_plain = np.array(s.q)
+    d = _storey(tmp_path / "stab", diaphragm=floor)
+    # springs stiff enough to show if they were left loaded
+    d["solver"]["static"] = {"max_iterations": 1, "cutbacks": 0, "stabilise": True, "stabilise_mu": 1e-2}
+    out, s2 = _run(d)
+    assert out.status == "CONVERGED", out.message
+    assert s2._newton.stabilised >= 1
+    # (to the tolerance the two runs stop at; springs left loaded with mu = 1e-2
+    # would be a hundredth of the motion)
+    np.testing.assert_allclose(s2.q, q_plain, rtol=0, atol=1e-5 * np.abs(q_plain).max())
+    # and off (the default), the same increment is a failure, as before
+    d = _storey(tmp_path / "off", diaphragm=floor)
+    d["solver"]["static"] = {"max_iterations": 1, "cutbacks": 0}
+    out, _s = _run(d)
+    assert out.status != "CONVERGED"

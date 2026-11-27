@@ -141,7 +141,7 @@ def test_the_implicit_fallback_relaxes_compiled(tmp_path):
     """`static.fallback: relaxation` runs `_relax_stage`: the compiled one."""
     d = _portal(tmp_path, "fb")
     d["solver"] = {"mode": "static", "backend": "numba", "tolerance": 1e-7, "load_steps": 2,
-                   "static": {"fallback": "relaxation", "max_iterations": 1, "cutbacks": 0}}
+                   "static": {"fallback": "relaxation", "max_iterations": 1, "cutbacks": 0, "stabilise": False}}
     o0, s0 = _run(dict(d, output=dict(d["output"], path=str(tmp_path / "f0.h5"))), False)
     o1, s1 = _run(dict(d, output=dict(d["output"], path=str(tmp_path / "f1.h5"))), True)
     assert o0.status == o1.status, (o0.message, o1.message)

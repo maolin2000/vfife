@@ -7,6 +7,55 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.23.0] — 2026-11-27
+
+A feature release on the 1.0 formats, and the last before a stable period:
+a case written for 1.22 runs unchanged and gives the same answers (the
+shipped cases and the six course bridges are the same to the bit). The
+static Newton can take an increment by pseudo-time continuation when the
+plain one cannot (`static.stabilise`), which brings a suspension bridge's
+finished state through. The Midas converter takes more of a file: imposed
+support displacements and settlement groups, and a load case's
+temperatures, as steps after the bridge is built; and it reads two fields of
+the creep translation as Midas' quick reference has them (a converted model
+whose file uses them may change). A buckling analysis with sections set off
+sideways has its reference solutions.
+
+### Added
+
+- **The stabilised Newton** (`static.stabilise: true`): an increment the plain
+  Newton cannot take is tried again by pseudo-time -- springs of a small
+  multiple of the tangent's diagonal to where each round began, slackened
+  round by round until the residual without them is within the tolerance --
+  before it is halved. For a tangent that is right and ill-conditioned (a
+  suspension deck whose end bays barely resist twisting). Off by default
+  (it would carry a snap-through onto the far branch); the Midas converter
+  turns it on.
+- **Midas: imposed support displacements** -- a load case of `*SPDISP`, or a
+  settlement group (`*SM-GROUP`) by its name, through `convert(...,
+  cases=(...))`: one more step with the supports brought to the stated
+  displacement and kept. Midas' settlement cases are envelopes over
+  combinations of groups; this does one group a step.
+- **A reference for buckling with a section set off sideways** (two tests):
+  on forks the column is the beam-column of its eccentricity to 5e-4; with
+  an end free to twist its own nonlinear tangent turns singular within 0.5%
+  of the factor. The manual says what is left (sections with equal second
+  moments, 3.5% conservative against stiff arms).
+- **Midas: temperatures of a load case** through the same `cases=(...)`:
+  `*SYSTEMPER` and `*ELTEMPER` as a uniform change, `*BSTEMPER` (a section's
+  layers) as the uniform change and the gradient along local z of the same
+  axial force and moment. The thermal coefficients are written only for a
+  model a case taken heats; other models convert to the same bytes.
+
+### Fixed
+
+- **Midas: the cement type of CEB-FIP 2010's modulus growth** (`*TDM-ELAST`
+  iCTYPE) is numbered from 1, as Midas' MCT quick reference has it (1 rapid
+  hardening high strength, 2 normal or rapid hardening, 3 slowly hardening);
+  1.22 read it from 0, every type one step too slow. And the stage control's
+  "Creep & Shrinkage" box (`*STAGE-CTRL` line 4, bCNS) is read: off, no
+  creep or shrinkage whatever its TYPE.
+
 ## [1.22.0] — 2026-11-26
 
 A feature release on the 1.0 formats: a case written for 1.21 runs

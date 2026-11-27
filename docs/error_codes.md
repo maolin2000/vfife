@@ -1,4 +1,4 @@
-# vfife 错误代码 / error codes（自动生成，1.22.0）
+# vfife 错误代码 / error codes（自动生成，1.23.0）
 
 > 由 `python -m vfife reference --codes` 从源码生成；`tests/test_review6_docs.py` 保证它与代码一致。**不要手改。**
 

@@ -12,7 +12,7 @@ import yaml
 from .. import midas
 from .geometry import _free_axis, _key, _local_y, _plain, _to_global, _up_of
 from .prepare import prepare
-from .shapes import G, _poisson, _weight, section_properties
+from .shapes import G, _expansion, _poisson, _weight, section_properties
 from .tendons import tendon_specs
 from . import time_effects
 
@@ -198,6 +198,7 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
 
     # ------------------------------------------------------------ materials
     materials, sections = {}, {}
+    heated = any(st.temperatures for st in model.stages)
     for i, mat in model.materials.items():
         if mat.E is None:
             continue
@@ -206,6 +207,16 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             notes.append(f"material {i} ({mat.name.strip()}): {note}")
         materials[f"m{i}"] = {"type": "linear_elastic", "E": mat.E * f / length ** 2,
                               "nu": mat.nu if mat.nu is not None else _poisson(mat), "rho": w / G}
+        if heated:
+            # the expansion is a temperature's only (1.23): written where a
+            # taken load case heats the model, so no other model changes
+            a_, note_ = _expansion(mat)
+            if a_:
+                materials[f"m{i}"]["thermal_expansion"] = a_
+                if note_:
+                    notes.append(f"material {i} ({mat.name.strip()}): {note_}")
+            else:
+                leave("material with no thermal coefficient in a heated model (it does not expand)")
         if w <= 0.0:
             # weightless in the file (a dummy member); a density must be positive
             materials[f"m{i}"]["rho"] = 1.0
@@ -608,6 +619,7 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         return tuple(out) if any(out[0]) or any(out[1]) else 0
 
     pairs = set()
+    free_axis = set()                   # round members, their axes not Midas' (a temperature's gradient)
     plates: List[int] = []
     for eid in sorted(model.elements):
         el = model.elements[eid]
@@ -649,6 +661,8 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         if round_ and el.section in scales and (scales[el.section][1] != scales[el.section][2]
                                                 or scales[el.section][4] != scales[el.section][5]):
             round_ = False                   # its scale factors tell Midas' y from z: Midas' axes, then
+        if round_ and not axial:
+            free_axis.add(eid)
         orient = None if axial else _free_axis(xyz[a], xyz[b]) if round_ \
             else _key(_local_y(xyz[a], xyz[b], el.angle))
         if not axial:
@@ -1026,6 +1040,97 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
                     {"region": node_region(held, f"still held after the release of {g}"),
                      "dofs": [int(ch) for ch in union], "keep": True})
 
+    # DISPLACEMENTS A STAGE IMPOSES ON SUPPORTS (1.23: a case's `*SPDISP`, a
+    # settlement group asked for in `cases`): the flagged translations of the
+    # nodes are brought to the stated displacement from their place on the
+    # drawing, and kept; a rotation is not imposed (counted)
+    for k, st in enumerate(model.stages):
+        for nodes, flags, vals in st.displacements:
+            nodes = [n for n in nodes if n in index and index[n] in used_nodes]
+            if not nodes:
+                leave("imposed support displacement on a node no member reaches")
+                continue
+            flags = flags[:6].ljust(6, "0")
+            if any(flags[i] == "1" and vals[i] for i in range(3, 6)):
+                leave("imposed support rotation (not followed)")
+            dofs = [int(flags[i] == "1") for i in range(3)] + [0, 0, 0]
+            if not any(dofs):
+                continue
+            step_constraints.setdefault(k, []).append(
+                {"region": node_region(nodes, f"imposed displacement of {st.name}"), "dofs": dofs,
+                 "value": [round(float(vals[i]) * length, 12) if dofs[i] else 0.0 for i in range(3)], "keep": True})
+
+    # TEMPERATURES OF A LOAD CASE TAKEN AS A STEP (1.23, `cases`): the whole
+    # model's (`*SYSTEMPER`) as a uniform change; an element's (`*ELTEMPER`)
+    # on the members of its nodes; over a section's depth (`*BSTEMPER`)
+    # reduced to the uniform change and the linear gradient that give the
+    # same axial force and moment -- what a frame member can carry (the
+    # self-equilibrated rest of a nonlinear profile is a fibre section's)
+    def section_temperature(e, direction, ref, layers):
+        el_ = model.elements[e]
+        if direction != "LZ":
+            return None, "section temperature across the width (DIR LY) (not followed)"
+        if ref not in ("TOP", "BOT", "BOTTOM"):
+            return None, f"section temperature measured from {ref or 'no face'} (not followed)"
+        if e in free_axis:
+            return None, "section temperature on a round section, its axes not Midas' (not followed)"
+        if any(t_ != "ELEMENT" for t_, *_r in layers):
+            return None, "section temperature with a layer of its own material (TYPE other than ELEMENT) (not followed)"
+        p_ = props(section_key(e, el_.section)) if el_.section in model.sections else None
+        if p_ is None or "czp" not in p_:
+            return None, "section temperature on a section whose centroid the file does not state (not followed)"
+        d = p_["czp"] if ref == "TOP" else p_["czm"]
+        sgn = 1.0 if ref == "TOP" else -1.0
+        tdA = tzdA = 0.0
+        for _t, B, H1, T1, H2, T2 in layers:
+            B, H1, H2 = B * length, H1 * length, H2 * length
+            L_ = H2 - H1
+            tdA += B * L_ * (T1 + T2) / 2.0
+            tzdA += sgn * B * (d * L_ * (T1 + T2) / 2.0 - L_ * (T1 * (2 * H1 + H2) + T2 * (H1 + 2 * H2)) / 6.0)
+        return {"uniform": round(tdA / p_["area"], 9), "gradient": round(tzdA / p_["iy"], 9), "axis": "z"}, None
+
+    temp_loads: Dict[int, List[dict]] = {}
+    emitted = sorted(element_map)                   # the members written, by Midas id
+    for k, st in enumerate(model.stages):
+        by_spec: Dict[tuple, set] = {}
+        for kind, els, val in st.temperatures:
+            if kind == "system":
+                by_spec.setdefault((("uniform", float(val)),), set()).add(None)
+                continue
+            for e in els:
+                if e not in element_map:
+                    leave("temperature on an element that is not a member here (not followed)")
+                    continue
+                if kind == "element":
+                    spec_ = {"uniform": float(val)}
+                else:
+                    direction, ref, layers, psc = val
+                    if psc:
+                        leave("section temperature in the PSC form, or with a layer not read (not followed)")
+                        continue
+                    if not layers:
+                        leave("section temperature with no layer read (not followed)")
+                        continue
+                    spec_, why = section_temperature(e, direction, ref, layers)
+                    if spec_ is None:
+                        leave(why)
+                        continue
+                by_spec.setdefault(tuple(sorted(spec_.items())), set()).add(e)
+        for key_, els in by_spec.items():
+            if None in els:
+                temp_loads.setdefault(k, []).append({"region": "all", "temperature": dict(key_), "keep": True})
+                continue
+            nodes_ = sorted({n for e in els for n in model.elements[e].nodes[:2] if n in index and index[n] in used_nodes})
+            if not nodes_:
+                continue
+            inside = set(nodes_)
+            extra = sum(1 for e in emitted if e not in els
+                        and all(n in inside for n in model.elements[e].nodes[:2]))
+            if extra > 0:
+                leave("member between two heated elements' nodes that the file does not heat (heated with them)", extra)
+            temp_loads.setdefault(k, []).append({"region": node_region(nodes_, f"temperature of {st.name}"),
+                                                 "temperature": dict(key_), "keep": True})
+
     # A MASTER AND ITS SLAVES (`*RIGIDLINK`) ARE RIGID LINKS (1.21): the
     # slaves' flagged directions follow the master as a rigid body (the
     # solver's `rigid_links`), made in the stage their boundary group comes
@@ -1337,7 +1442,7 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
             acc = per_node.setdefault((g, k, n), [0.0] * 6)
             for i in range(3):
                 acc[i] += share * f / length * reach * d_[i]
-    step_loads: Dict[int, List[dict]] = {}
+    step_loads: Dict[int, List[dict]] = {k: list(v) for k, v in temp_loads.items()}
     base_loads = []
     by_group: Dict[Tuple[str, int], Dict[tuple, List[int]]] = {}
     for (g, k, n), v in per_node.items():
@@ -1373,6 +1478,9 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
         base_loads.insert(0, {"region": "all", "gravity": gravity})
     for case, rise, g in model.temperatures:
         if not staged or g in l_on:
+            leave("temperature load")
+    for row in model.element_temperatures + [tuple(r[:2]) + (None, r[5]) for r in model.section_temperatures]:
+        if staged and row[3] in l_on:
             leave("temperature load")
     if model.other.get("PRESSURE"):
         leave("*PRESSURE", model.other["PRESSURE"])
@@ -1575,7 +1683,10 @@ def convert(model: midas.MidasModel, folder: str, name: str = "model", procedure
     if procedure == "static":
         # the tangent's differences: a step of 1e-5 of a member's length keeps
         # their round-off under a soft link's stiffness (see `stiffest`)
-        case["solver"]["static"] = {"perturbation": 1.0e-5}
+        # and the stabilised Newton (1.23): a bridge model may have a
+        # direction with next to no stiffness -- a suspension deck's end bays
+        # given J = 1e-4 m4 -- whose tangent is right and ill-conditioned
+        case["solver"]["static"] = {"perturbation": 1.0e-5, "stabilise": True}
     case["output"] = {"path": f"results/{name}.h5", "fields": ["displacement"] + (["axial_force"] if specs else [])}
     tendon_out: Dict[str, dict] = {}
     if specs:

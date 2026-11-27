@@ -3,7 +3,7 @@
 # vfife Vector Form Intrinsic Finite Element Structural Analysis Software — User Manual
 
 **Software name**: vfife Vector Form Intrinsic Finite Element structural analysis software (vfife for short)
-**Version**: 1.22.0
+**Version**: 1.23.0
 **Runtime environment**: Python 3.10 or later; Windows, Linux, macOS; the GPU backend requires NVIDIA CUDA
 **License**: MIT
 
@@ -527,12 +527,21 @@ one Midas' stage results are at). **Creep and shrinkage (1.22)**: the concrete `
 (`*TDM-TYPE`) creeps and shrinks by MC90, which those codes' annexes are, at fcm = 0.8 fcu,k + 8 MPa, the humidity, notional size, β_sc and
 drying age the file gives; an element's own notional size (`*ELEM-DEPMATL`, NSM) is a material of its own; the modulus is the material's
 as the 28-day one, or grows by CEB-FIP 2010 where `*TDM-ELAST` says so and the stage control takes the strength's growth (`ageing`, s by
-its cement class); β_sc is the shrinkage's alone, as in JTG. It follows the stage control
-(`*STAGE-CTRL` line 4: time-dependent effects on, and CREEP, SHRINKAGE or BOTH); a model without a stage control takes none. Each stage
+its cement type iCTYPE: 1 rapid hardening high strength 0.20, 2 normal or rapid hardening 0.25, 3 slowly hardening 0.38); β_sc is the shrinkage's alone, as in JTG. It follows the stage control
+(`*STAGE-CTRL` line 4: time-dependent effects on, and its "Creep & Shrinkage" box, bCNS, with CREEP, SHRINKAGE or BOTH); a model without a stage control takes none. Each stage
 builds its concrete at the age the stage gives it (`activate_age`; concrete of another age in the same stage in a step of its own just
 after, the first stage's too), the clock starts at the age of the concrete standing from the first stage, and every stage's duration runs after it as a step
 of time. Other codes, 3362's fly-ash adjustment and other modulus laws are counted and left out. A stub (a member shorter than 0.05 of its radius of gyration and stiffer than 1e13 N/m) becomes a stiff
-connector. `convert(..., cases=("wind",))` adds a load case of the finished bridge as one more step. The map's `tendons` gives each
+connector. `convert(..., cases=("wind",))` adds a load case of the finished bridge as one more step; a case of imposed
+support displacements (`*SPDISP`), or a settlement group by its name (`*SM-GROUP`, 1.23), is such a step too, its
+supports brought to the stated displacement and kept (Midas' settlement load cases are envelopes over combinations of
+groups, which this does not do: one group a step). A case's temperatures are taken the same way (1.23): the whole
+model's (`*SYSTEMPER`) and an element's (`*ELTEMPER`) as a uniform change, one over a section's depth (`*BSTEMPER`, layer
+by layer) as the uniform change and the gradient along local z that give the same axial force and moment -- what a frame
+member carries; the self-equilibrated rest of a nonlinear profile is not followed. The materials' thermal coefficients are
+written only when a case taken heats the model (a grade the file names without its values takes the codes', 1.0e-5/K
+for concrete and 1.2e-5/K for steel, noted); a temperature across the width (DIR LY), one in the PSC form, a stage's own
+temperature load and a material with no coefficient are counted. The map's `tendons` gives each
 tendon's stage, jacking force and its bars' regions and forces. Against Midas on six real bridges, the displacements and member forces
 agree to about 1% where the two models are the same; on a rigid frame built by balanced cantilevers with 132
 tendons the tendons' force agrees to 1% after relaxation and the finished bridge's dead-load moments to 0.2%. Its deflections, compared
@@ -972,7 +981,12 @@ assign:
   refused on bars and connectors. A member with offsets breaks, splits off and is removed as any other: its rigid
   stretches follow its ends onto their new particles. In contact between members its capsule is on the elastic axis.
   A buckling analysis takes the rigid stretches and their levers (checked against a closed form for rigid zones; a
-  section set across the member under compression is not yet checked against a reference). The compiled step and the compiled relaxation take
+  section set across the member under compression, 1.23: on forks it is the beam-column of its eccentricity, M = P e, to
+  5e-4, and with an end free to twist -- where the lever turning with the node makes it 0.8% from fixed end moments -- the
+  model's own nonlinear tangent turns singular within 0.5% of the factor). The moment of the lever, r x N, couples twist
+  with bending as a moment does, but without the member's Kirchhoff factor: on a section with equal second moments (whose
+  own moments carry none) set off sideways by 1.5 radii of gyration a column buckles 3.5% below its Euler load, where the
+  same column of stiff arms gives 1.000 -- conservative, and the reference between the two is not settled. The compiled step and the compiled relaxation take
   such a model step by step (see the capability table).
 * `axial: elastic` (the default) keeps a rigid zone rigid in every direction (OpenSees, Nastran); `axial: full` takes
   a frame beam's axial and torsional stiffness over the length between the nodes, the zone rigid in bending and shear
@@ -1347,6 +1361,16 @@ solver:
   while that cascades, until nothing new fails -- the alternate-path analysis, one member at a time; the failures are
   recorded in `member_failures` with the step plus its progress as their time. No equilibrium after a break is reported as
   "the structure has lost its load". Timed `removals` have no clock here: use a step's `deactivate`.
+* **Stabilised Newton (`static.stabilise: true`)** (1.23): an increment the plain Newton cannot take is tried again,
+  before it is halved (once per stated level; load control only, not `arc_length`), by pseudo-time: every dof is tied by a spring of `stabilise_mu` (1e-6) times the tangent's own
+  diagonal to where the round began; each round is solved by Newton, then the springs' anchors move up and mu is quartered,
+  until the residual without the springs is within the tolerance. The answer is the plain equilibrium; the springs are
+  only the way to it. It is for a tangent that is right and ill-conditioned: a suspension bridge's deck whose end bays
+  barely resist twisting (J = 1e-4 m4), whose tangent is accurate to four digits and whose softest directions turned the
+  first correction into a hundred metres; stabilised, the bridge's dead load converged in ten increments. **Off by
+  default, because it crosses limit points**: a snap-through Newton refuses under load control is carried onto the far
+  branch, the jump a static analysis must report. The Midas converter turns it on for the bridges it writes. The log
+  counts the increments it took (`… increment(s) by the stabilised Newton`).
 * **Fallback to relaxation (`static.fallback: relaxation`)** (1.7): when Newton has halved the increment
   `cutbacks` times without converging -- a limit point under load control, or a jump in the equilibrium path -- the level
   is taken by a dynamic relaxation from the last converged state to the **stated** level (fictitious mass, kinetic
