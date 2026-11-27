@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from vfife.verification import _reduce_against, verify
+from vfife.base.compat import trapezoid
 
 
 def _spec(name, reduction, **kw):
@@ -59,7 +60,7 @@ def test_at_refuses_a_level_the_record_never_reaches_and_names_the_range():
 
 def test_energy_is_the_area_under_the_curve_as_a_magnitude():
     # by hand: trapezoids of P over |mid| between the frames
-    area = np.trapezoid(P, -MID) if hasattr(np, "trapezoid") else np.trapz(P, -MID)
+    area = trapezoid(P, -MID)
     assert _reduce_against(P, MID, _spec("P", "energy"), "mid") == pytest.approx(area)
     assert _reduce_against(P, MID, _spec("P", "energy", signed=True), "mid") == pytest.approx(-area)
     # from the origin adds the first triangle, 0.5 * 100 kN * 1 mm = 50 J

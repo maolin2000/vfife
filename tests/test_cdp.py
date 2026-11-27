@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from vfife.materials import create
+from vfife.base.compat import trapezoid
 
 E, NU, RHO = 3.0e10, 0.2, 2400.0
 FC, FT = 30.0e6, 3.0e6
@@ -362,7 +363,7 @@ def test_fracture_energy_is_dissipated():
     """Area under sigma vs crack opening equals Gf."""
     w, sig = _crack_band_curves()
     ref = list(SIZES).index(L_REF)
-    assert np.trapezoid(sig[:, ref], w[:, ref]) == pytest.approx(GF, rel=0.06)
+    assert trapezoid(sig[:, ref], w[:, ref]) == pytest.approx(GF, rel=0.06)
 
 
 def test_without_crack_band_the_response_is_mesh_dependent():
@@ -372,7 +373,7 @@ def test_without_crack_band_the_response_is_mesh_dependent():
     m.bind_points(np.array([0.05, 0.5]))
     path = np.linspace(0.0, FT / E + 8 * GF / FT / L_REF, 2000)[1:]
     sig, _, _ = uniaxial_batch(m, np.repeat(path[:, None], 2, axis=1))
-    energy = np.trapezoid(sig, path, axis=0) * np.array([0.05, 0.5])
+    energy = trapezoid(sig, path, axis=0) * np.array([0.05, 0.5])
     assert abs(energy[0] / energy[1] - 1.0) > 0.5
 
 

@@ -313,7 +313,7 @@ def test_the_difference_step_is_scaled_by_the_element_not_the_model(tmp_path):
     from vfife.implicit import Newton
 
     class _S:
-        pass
+        TRIAL_STATE = False
     s = _S()
     import types
     s.mesh = types.SimpleNamespace(nodes=np.array([[0, 0, 0], [5.0, 0, 0], [10.0, 0, 0], [500.0, 0, 0]]),

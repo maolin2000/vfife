@@ -16,6 +16,7 @@ import h5py
 from .io.writer import open_result
 import numpy as np
 import yaml
+from .base.compat import trapezoid
 
 
 _COMPONENT = {"x": 0, "y": 1, "z": 2, "xx": 0, "yy": 1, "zz": 2,
@@ -99,7 +100,7 @@ def _reduce_against(values: np.ndarray, other: np.ndarray, spec: dict[str, Any],
         x, y = np.concatenate([[0.0], x]), np.concatenate([[0.0], y])
     op = spec["reduction"]
     if op == "energy":
-        area = float(np.trapezoid(y, x)) if hasattr(np, "trapezoid") else float(np.trapz(y, x))
+        area = float(trapezoid(y, x))
         return area if spec.get("signed") else abs(area)
     if op == "at_peak_of":
         return float(y[int(np.argmax(np.abs(x)))])

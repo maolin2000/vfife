@@ -57,6 +57,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from ..base.compat import trapezoid
 
 
 @dataclass
@@ -294,8 +295,7 @@ def _crushing_energy(eps, sig, E0, Gc, l_ref, name):
                          "material's `l_ref` (auto is the element size)")
     e_in = eps - sig / E0
     i0 = int(np.argmax(sig))
-    g = float(np.trapezoid(sig[i0:], e_in[i0:]) if hasattr(np, "trapezoid")
-              else np.trapz(sig[i0:], e_in[i0:]))
+    g = float(trapezoid(sig[i0:], e_in[i0:]))
     if g <= 0.0:
         raise ValueError(f"{name}: the curve has no descending branch to "
                          "calibrate Gc against")

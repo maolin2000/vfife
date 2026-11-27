@@ -254,38 +254,6 @@ def _is_fibre(solver) -> bool:
     return hasattr(solver, "_is_fiber")
 
 
-class _probe:
-    """A force evaluation that leaves no history: the frame solvers' own
-    `_probe`, or, on the fibre beam, its fibres' states put back after."""
-
-    def __init__(self, solver):
-        self.s = solver
-
-    def __enter__(self):
-        s = self.s
-        if hasattr(s, "_probe"):
-            self.cm = s._probe()
-            return self.cm.__enter__()
-        self.cm = None
-        self.saved = {}
-        for name in ("_state_c", "_state_s", "_conn_slip", "_sl_gcr_t", "_sl_gmax_t", "_sl_gamma"):
-            v = getattr(s, name, None)
-            if isinstance(v, np.ndarray):
-                self.saved[name] = v.copy()
-        self.fs = [np.array(a, copy=True) for a in getattr(s, "fiber_states", [])]
-        return self
-
-    def __exit__(self, *exc):
-        s = self.s
-        if self.cm is not None:
-            return self.cm.__exit__(*exc)
-        for name, v in self.saved.items():
-            getattr(s, name)[...] = v
-        for a, b in zip(getattr(s, "fiber_states", []), self.fs):
-            a[...] = b
-        return False
-
-
 def _stiffness_off(solver, ids):
     ids = np.asarray(ids, int)
     if _is_fibre(solver):
@@ -579,10 +547,10 @@ def _removal_force(solver, ids, k):
     ended with) less the internal force they put on their nodes -- as a
     load that is taken off over the step (Abaqus' removal). Then they are
     gone."""
-    with _probe(solver):
+    with solver.reading():
         f_before = solver.internal_force()[0].copy()
     _stiffness_off(solver, ids)
-    with _probe(solver):
+    with solver.reading():
         f_after = solver.internal_force()[0].copy()
     f_rem = f_before - f_after
     W = _member_loads_at_end(solver, ids, k - 1) if k > 0 else np.zeros(solver.ndof)

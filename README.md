@@ -1,10 +1,16 @@
 # vfife
 
+[![CI](https://github.com/maolin2000/vfife/actions/workflows/ci.yml/badge.svg)](https://github.com/maolin2000/vfife/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/maolin2000/vfife)](https://github.com/maolin2000/vfife/releases)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24594822.svg)](https://doi.org/10.5281/zenodo.24594822)
+
 vfife is a structural analysis program for bridges, based on the vector form intrinsic finite element method (VFIFE). It integrates the motion of every point explicitly, so large displacements, yielding, member fracture, falling debris and contact need no special treatment. The same model also gives the static dead-load state, construction stages, modes and buckling loads.
 
 A model is one YAML file, run from the command line or the Python API. Meshes come from the case file, Gmsh or a converted Midas Civil model; results are written as XDMF/HDF5 for ParaView.
 
-**Version 1.23.1** · MIT licence · [CHANGELOG](CHANGELOG.md). The case, result and checkpoint formats and the Python API have been stable since 1.0.
+**Version 1.23.2** · MIT licence · [CHANGELOG](CHANGELOG.md). The case, result and checkpoint formats and the Python API have been stable since 1.0.
 
 ## Features
 
@@ -21,7 +27,7 @@ A model is one YAML file, run from the command line or the Python API. Meshes co
 ## Installation
 
 ```bash
-pip install "vfife-1.23.1-py3-none-any.whl[cpu]"     # from the Releases page; [cpu] adds numba
+pip install "vfife-1.23.2-py3-none-any.whl[cpu]"     # from the Releases page; [cpu] adds numba
 ```
 
 From source:
@@ -120,14 +126,15 @@ The full list is in section 16 of the user manual.
 
 ## Citation
 
-Cite the version used; `CITATION.cff` has the metadata.
+Cite the version used: each release has its own DOI, listed on the [Zenodo record](https://doi.org/10.5281/zenodo.24594822); the DOI below stands for all versions. `CITATION.cff` has the metadata.
 
 ```bibtex
 @software{tian_vfife,
   author  = {Tian, Maolin},
   title   = {vfife: vector form intrinsic finite element analysis of bridges},
-  version = {1.23.1},
+  version = {1.23.2},
   year    = {2026},
+  doi     = {10.5281/zenodo.24594822},
   url     = {https://github.com/maolin2000/vfife}
 }
 ```

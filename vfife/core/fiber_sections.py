@@ -463,7 +463,7 @@ class FiberSections:
         # trap the module exists to remove. New path-dependent state should
         # use staging.py; this one is the reference the module describes.
         self.fiber_committed = [s.copy() for s in self.fiber_states]
-        self._trial_mode = False
+        self.trial_mode = False
         #: (nel, n_stations, n_fibers) in the section-row order of `fiber_y`:
         #: the NumPy path writes it directly, the kernel path through
         #: `fiber_stress_rows()`

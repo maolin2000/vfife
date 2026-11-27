@@ -274,17 +274,17 @@ def _framed(s, coupled=False) -> Probe:
     rot = (s.dofs.node_dofs(every, ROTATION).ravel()
            if s.dofs.stride == 6 else np.empty(0, int))
 
-    trial = hasattr(s, "_trial_mode")
+    trial = s.TRIAL_STATE
 
     def internal(x):
         keep_q, keep_orient = s.q.copy(), getattr(s, "orient", None)
         if keep_orient is not None:
             keep_orient = keep_orient.copy()
-        was_trial = getattr(s, "_trial_mode", None)
+        was_trial = s.trial_mode
         if trial:
             # a fibre section integrates its history forward when asked; in
             # trial mode every call restores from the last committed point
-            s._trial_mode = True
+            s.trial_mode = True
         s.q[:] = np.asarray(x, float)
         if hasattr(s, "sync_orientation"):
             s.sync_orientation()
@@ -301,8 +301,8 @@ def _framed(s, coupled=False) -> Probe:
             # a probe, not a step: path-dependent member state (plastic
             # hinges) is read and not advanced -- the modal and spectrum
             # tangents committed hinge rotation at every evaluation
-            if hasattr(s, "_probe"):
-                with s._probe():
+            if not s.TRIAL_STATE:
+                with s.reading():
                     f, _ = s.internal_force()
             else:
                 f, _ = s.internal_force()
@@ -316,7 +316,7 @@ def _framed(s, coupled=False) -> Probe:
             if keep_orient is not None:
                 s.orient[...] = keep_orient
             if trial:
-                s._trial_mode = was_trial
+                s.trial_mode = was_trial
 
     # the step the solver is at -- after a run, its LAST step's supports,
     # not the first's

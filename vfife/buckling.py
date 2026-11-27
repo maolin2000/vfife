@@ -169,15 +169,15 @@ def _axial_forces(solver, p, x, family):
         return np.asarray(fields["axial_force"], float)
     keep_q = s.q.copy()
     keep_orient = s.orient.copy() if getattr(s, "orient", None) is not None else None
-    was_trial = getattr(s, "_trial_mode", None)
-    if hasattr(s, "_trial_mode"):
-        s._trial_mode = True
+    was_trial = s.trial_mode
+    if s.TRIAL_STATE:
+        s.trial_mode = True
     s.q[:] = np.asarray(x, float)
     if hasattr(s, "sync_orientation"):
         s.sync_orientation()
     try:
-        if hasattr(s, "_probe"):
-            with s._probe():
+        if not s.TRIAL_STATE:
+            with s.reading():
                 _f, actions = s.internal_force()
                 fields = s.nodal_fields(actions)
         else:
@@ -189,8 +189,8 @@ def _axial_forces(solver, p, x, family):
             s.orient[...] = keep_orient
         if hasattr(s, "sync_orientation"):
             s.sync_orientation()
-        if was_trial is not None:
-            s._trial_mode = was_trial
+        if s.TRIAL_STATE:
+            s.trial_mode = was_trial
     if all(f"{n}_{e}" in fields for n in _END_NAMES for e in "ij"):
         # the end actions (the forces the nodes exert on the member, local
         # axes, f = k d: core/member_actions), all twelve

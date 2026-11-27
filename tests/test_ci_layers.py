@@ -2,7 +2,7 @@
 
 WHY
     `.github/workflows/ci.yml` says, in its own comment, that installing the
-    optional extras is deliberate because "一个被跳过的测试保护不了任何东西".
+    optional extras is deliberate because "a skipped test protects nothing".
     It then installed `.[dev,plot]` and nothing else for four stages, so the
     numba extra was absent and 44 assertions -- every check that the fused
     CPU kernel agrees bit for bit with the scalar law, that a fibre section
@@ -85,6 +85,39 @@ def test_the_fast_tier_installs_every_extra_the_runner_can_use(jobs):
     assert _install_extras(jobs["fast"]) == declared - NEEDS_HARDWARE_CI_LACKS
 
 
+def test_the_platform_jobs_install_what_the_fast_tier_does(jobs):
+    """Windows, the oldest and the newest Python run the fast tier's tests with
+    its extras: a platform job with fewer would skip where the fast tier checks."""
+    assert _install_extras(jobs["platforms"]) == _install_extras(jobs["fast"])
+    labels = {(m["os"], m["python"]) for m in jobs["platforms"]["strategy"]["matrix"]["include"]}
+    classifiers = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["classifiers"]
+    versions = sorted(c.rsplit(" ", 1)[1] for c in classifiers
+                      if re.fullmatch(r"Programming Language :: Python :: 3\.\d+", c))
+    assert ("windows-latest", "3.11") in labels
+    assert {versions[0], versions[-1]} <= {py for _os, py in labels}, "the oldest and newest Python declared"
+
+
+def test_the_oldest_dependencies_are_pyprojects_lower_bounds(jobs):
+    """.github/minimum-versions.txt pins each dependency to the lowest version
+    pyproject allows, and the oldest-Python job installs with it: a lower bound
+    raised in one and not the other would test versions nobody declared."""
+    project = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
+    declared = {}
+    for spec in project["dependencies"] + [d for extra, deps in project["optional-dependencies"].items()
+                                           if extra not in NEEDS_HARDWARE_CI_LACKS | {"dev"} for d in deps]:
+        m = re.fullmatch(r"([A-Za-z0-9_-]+)>=([0-9.]+)(,<[0-9.]+)?", spec)
+        assert m, f"a dependency without a lower and an upper bound: {spec}"
+        declared[m.group(1).lower()] = m.group(2)
+    pins = {}
+    for line in (ROOT / ".github" / "minimum-versions.txt").read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.startswith("#"):
+            name, version = line.split("==")
+            pins[name.strip().lower()] = version.strip().rstrip(".*")
+    assert pins == declared
+    oldest = [m for m in jobs["platforms"]["strategy"]["matrix"]["include"] if m["constraints"]]
+    assert len(oldest) == 1 and "minimum-versions.txt" in oldest[0]["constraints"]
+
+
 def test_the_fast_tier_really_gets_the_compiled_path(jobs):
     """The one that would have caught it: `cpu` by name, plus the reason.
 
@@ -132,21 +165,27 @@ def test_no_tier_pretends_to_have_a_gpu(jobs):
         assert not (_install_extras(job) & NEEDS_HARDWARE_CI_LACKS), name
 
 
-def test_nothing_runs_on_a_timer():
-    """The nightly matrix ran every shipped case every night -- sixty jobs of
-    up to two hours -- and used a private repository's month of Actions
-    minutes in days. The solving layers run when started by
-    hand, and `tools/check_all.py` runs the same checks on a local machine;
-    a schedule put back would spend the minutes again without anyone
-    deciding to."""
+PUBLIC = "github.repository == 'maolin2000/vfife'"
+
+
+def test_the_timer_runs_only_in_the_public_repository():
+    """A nightly matrix of every shipped case -- sixty jobs of up to two hours
+    -- used a private repository's month of Actions minutes in days. The
+    public repository's minutes are free, so there it runs weekly; in the
+    private one nothing runs on the timer, and the solving layers run when
+    started by hand (and locally, `tools/check_all.py`)."""
     if not WORKFLOW.exists():
         pytest.skip("no workflow file next to the tests")
     wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     on = wf.get("on", wf.get(True))            # PyYAML reads the key `on` as True
-    assert "schedule" not in on
-    for name, job in wf["jobs"].items():
-        if name != "fast":
-            assert job.get("if") == "github.event_name == 'workflow_dispatch'", name
+    (cron,) = [s["cron"] for s in on["schedule"]]
+    assert cron.split()[2:] == ["*", "*", "1"], "weekly, not nightly"
+    jobs = wf["jobs"]
+    assert jobs["fast"]["if"] == "github.event_name != 'schedule' || " + PUBLIC
+    assert jobs["platforms"]["if"] == PUBLIC
+    for name in ("verify", "verify_rest"):
+        assert jobs[name]["if"] == ("github.event_name == 'workflow_dispatch' || "
+                                    "(github.event_name == 'schedule' && " + PUBLIC + ")"), name
     assert (WORKFLOW.parents[2] / "tools" / "check_all.py").exists()
 
 

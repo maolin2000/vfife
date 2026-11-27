@@ -19,6 +19,7 @@ from vfife.core.structural import make_structural_solver
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "benchmarks"))
 import generate_confederation as cb          # noqa: E402
+from vfife.base.compat import trapezoid
 
 CASES = pathlib.Path(__file__).resolve().parents[1] / "cases"
 
@@ -111,7 +112,7 @@ def test_the_webs_carry_dilgers_published_line_load():
     t_bot, t_web = cb.thickness(13990.0)
     w = cb._half_width(y, 13990.0, t_bot, t_web)
     band = (y > cb.T_DECK_WEB) & (y < 13990.0 - t_bot)
-    A = 2 * np.trapezoid(w[band], y[band]) / 1e+6
+    A = 2 * trapezoid(w[band], y[band]) / 1e+6
     assert A * cb.RHO_C * 9.80665 / 1e+6 == pytest.approx(0.248, rel=0.12)
 
 
@@ -136,7 +137,7 @@ def test_the_box_outline_holds_85_percent_of_the_erection_weight():
     and not as area -- putting them in the area would get I wrong too."""
     u = np.linspace(0.0, cb.CANT_HALF, 241)
     A = np.array([cb.section(v)[0] for v in cb.depth_at(u)])
-    mass = 2 * np.trapezoid(A, u) / 1e+9 * cb.RHO_C / 1e+3
+    mass = 2 * trapezoid(A, u) / 1e+9 * cb.RHO_C / 1e+3
     assert mass == pytest.approx(6800.0, rel=0.02)
     assert mass * cb.MASS_FACTOR == pytest.approx(8000.0, rel=0.01)
 

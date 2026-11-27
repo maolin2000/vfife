@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vfife"
-version = "1.23.1"
+version = "1.23.2"
 description = "Explicit structural solver (VFIFE) for bridges, from construction stages to earthquake and collapse"
 readme = "README.md"
 license = "MIT"
@@ -22,20 +22,23 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
 ]
+# Lower bounds: the oldest versions CI tests (.github/minimum-versions.txt).
+# Upper bounds: the next major version, which may break the API; within them the
+# weekly CI run installs the newest releases, so a breaking one is seen there.
 dependencies = [
-    "numpy>=1.24",
-    "scipy>=1.10",
-    "pydantic>=2.0",
-    "pyyaml>=6.0",
-    "h5py>=3.8",
+    "numpy>=1.24,<3",
+    "scipy>=1.10,<2",
+    "pydantic>=2.0,<3",
+    "pyyaml>=6.0,<7",
+    "h5py>=3.8,<4",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.4"]   # check_all runs the pytest layers on --jobs processes
-plot = ["matplotlib>=3.6"]   # `vfife plot`; `vfife export` needs nothing extra
-cpu = ["numba>=0.59"]        # fused CPU kernel
-gpu = ["warp-lang>=1.16"]    # GPU backend (Windows + CUDA supported)
-paraview = ["meshio>=5"]     # `vfife sweep` and `vfife modal --paraview` (.pvd/.vtu export)
+plot = ["matplotlib>=3.6,<4"]   # `vfife plot`; `vfife export` needs nothing extra
+cpu = ["numba>=0.59,<1"]        # fused CPU kernel
+gpu = ["warp-lang>=1.16,<2"]    # GPU backend (Windows + CUDA supported)
+paraview = ["meshio>=5.3,<6"]     # `vfife sweep` and `vfife modal --paraview` (.pvd/.vtu export)
 
 [project.urls]
 Repository = "https://github.com/maolin2000/vfife"

@@ -8,6 +8,7 @@ import yaml
 
 from vfife.io import midas, midas_case
 from test_midas_creep import MCT as CREEP_MCT
+from vfife.base.compat import trapezoid
 
 ALPHA, L = 1.0e-5, 10.0                  # the material's, 1/K; the cantilever's length, m
 
@@ -57,8 +58,8 @@ def test_two_layers_are_their_uniform_change_and_linear_gradient(tmp_path):
     h = np.linspace(0.0, 0.5, 50001)
     T = np.interp(h, [0.0, 0.2, 0.5], [20.0, 5.0, 0.0])
     b, z = 0.6, 0.5 - h
-    uniform = np.trapezoid(T * b, h) / 1.0
-    gradient = np.trapezoid(T * b * z, h) / (1.0 / 12.0)
+    uniform = trapezoid(T * b, h) / 1.0
+    gradient = trapezoid(T * b * z, h) / (1.0 / 12.0)
     assert ld["temperature"]["uniform"] == pytest.approx(uniform, rel=1e-6)
     assert ld["temperature"]["gradient"] == pytest.approx(gradient, rel=1e-6)
     assert ld["temperature"]["axis"] == "z" and ld["keep"]

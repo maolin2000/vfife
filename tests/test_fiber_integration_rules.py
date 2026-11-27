@@ -101,7 +101,7 @@ def test_the_kernel_matches_the_numpy_path_at_five_stations(tmp_path):
     assert s._state_c.shape[1] == 5 and s._fstress.shape == (4, 5, 34)
     rng = np.random.default_rng(5)
     s.q[:] = 2e-3 * rng.standard_normal(s.ndof)
-    s._trial_mode = True                 # both evaluations from the same committed history
+    s.trial_mode = True                  # both evaluations from the same committed history
     fk, ak = s._internal_force_kernel()
     ft, at = s._internal_force_true()
     assert np.allclose(fk, ft, rtol=1e-10, atol=1e-8 * np.abs(ft).max())

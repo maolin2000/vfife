@@ -1,7 +1,7 @@
 # vfife Vector Form Intrinsic Finite Element Structural Analysis Software — User Manual
 
 **Software name**: vfife Vector Form Intrinsic Finite Element structural analysis software (vfife for short)
-**Version**: 1.23.1
+**Version**: 1.23.2
 **Runtime environment**: Python 3.10 or later; Windows, Linux, macOS; the GPU backend requires NVIDIA CUDA
 **License**: MIT
 

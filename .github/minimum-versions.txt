@@ -1,0 +1,11 @@
+# The lowest version of each dependency pyproject.toml allows. The `platforms`
+# job of .github/workflows/ci.yml installs these on the oldest supported Python;
+# tests/test_ci_layers.py keeps this file and pyproject's lower bounds equal.
+numpy==1.24.*
+scipy==1.10.*
+pydantic==2.0.*
+pyyaml==6.0.*
+h5py==3.8.*
+numba==0.59.*
+matplotlib==3.6.*
+meshio==5.3.*

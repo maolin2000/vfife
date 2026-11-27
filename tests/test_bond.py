@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from vfife.materials import create
+from vfife.base.compat import trapezoid
 
 FC = 25.6e6                      # Tanaka specimen 1, the case this serves
 
@@ -149,7 +150,7 @@ def test_a_closed_slip_cycle_does_not_create_energy():
                            np.linspace(peak, -peak, 800),
                            np.linspace(-peak, 0, 400)])
     tau, _ = _tau(m, path)
-    work = float(np.trapezoid(tau, path))
+    work = float(trapezoid(tau, path))
     assert work >= -1e-6 * m.tau_max * peak
 
 

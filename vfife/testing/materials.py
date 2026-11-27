@@ -77,6 +77,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 import numpy as np
+from ..base.compat import trapezoid
 
 from ..materials import base as mat_base
 from .invariants import Finding
@@ -729,7 +730,7 @@ def the_crack_band_energy_does_not_depend_on_the_element_size(
         stress, _ = drive(fresh, eps)
         axial = stress[:, 0, 0]
         opening = (eps[:, 0] - axial / E) * size
-        energies.append(float(np.trapezoid(axial, opening)))
+        energies.append(float(trapezoid(axial, opening)))
     value = abs(energies[0] - energies[1]) / max(abs(np.mean(energies)), 1e-300)
     return Finding("the_crack_band_energy_does_not_depend_on_the_element_size",
                    value <= 0.05, value, 0.05,

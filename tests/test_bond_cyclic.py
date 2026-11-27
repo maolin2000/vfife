@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from vfife.materials import create
+from vfife.base.compat import trapezoid
 
 FC = 25.6e6
 
@@ -432,8 +433,7 @@ def test_a_closed_loop_dissipates_and_does_not_generate_energy():
     # the closed part: from the first arrival at +amp to the second
     start = 999
     loop_s, loop_t = path[start:], tau[start:]
-    area = float(np.trapezoid(loop_t, loop_s)) if hasattr(np, "trapezoid") \
-        else float(np.trapz(loop_t, loop_s))
+    area = float(trapezoid(loop_t, loop_s))
     assert area > 0.0, f"the loop generated {-area:.3e} J/m^2"
 
 

@@ -1575,11 +1575,9 @@ class BeamSolver(BeamFamily):
         return bool(getattr(self, "_pending_split", None) or getattr(self, "_park_check", None)
                     or getattr(self, "_reload_step", False))
 
-    #: a force evaluation that reads the state (`BeamFamily._reading`) under
-    #: the name the frame solvers' callers use: `analysis_steps._probe`, the
-    #: buckling and modal tangents take a solver with a `_probe` as one that
-    #: holds its own member state
-    _probe = BeamFamily._reading
+    #: a force evaluation that reads the state, the frame's hinges held
+    #: (`BeamFamily._reading`): the public name every driver takes it by
+    reading = BeamFamily._reading
 
     def _removal_clock(self, k, steps, plan):
         """The time `_check_failure` reads at the forces of each of `steps`:

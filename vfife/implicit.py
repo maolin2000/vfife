@@ -183,7 +183,7 @@ class Newton:
             size = 1.0
         self.h_t = float(spec.get("perturbation", 1e-7)) * (size if size > 0 else 1.0)
         self.h_r = float(spec.get("perturbation", 1e-7)) * 10.0
-        self.trial = hasattr(s, "_trial_mode")
+        self.trial = s.TRIAL_STATE
         self.evaluations = 0
         self.tangents = 0
         self.iterations = 0
@@ -360,7 +360,7 @@ class Newton:
     def force(self) -> np.ndarray:
         s = self.s
         if self.trial:
-            s._trial_mode = True
+            s.trial_mode = True
         self.evaluations += 1
         f, _ = s.internal_force()
         return np.asarray(f, float).copy()
@@ -718,7 +718,7 @@ class Newton:
                     c[...] = s.fiber_states[g]
         s.commit_state()
         if self.trial:
-            s._trial_mode = False
+            s.trial_mode = False
 
 
 class _Factor:
@@ -884,7 +884,7 @@ def relax_increment(newton, fixed, moving, prescribed, groups, ground, target, t
         if hasattr(s, "_refresh_fictitious_mass"):
             s._refresh_fictitious_mass()           # the line solvers: the current geometry's rows
         if newton.trial:
-            s._trial_mode = True
+            s.trial_mode = True
         F = s._force(groups, ground, target)
         start = [s.q[dofs].copy() for dofs, _v, _a, _m in prescribed]
         converged, resid, _kr, _ke = s._relax_stage(F, fixed, moving, prescribed, target, start, tol, budget,
@@ -921,13 +921,13 @@ def _polish(newton, F_of, fixed, tol, log, where):
     s = newton.s
     base = newton.get()
     if newton.trial:
-        s._trial_mode = True
+        s.trial_mode = True
     ok, res, _its = newton.solve_level(F_of, fixed, tol)
     if ok:
         return res
     newton.put(base)
     if newton.trial:
-        s._trial_mode = True
+        s.trial_mode = True
     F = F_of(); f = newton.force(); r = F - f; r[fixed] = 0.0
     res = newton.measure(F, f, ~fixed, r)
     if res > tol:
@@ -966,7 +966,7 @@ def _settle_breaks(newton, F_of, fixed, tol, t, log, where):
             f"{' ...' if len(gone) > 8 else ''} reached their capacity; re-solving the level without them "
             f"(pass {redo})")
         if newton.trial:
-            s._trial_mode = True
+            s.trial_mode = True
         ok, res, _its = newton.solve_level(F_of, fixed, tol)
         if not ok and newton.stalled:
             raise ConvergenceFailure(stall_message(where, res, tol))
@@ -1233,7 +1233,7 @@ def arc_length_step(newton, k, fixed, moving, prescribed, groups, ground, spec, 
                 return inc
             newton.put(saved)
             if newton.trial:
-                s._trial_mode = True
+                s.trial_mode = True
             if newton.stalled:
                 # a shorter arc lands on the same load factor 1 at the same
                 # floor
@@ -1328,7 +1328,7 @@ def arc_length_step(newton, k, fixed, moving, prescribed, groups, ground, spec, 
         if not converged:
             newton.put(saved)
             if newton.trial:
-                s._trial_mode = True
+                s.trial_mode = True
             cuts += 1
             if cuts > int(spec.get("cutbacks", 10)):
                 raise ConvergenceFailure(f"arc length, step {k + 1}: no convergence at load factor "
@@ -1351,7 +1351,7 @@ def arc_length_step(newton, k, fixed, moving, prescribed, groups, ground, spec, 
             # and land on it by load control instead
             newton.put(saved)
             if newton.trial:
-                s._trial_mode = True
+                s.trial_mode = True
             land = True
             continue
         if _DEBUG and stop:
@@ -1506,7 +1506,7 @@ def _static_step(s, newton, k, r, ctx):
             if not ok:
                 newton.put(saved)
                 if newton.trial:
-                    s._trial_mode = True
+                    s.trial_mode = True
                 msg = (f"static step {k + 1}: the relaxation that took over from Newton did not converge "
                        f"at load factor {target:.6g}{amplitude_note(s, groups, target)} in {its} iterations "
                        f"(residual {res:.3e}, tolerance {tol_k:.1e}); raise solver.max_steps_per_load "
@@ -1532,7 +1532,7 @@ def _static_step(s, newton, k, r, ctx):
                 # (1.23, `Newton.solve_stabilised`)
                 newton.put(saved)
                 if newton.trial:
-                    s._trial_mode = True
+                    s.trial_mode = True
                 s._apply_bc(fixed, moving, prescribed, target)
                 ok, res, its2 = newton.solve_stabilised(lambda: s._force(groups, ground, target), fixed, tol_k)
                 its += its2
@@ -1543,7 +1543,7 @@ def _static_step(s, newton, k, r, ctx):
         if not ok:
             newton.put(saved)
             if newton.trial:
-                s._trial_mode = True      # the committed fibre state is untouched
+                s.trial_mode = True      # the committed fibre state is untouched
             if not newton.stalled and (cuts + 1 > max_cuts or dl / 2.0 < dl_min * (1.0 - 1e-9)) \
                     and spec.get("fallback", "none") == "relaxation":
                 # A LIMIT POINT UNDER LOAD CONTROL, OR A JUMP IN THE PATH:
@@ -1560,7 +1560,7 @@ def _static_step(s, newton, k, r, ctx):
                 if not ok:
                     newton.put(saved)
                     if newton.trial:
-                        s._trial_mode = True
+                        s.trial_mode = True
                     msg = (f"static step {k + 1}: no convergence at load factor {target:.6g}"
                            f"{amplitude_note(s, groups, target)}: Newton's increment halved to "
                            f"{tried:.3g} (static.cutbacks), and the fallback relaxation did not "

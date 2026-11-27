@@ -1,21 +1,21 @@
 {
  "optional_probes": {
   "vfife/api.py": 4,
-  "vfife/buckling.py": 7,
+  "vfife/buckling.py": 4,
   "vfife/cli.py": 2,
-  "vfife/core/analysis_steps.py": 35,
+  "vfife/core/analysis_steps.py": 34,
   "vfife/core/beam_family.py": 13,
   "vfife/core/beam_solver.py": 46,
   "vfife/core/compiled_step.py": 36,
   "vfife/core/diagnostics.py": 1,
   "vfife/core/families.py": 5,
-  "vfife/core/fiber_beam_solver.py": 43,
-  "vfife/core/fiber_fracture.py": 3,
+  "vfife/core/fiber_beam_solver.py": 39,
+  "vfife/core/fiber_fracture.py": 1,
   "vfife/core/fiber_sections.py": 2,
   "vfife/core/fiber_time.py": 6,
   "vfife/core/ground.py": 1,
   "vfife/core/member_axes.py": 2,
-  "vfife/core/member_contact.py": 7,
+  "vfife/core/member_contact.py": 6,
   "vfife/core/mixed_structural_solver.py": 18,
   "vfife/core/model_totals.py": 5,
   "vfife/core/moving_load.py": 5,
@@ -30,15 +30,14 @@
   "vfife/core/step_state.py": 1,
   "vfife/core/truss_solver.py": 2,
   "vfife/core/vehicle.py": 1,
-  "vfife/implicit.py": 26,
+  "vfife/implicit.py": 25,
   "vfife/io/writer.py": 1,
   "vfife/kernels/warp_backend.py": 1,
   "vfife/kernels/warp_shell4.py": 1,
   "vfife/modal.py": 5,
   "vfife/preflight.py": 2,
   "vfife/sweep.py": 3,
-  "vfife/testing/invariants.py": 1,
-  "vfife/testing/state.py": 3
+  "vfife/testing/invariants.py": 1
  },
  "patched_methods": {},
  "private_access": {
@@ -49,9 +48,7 @@
   "vfife/buckling.py": [
    "_connector_of",
    "_connector_props",
-   "_force",
-   "_probe",
-   "_trial_mode"
+   "_force"
   ],
   "vfife/core/analysis_steps.py": [
    "_active",
@@ -75,7 +72,6 @@
    "_members_of",
    "_mode_cfg",
    "_n_steps_solver",
-   "_probe",
    "_rebuild_reference_stiffness",
    "_refresh_fictitious_mass",
    "_refresh_kernel_mask",
@@ -186,8 +182,7 @@
    "_static_ctx",
    "_static_state",
    "_tangent_begin",
-   "_thermal_d",
-   "_trial_mode"
+   "_thermal_d"
   ],
   "vfife/io/model.py": [
    "_girder"
@@ -206,9 +201,7 @@
    "_section_of"
   ],
   "vfife/testing/state.py": [
-   "_force",
-   "_probe",
-   "_trial_mode"
+   "_force"
   ]
  },
  "tests_private_access": {
@@ -275,8 +268,7 @@
    "_internal_force_kernel",
    "_internal_force_true",
    "_kernel",
-   "_state_c",
-   "_trial_mode"
+   "_state_c"
   ],
   "tests/test_fiber_sections.py": [
    "_G0J0",

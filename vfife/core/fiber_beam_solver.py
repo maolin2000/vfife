@@ -55,7 +55,7 @@ class FiberBeamSolver(FiberSections, FiberFracture, FiberTimeDependence, BeamFam
     ELEMENT_NAME = "beam2_fiber"
     HOLD_PARKED = True
     SOLVER_WHAT = "fiber beam"
-    STAGED_TRIALS = True
+    TRIAL_STATE = True
     DYNAMIC_WHAT = "fiber beam dynamic integration"
     MONITOR_KINDS = ("reaction", "displacement", "fiber", "vehicle", "element")
 
@@ -766,7 +766,7 @@ class FiberBeamSolver(FiberSections, FiberFracture, FiberTimeDependence, BeamFam
         return bool(getattr(self, "_pending_splits", None) or self._pending_debris)
 
     def in_trial(self) -> bool:
-        return bool(getattr(self, "_trial_mode", False))
+        return bool(self.trial_mode)
 
     def kernel_connectors(self):
         """(ids, kinds, compiled connectors or None) of the live connectors."""
@@ -860,7 +860,7 @@ class FiberBeamSolver(FiberSections, FiberFracture, FiberTimeDependence, BeamFam
 
     def _internal_force_kernel(self):
         """Fused path. `_internal_force_true` remains the reference it copies."""
-        if getattr(self, "_trial_mode", False):
+        if self.trial_mode:
             if getattr(self, "_com_c", None) is not None:
                 self._state_c[...] = self._com_c
                 self._state_s[...] = self._com_s
@@ -958,7 +958,7 @@ class FiberBeamSolver(FiberSections, FiberFracture, FiberTimeDependence, BeamFam
 
     def _internal_force_true(self):
         """True fibre section integration and Hermite virtual-work assembly."""
-        if getattr(self, "_trial_mode", False):
+        if self.trial_mode:
             # Start from the last converged state, so an evaluation partway
             # through a stage cannot leave permanent history behind.
             for g, c in enumerate(self.fiber_committed):
@@ -1404,6 +1404,26 @@ class FiberBeamSolver(FiberSections, FiberFracture, FiberTimeDependence, BeamFam
             self.current_fixed = data[0]
         after(local, F)
 
+    @contextmanager
+    def reading(self):
+        """A driver's force evaluation that is not a step (the analysis steps'
+        reactions and the like): the fibres', the kernel's and the shear
+        laws' states as they were before it. The buckling and modal tangents
+        read this solver in `trial_mode` instead (`TRIAL_STATE`)."""
+        saved = {}
+        for name in ("_state_c", "_state_s", "_conn_slip", "_sl_gcr_t", "_sl_gmax_t", "_sl_gamma"):
+            v = getattr(self, name, None)
+            if isinstance(v, np.ndarray):
+                saved[name] = v.copy()
+        fibres = [np.array(a, copy=True) for a in self.fiber_states]
+        try:
+            yield
+        finally:
+            for name, v in saved.items():
+                getattr(self, name)[...] = v
+            for a, b in zip(self.fiber_states, fibres):
+                a[...] = b
+
     def _probe_hold(self):
         """What a probe (`BeamFamily._reading`) holds besides `_probing`: the
         shear laws' gamma is not relaxed by it -- `_record` gave gamma one more
@@ -1425,7 +1445,7 @@ class FiberBeamSolver(FiberSections, FiberFracture, FiberTimeDependence, BeamFam
         # relaxation is in trial mode and restores the committed state
         # itself.
         saved = None
-        if not getattr(self, "_trial_mode", False):
+        if not self.trial_mode:
             if getattr(self, "_kernel", None) is not None and getattr(self, "_state_c", None) is not None:
                 saved = ("kernel", self._state_c.copy(), self._state_s.copy())
             else:

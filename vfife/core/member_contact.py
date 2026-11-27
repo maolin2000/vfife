@@ -515,7 +515,7 @@ class MemberContactComponent:
 
     def _asking(self, solver):
         # a probe of the force (a tangent, a trial) commits nothing
-        return bool(getattr(solver, "_probing", False) or getattr(solver, "_trial_mode", False))
+        return bool(getattr(solver, "_probing", False) or solver.trial_mode)
 
     def line_force(self, solver, out):
         contact = self.contact

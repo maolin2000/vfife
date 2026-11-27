@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from vfife.materials import curves as cv
+from vfife.base.compat import trapezoid
 
 E0 = 3.0e10
 FC, FT = 30.0e6, 3.0e6
@@ -137,7 +138,7 @@ def test_fracture_energy_curve_dissipates_gf():
     c = cv.from_fracture_energy(FT, Gf, E0, l_ref, beta_t=1.0)
     sig = c.sig * (1 - c.dmg)
     w = c.ep * l_ref                        # beta = 1 -> ep is the whole inelastic strain
-    assert np.trapezoid(sig, w) == pytest.approx(Gf, rel=1e-3)
+    assert trapezoid(sig, w) == pytest.approx(Gf, rel=1e-3)
 
 
 @pytest.mark.parametrize("shape", ["exponential", "linear"])

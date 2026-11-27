@@ -26,6 +26,7 @@ import pytest
 
 from vfife.materials import create
 from vfife.materials import curves as cv
+from vfife.base.compat import trapezoid
 
 FC, E0, L_REF, GC = 44.0e6, 2.985e10, 0.0375, 35.0e3
 
@@ -37,8 +38,7 @@ def _dissipated(curve, l_e, l_ref=L_REF):
     sig, _, d = curve.evaluate(ep, k)
     cauchy = sig * (1.0 - d)
     i0 = int(np.argmax(cauchy))
-    g = float(np.trapezoid(cauchy[i0:], ep[i0:]) if hasattr(np, "trapezoid")
-              else np.trapz(cauchy[i0:], ep[i0:]))
+    g = float(trapezoid(cauchy[i0:], ep[i0:]))
     return g * l_e
 
 

@@ -180,7 +180,7 @@ class FiberFracture:
         """After a dynamic force evaluation: the removals now due. `observe`:
         a reading -- the capacity ratios alone."""
         b = self.breaking
-        if self.mode != "dynamic" or not b.can_break or getattr(self, "_trial_mode", False):
+        if self.mode != "dynamic" or not b.can_break or self.trial_mode:
             return
         if observe:
             b.check(float(self.time), self.end_actions, observe=True)
@@ -405,14 +405,14 @@ class FiberFracture:
         deactivate the element a step EARLIER than its own material did, and
         the two halves would then disagree about which step the member died in.
 
-        Nothing happens during a staged relaxation. `_trial_mode` means the
+        Nothing happens during a staged relaxation. `trial_mode` means the
         state being read is a trial that is about to be thrown away and
         re-driven from the last converged one (see `fiber_committed`), and a
         latch set from a trial path cannot be un-set.
         """
         if self.fracture is None:
             return
-        if getattr(self, "_trial_mode", False) and not committed:
+        if self.trial_mode and not committed:
             return
         t = float(self.time if t is None else t)
         newly = self.fracture.update(self._point_failure(), t=t)

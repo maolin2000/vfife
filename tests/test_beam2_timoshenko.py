@@ -88,8 +88,10 @@ def test_corotational_timoshenko_beam_rejects_rigid_motion():
     q[:, 3:] = [0., 0., angle]
     s.sync_orientation()
     force, actions = s.internal_force()
-    assert np.abs(force).max() < 1e-7
-    assert np.abs(actions).max() < 1e-7
+    # round-off of a 60-degree rotation: 9e-8 N with NumPy 2, 2e-7 N with
+    # NumPy 1.24's LAPACK -- against EA = 2e9 N, 1e-16 either way
+    assert np.abs(force).max() < 1e-6
+    assert np.abs(actions).max() < 1e-6
 
 
 def test_timoshenko_release_has_zero_released_end_moment():

@@ -14,6 +14,7 @@ import pytest
 
 from vfife.materials import steel_cyclic as sc
 from vfife.materials.base import create
+from vfife.base.compat import trapezoid
 
 
 def law(**kw):
@@ -344,7 +345,7 @@ def test_repeated_cycles_at_one_amplitude_settle_to_the_same_loop():
     # legs 3+4, 5+6, 7+8: each a closed loop from -0.01 back to -0.01. Legs 1
     # and 2 are the virgin excursion and are a different thing.
     cycles = [rows[2 * n:4 * n], rows[4 * n:6 * n], rows[6 * n:8 * n]]
-    areas = [abs(float(np.trapezoid(c[:, 1], c[:, 0]))) for c in cycles]
+    areas = [abs(float(trapezoid(c[:, 1], c[:, 0]))) for c in cycles]
     assert areas[0] > 0.0
     assert areas[1] == pytest.approx(areas[0], rel=1e-9)
     assert areas[2] == pytest.approx(areas[0], rel=1e-9)

@@ -204,10 +204,10 @@ class BeamFamily(OrientedPoints):
         contact's allowances (member_contact: v1.12 and v1.18). `_record`
         accumulated hinge rotation at every output frame, so the answer
         depended on `output.every`. What a solver holds
-        besides `_probing` is its `_probe_hold`. The frame solvers call it
-        `_probe` too (`BeamSolver._probe`); the fibre solver has no `_probe`,
-        which `analysis_steps._probe`, the buckling and modal tangents read
-        as "put the fibres' states back yourself"."""
+        besides `_probing` is its `_probe_hold`. The frame solvers give it to
+        their drivers as `reading` (`BeamSolver.reading`); the fibre solver's
+        `reading` puts its fibres' states back instead, and the buckling and
+        modal tangents read it in `trial_mode`."""
         was = self._probing
         undo = self._probe_hold()
         self._probing = True
@@ -691,9 +691,6 @@ class BeamFamily(OrientedPoints):
     SOLVER_WHAT = "beam"
     #: what a level that did not converge suggests (`_relax_one_level`)
     RELAX_HINT = ""
-    #: a staged level is a trial thrown away and driven again from the last
-    #: converged state (the fibre solver's `_trial_mode`)
-    STAGED_TRIALS = False
 
     def _running(self):
         """What holds while the solver runs: nothing here."""
@@ -794,8 +791,8 @@ class BeamFamily(OrientedPoints):
                     ramp = int(step_cfg.get("stage_ramp_iterations") or
                                self.p.solver.stage_ramp_iterations or
                                self._default_ramp(budget))
-                    if self.STAGED_TRIALS:
-                        self._trial_mode = True
+                    if self.TRIAL_STATE:
+                        self.trial_mode = True
                     cv_s = (self.zeta if self.damp_kind == "viscous" else
                             (self.alpha if self.damp_kind in ("kinetic", "rayleigh") else 0.0))
                     for stage in range(r.first_stage() if r else 1, nstage + 1):
@@ -874,8 +871,8 @@ class BeamFamily(OrientedPoints):
                             self._loop[4] = 2                     # this level is done
                             self._record(self._frame_time(k, progress), F, on_output)
                             break
-                    if self.STAGED_TRIALS:
-                        self._trial_mode = False
+                    if self.TRIAL_STATE:
+                        self.trial_mode = False
                     continue
                 # ONE LEVEL, to the full load (OrientedPoints._relax_one_level,
                 # shared by the two solvers since v1.12)

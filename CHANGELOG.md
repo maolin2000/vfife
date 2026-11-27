@@ -7,6 +7,44 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.23.2] — 2026-11-27
+
+A maintenance release. The code computes exactly what 1.23.0 does; it now
+installs and is tested on more platforms and dependency versions.
+
+### Added
+
+- Badges at the top of the README: CI, latest release, Python version,
+  licence and DOI.
+- The Zenodo DOI in the README and in `CITATION.cff`:
+  10.5281/zenodo.24594822 stands for all versions, each release having its
+  own on the record.
+- **CI on more platforms**: the fast tests also run on Windows, on the
+  newest Python, and on the oldest Python with the oldest dependency
+  versions pyproject allows (`.github/minimum-versions.txt`); weekly, the
+  public repository installs the newest dependencies and solves every
+  case against its contract.
+
+### Changed
+
+- **Dependencies have upper bounds**: the next major version of each
+  (`numpy<3`, `scipy<2`, `pydantic<3`, `pyyaml<7`, `h5py<4`, `numba<1`,
+  `matplotlib<4`, `meshio<6`, `warp-lang<2`), which may change their API.
+  `meshio`'s lower bound is 5.3, the oldest version tested.
+
+### Fixed
+
+- With NumPy older than 2.0, `vfife.testing.materials` failed on
+  `numpy.trapezoid`, which NumPy 1.x calls `trapz`; the trapezoidal rule is
+  now reached through `vfife.base.compat`, which picks the one that exists.
+
+### Internal
+
+- The drivers (Newton statics, buckling, modes, analysis steps, contact)
+  no longer probe a solver for private attributes to tell a fibre solver
+  from a frame solver: every solver has `TRIAL_STATE`, `trial_mode` and
+  `reading()`. Results are the same to the bit.
+
 ## [1.23.1] — 2026-11-27
 
 A maintenance release: documentation and tests only. The code computes

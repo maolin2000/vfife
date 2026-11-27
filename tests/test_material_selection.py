@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from vfife.materials.base import create
+from vfife.base.compat import trapezoid
 
 E, FY = 2.0e11, 4.0e8
 AMPLITUDE = 0.01
@@ -90,8 +91,8 @@ def test_two_of_them_keep_growing_under_constant_amplitude_cycling():
         r = _cycles(m)
         n = len(r) // 12
         peak = r[10 * n:, 1].max() / r[:2 * n, 1].max()
-        w1 = abs(np.trapezoid(r[2 * n:4 * n, 1], r[2 * n:4 * n, 0]))
-        w6 = abs(np.trapezoid(r[10 * n:12 * n, 1], r[10 * n:12 * n, 0]))
+        w1 = abs(trapezoid(r[2 * n:4 * n, 1], r[2 * n:4 * n, 0]))
+        w6 = abs(trapezoid(r[10 * n:12 * n, 1], r[10 * n:12 * n, 0]))
         (grown if peak > 1.3 else stable)[name] = (peak, w6 / w1)
     assert set(grown) == {"rebar", "piecewise_uniaxial"}
     assert set(stable) == {"steel02", "steel_cyclic"}

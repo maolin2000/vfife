@@ -1,21 +1,32 @@
-# 每次改动都自动检查 —— 因为这套东西唯一的失效模式是"有人忘了按一下"。
+# Every change is checked automatically -- because the one way this fails is
+# someone forgetting to press a button.
 #
-# 分两层，理由和 tests/test_cases.py 里一样：会烂掉的东西和跑得慢的东西不是同一批。
+# The layers (the reasons are those of tests/test_cases.py: what rots and what
+# is slow are not the same things):
 #
-#   fast     每次 push / PR。不求解，只验证结构还成立：算例能解析、契约和监视器
-#            对得上、单元能从真实 Gmsh 文件读进来、输出场名字有效。分钟级。
-#   verify   只在手动触发时跑（Actions 页面 Run workflow）。真解 cases/ 里的每个
-#            算例并对验证契约核对。这是"答案还对不对"。一个算例一个 job（矩阵），因为把二十个真解串在一个 job 里
-#            早就顶穿了 120 分钟的预算 —— 一个超时的检查和一个被跳过的检查一样，
-#            都是绿的。
+#   fast        every push and pull request, Linux, Python 3.11. Nothing is
+#               solved; it checks that the structure still holds: cases parse,
+#               contracts match their monitors, elements read real Gmsh files,
+#               output field names are valid, the compiled paths agree with
+#               the reference paths bit for bit. Minutes.
+#   platforms   the same tests on Windows and on the oldest and newest
+#               supported Python, the oldest with the oldest dependency
+#               versions pyproject allows. Public repository only (its
+#               Actions minutes are free; the private repository's are not).
+#   verify      solves every case under cases/ and checks its contract: "are
+#               the answers still right". One job per case, since twenty
+#               solves in one job overran its 120-minute budget, and a check
+#               that times out is as green as one that is skipped. By hand
+#               (Run workflow), and weekly in the public repository.
 #
-# 两层都不装 warp：GitHub runner 没有 GPU，而一个只在 GPU 上跑的检查等于没有
-# 检查 —— 它会安静地跳过，然后所有人以为它绿着。同一条理由反过来要求快速层
-# 装 numba：CPU 熔合内核在 runner 上跑得起来，不装它等于把"编译路径与标量律
-# 逐位相同"这一整类断言关掉（见下面两个"安装"步骤的注释）。
-# 夜间定时已关：夜间层是六十个作业、每个最长两小时，私有仓库一
-# 个月的 Actions 额度几天就用完了。同一套检查在本机跑：python tools/check_all.py
-# （默认层、慢测试、每个算例的契约、打包安装），报告写进 results/check_all/。
+# The weekly run also installs the newest versions of every dependency, so an
+# upstream release that breaks vfife is seen within a week, not by a user.
+#
+# No layer installs warp: the runners have no GPU, and a check that only runs
+# on a GPU skips quietly and looks green. For the same reason every layer
+# installs numba: the CPU kernels run on the runners, and without numba the
+# assertions that the compiled path equals the scalar law would all skip.
+# Everything here also runs locally: python tools/check_all.py.
 name: CI
 
 on:
@@ -23,16 +34,24 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"    # Mondays, 03:17 UTC
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   fast:
-    name: 快速层（不求解）
+    name: fast (Linux, Python 3.11)
     runs-on: ubuntu-latest
-    # heavy 测试排除后约 5–10 分钟；30 分钟的上限留给 pip 和 numba 编译
+    # weekly only in the public repository: the private one pays for its minutes
+    if: github.event_name != 'schedule' || github.repository == 'maolin2000/vfife'
+    # about 5-10 minutes without the heavy tests; 30 leaves room for pip and numba compilation
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -42,59 +61,91 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: 安装
-        # 装 plot、cpu 和 meshio 是有意的：这三个缺席时相关测试会 importorskip
-        # 跳过，而一个被跳过的测试保护不了任何东西。
-        #
-        # cpu（numba）是后补的，补的正是这条理由自己漏掉的一块：没有它时快速层
-        # 少跑 44 条断言 —— 熔合内核与标量律逐位相同、纤维截面走的是哪条路径、
-        # 编译孪生编不编得出来，全都安静地跳过。
-        # gpu（warp）不装：runner 没有 GPU，装了也只是换一种跳过。
+      - name: Install
+        # plot, cpu and paraview on purpose: without them their tests skip, and a
+        # skipped test protects nothing (numba alone is 44 assertions that the
+        # fused kernels equal the scalar laws). gpu (warp) is not installed: no GPU.
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,plot,cpu,paraview]"
 
-      - name: 冒烟 —— 命令行本身还能用吗
+      - name: Smoke test of the command line
         run: |
           python -m vfife --help > /dev/null
           python -m vfife list
           python -m vfife mesh tests/data/box_hexa8_v41.msh
 
-      - name: 测试（默认层，slow 与 heavy 已排除）
-        # 默认层约 75 CPU 分钟，私有仓库的 runner 只有两核，60 分钟也跑不完。
-        # 超过 3 秒的测试（tests/heavy_tests.txt）
-        # 标为 heavy，这里不跑；它们由本机 tools/check_all.py 跑。-n auto 按核数并行，每个
-        # 工作进程单线程，免得 numba 线程互相抢核；-rfE 把失败原因列在末尾
+      - name: Tests (default layer, without slow and heavy)
+        # the default layer is about 75 CPU minutes; the tests over 3 s
+        # (tests/heavy_tests.txt) are marked heavy and left to tools/check_all.py.
+        # -n auto runs one worker per core, each single-threaded so that numba's
+        # threads do not compete; -rfE lists the failures at the end
         env:
           NUMBA_NUM_THREADS: "1"
           OMP_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
         run: pytest -q -n auto -m "not slow and not heavy" -rfE --tb=short --durations=15
 
-      - name: 资格清单的引用都还指向真实测试吗
+      - name: Do the qualification lists still cite real tests
         run: |
           for f in qualification/*.yaml; do
             python -m vfife qualify check "$f"
           done
 
-  verify:
-    name: 验证契约（真解）${{ matrix.case }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    # 只在手动触发时跑：每次 push 都真解六十个算例是浪费，而它们的物理不会因为
-    # 一次改动就变；夜间定时也已关（见文件头）。
-    if: github.event_name == 'workflow_dispatch'
+  platforms:
+    name: fast (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    if: github.repository == 'maolin2000/vfife'
+    timeout-minutes: 45
     strategy:
-      # 一个算例红了，其余照跑：夜间层的产出是"哪些还对"，不是"有没有错"
       fail-fast: false
       matrix:
-        # 这张表必须等于 cases/*.yaml 减去下面点名跳过的；tests/test_ci_layers.py
-        # 每次 push 都核对，所以新加一个算例而忘了写进来会在快速层就红。
+        include:
+          - {label: "Windows, Python 3.11", os: windows-latest, python: "3.11", constraints: ""}
+          - {label: "Linux, Python 3.10, oldest dependencies", os: ubuntu-latest, python: "3.10",
+             constraints: "-c .github/minimum-versions.txt"}
+          - {label: "Linux, Python 3.13", os: ubuntu-latest, python: "3.13", constraints: ""}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        # the same extras as the fast layer; the oldest-dependency job pins each
+        # dependency to the lowest version pyproject allows
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,plot,cpu,paraview]" ${{ matrix.constraints }}
+
+      - name: Tests (default layer, without slow and heavy)
+        env:
+          NUMBA_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          PYTHONIOENCODING: utf-8
+        run: pytest -q -n auto -m "not slow and not heavy" -rfE --tb=short --durations=15
+
+  verify:
+    name: contract ${{ matrix.case }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.repository == 'maolin2000/vfife')
+    strategy:
+      # one red case does not cancel the others: the result is which still hold
+      fail-fast: false
+      matrix:
+        # this list must equal cases/*.yaml minus the cases skipped by name in
+        # tests/test_ci_layers.py, which checks it on every push: a new case
+        # left out of it fails the fast layer.
         #
-        # 暂时跳过：case_15_chalmers_prc —— 一个算例就要一个多小时（本地 2 线程
-        # NumPy 105 分钟），而且装了 numba 也不快（254 步/秒，
-        # 0.2 版）：主导的是粘结钢筋/预应力路径每步的 Python 开销，不是内核。
-        # 等那条路径提速、或它有更便宜的验证形式（更粗的网格、只验到开裂）再放回来。
+        # left out: case_15_chalmers_prc -- over an hour for one case (105 minutes
+        # locally on two NumPy threads) and no faster with numba: the bonded
+        # reinforcement and prestress path's per-step Python overhead dominates,
+        # not the kernel. It comes back when that path is faster or it has a
+        # cheaper form of verification (a coarser mesh, a contract to cracking).
         case:
           - case_01_beam_cantilever
           - case_02_truss_bar
@@ -164,19 +215,18 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: 安装
-        # cpu（numba）也装：这一层曾故意不装，让契约在 NumPy 参
-        # 考路径上核对——但"编译路径与参考逐位相同"由快速层每次 push 断言，夜间层
-        # 再跑一遍参考路径只是把 case_15 变成 105 分钟。算例按自己写的后端跑
-        # （warp 映射到 numba，runner 没有 GPU）。
+      - name: Install
+        # numba too: the cases run on their shipped backend (warp mapped to numba,
+        # the runners have no GPU); that the compiled path equals the reference
+        # path is asserted by the fast layer on every push
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,plot,cpu,paraview]"
 
-      - name: 真解一个算例并对契约核对
+      - name: Solve one case and check its contract
         run: pytest -q -m slow --durations=0 "tests/test_cases.py::test_a_case_solved_satisfies_its_contract[${{ matrix.case }}]"
 
-      - name: 失败时保留诊断
+      - name: Keep the diagnostics of a failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -188,10 +238,10 @@ jobs:
           retention-days: 14
 
   verify_rest:
-    name: 验证契约（其余慢测试）
+    name: contract (the other slow tests)
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.repository == 'maolin2000/vfife')
     steps:
       - uses: actions/checkout@v4
 
@@ -200,16 +250,16 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: 安装
-        # 同上
+      - name: Install
+        # as above
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,plot,cpu,paraview]"
 
-      - name: 慢测试里不是算例契约的那些（粘结、预应力、混合网格、侵蚀……）
+      - name: The slow tests that are not case contracts (bond, prestress, mixed meshes, erosion, ...)
         run: pytest -q -m slow --durations=0 --ignore=tests/test_cases.py
 
-      - name: 失败时保留诊断
+      - name: Keep the diagnostics of a failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:

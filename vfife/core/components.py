@@ -24,6 +24,7 @@ attached before it -- the order the nested wrappers ran in, so the answers
 are the same to the bit.
 """
 
+from contextlib import nullcontext
 
 from .step_state import NO_STAGING
 
@@ -39,6 +40,22 @@ class HasComponents:
     #: whose steps change nothing, so no reader has to ask whether they exist
     plan = None
     staging = NO_STAGING
+    #: the solver keeps path-dependent member state that a force evaluation
+    #: integrates forward from the last committed point (the fibre solver's
+    #: fibres): a reading that is not a step is taken in `trial_mode`, and a
+    #: staged relaxation level is a trial thrown away and driven again
+    TRIAL_STATE = False
+    #: while True, every force evaluation starts again from the committed
+    #: state; only a `TRIAL_STATE` solver is ever put in it, and member
+    #: contact reads it to leave its allowances alone
+    trial_mode = False
+
+    def reading(self):
+        """A force evaluation that is not the step's own -- a tangent, a
+        probe, a convergence measure: path-dependent member state is read and
+        not advanced. Nothing to hold here; the frame solvers hold their
+        hinges (`BeamFamily._reading`), the fibre solver its fibres."""
+        return nullcontext()
 
     def attach_component(self, component) -> None:
         self.components = tuple(self.components) + (component,)

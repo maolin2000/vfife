@@ -26,6 +26,7 @@ import argparse
 import pathlib
 
 import numpy as np
+from vfife.base.compat import trapezoid
 
 # --------------------------------------------------------------------------- #
 #  The cross section (all lengths mm, x from the centreline, y DOWN from the
@@ -80,9 +81,9 @@ def section(depth, t_bot=None, t_web=None, n=4001):
     t_web = thickness(depth)[1] if t_web is None else t_web
     y = np.linspace(0.0, depth, n)
     w = _half_width(y, depth, t_bot, t_web)
-    A = 2 * np.trapezoid(w, y)
-    yc = 2 * np.trapezoid(w * y, y) / A
-    return A, yc, 2 * np.trapezoid(w * y * y, y) - A * yc * yc
+    A = 2 * trapezoid(w, y)
+    yc = 2 * trapezoid(w * y, y) / A
+    return A, yc, 2 * trapezoid(w * y * y, y) - A * yc * yc
 
 
 def section_weak(depth, n=4001):
@@ -94,7 +95,7 @@ def section_weak(depth, n=4001):
     t_bot, t_web = thickness(depth)
     y = np.linspace(0.0, depth, n)
     out, void = _edges(y, depth, t_bot, t_web)
-    return 2.0 / 3.0 * np.trapezoid(out ** 3 - void ** 3, y)
+    return 2.0 / 3.0 * trapezoid(out ** 3 - void ** 3, y)
 
 
 def section_torsion(depth):
@@ -283,11 +284,11 @@ def temperature_field(depth, axis_below_deck=None, t_slab=None, n=4001):
                  T_TOP + (T_SOFFIT_SLAB - T_TOP) * y / t_slab,
                  T_SOFFIT_SLAB + (T_BOTTOM - T_SOFFIT_SLAB)
                  * (y - t_slab) / (depth - t_slab))
-    A = 2 * np.trapezoid(w, y)
-    yc = 2 * np.trapezoid(w * y, y) / A
-    I = 2 * np.trapezoid(w * y * y, y) - A * yc * yc
-    Tbar = 2 * np.trapezoid(T * w, y) / A
-    g_down = 2 * np.trapezoid(T * (y - yc) * w, y) / I   # K per mm downwards
+    A = 2 * trapezoid(w, y)
+    yc = 2 * trapezoid(w * y, y) / A
+    I = 2 * trapezoid(w * y * y, y) - A * yc * yc
+    Tbar = 2 * trapezoid(T * w, y) / A
+    g_down = 2 * trapezoid(T * (y - yc) * w, y) / I   # K per mm downwards
     y_axis = yc if axis_below_deck is None else axis_below_deck * 1e+3
     return Tbar + g_down * (y_axis - yc), -g_down * 1e+3
 
@@ -588,7 +589,7 @@ def _check():
 
     u = np.linspace(0, CANT_HALF, 241)
     A = np.array([section(v)[0] for v in depth_at(u)])
-    mass = 2 * np.trapezoid(A, u) / 1e+9 * RHO_C / 1e+3
+    mass = 2 * trapezoid(A, u) / 1e+9 * RHO_C / 1e+3
     print("\nMASS -- the 192.5 m double cantilever: %.0f t of box outline"
           " against Ghali's 8000 t (%.0f%%)" % (mass, 100 * mass / 8000))
     print("  the rest is the pier diaphragm, blisters and tendons: carried as"
@@ -600,7 +601,7 @@ def _check():
     tb, tw = thickness(13990.0)
     w = _half_width(y, 13990.0, tb, tw)
     m = (y > T_DECK_WEB) & (y < 13990.0 - tb)
-    Aw = 2 * np.trapezoid(w[m], y[m]) / 1e+6
+    Aw = 2 * trapezoid(w[m], y[m]) / 1e+6
     print("  model %.3f MN/m (%+.0f%%)"
           % (Aw * RHO_C * 9.80665 / 1e+6,
              100 * (Aw * RHO_C * 9.80665 / 1e+6 / 0.248 - 1)))

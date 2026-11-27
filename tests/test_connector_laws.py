@@ -14,6 +14,7 @@ from vfife.api import prepare_case, run_case, _with_element
 from vfife.core.structural import make_structural_solver
 from vfife.elements import connector
 from vfife.io.writer import read_checkpoint
+from vfife.base.compat import trapezoid
 
 G = 9.80665
 
@@ -140,7 +141,7 @@ def test_a_bilinear_isolator_traces_the_parallelogram_of_kinematic_hardening(tmp
     # one closed loop, u_max -> -u_max -> u_max: the parallelogram's area,
     # 4 (fy - k2 u_y) (u_max - u_y), is the energy it dissipates
     seg = slice(i_max, len(u))
-    work = np.trapezoid(F[seg], u[seg])
+    work = trapezoid(F[seg], u[seg])
     assert abs(work) == pytest.approx(4 * (fy - k2 * u_y) * (u_max - u_y), rel=0.01)
 
 
